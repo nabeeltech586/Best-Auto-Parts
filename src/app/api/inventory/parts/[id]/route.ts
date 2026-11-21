@@ -36,8 +36,11 @@ export async function GET(request: Request, context: Params) {
       .order('created_at', { ascending: false })
       .limit(20);
 
+    const fitments = (part as { fitments?: unknown[] })?.fitments || [];
+
     return NextResponse.json({
       part,
+      fitments,
       movements: movements || [],
     });
   } catch (err) {

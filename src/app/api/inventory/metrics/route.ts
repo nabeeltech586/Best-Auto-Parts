@@ -13,7 +13,11 @@ export async function GET() {
     );
 
     if (!rpcError && rpcMetrics) {
-      return NextResponse.json(rpcMetrics as InventoryMetrics);
+      const metrics = rpcMetrics as InventoryMetrics;
+      return NextResponse.json({
+        metrics,
+        ...metrics,
+      });
     }
 
     // 2. Fallback client-side aggregation if RPC not present in DB
@@ -24,14 +28,17 @@ export async function GET() {
       .eq('is_active', true);
 
     if (fallbackError) {
-      // Return zeroes if table not yet created
-      return NextResponse.json<InventoryMetrics>({
+      const zeroMetrics: InventoryMetrics = {
         total_products: 0,
         total_stock_units: 0,
         low_stock_products: 0,
         out_of_stock_products: 0,
         total_cost_value: 0,
         total_selling_value: 0,
+      };
+      return NextResponse.json({
+        metrics: zeroMetrics,
+        ...zeroMetrics,
       });
     }
 
@@ -59,13 +66,18 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json<InventoryMetrics>({
+    const computedMetrics: InventoryMetrics = {
       total_products: items.length,
       total_stock_units: totalStock,
       low_stock_products: lowStock,
       out_of_stock_products: outOfStock,
       total_cost_value: Math.round(totalCost * 100) / 100,
       total_selling_value: Math.round(totalSelling * 100) / 100,
+    };
+
+    return NextResponse.json({
+      metrics: computedMetrics,
+      ...computedMetrics,
     });
   } catch (err) {
     return toErrorResponse(err);

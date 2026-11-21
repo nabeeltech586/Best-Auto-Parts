@@ -79,7 +79,8 @@ export default function InventoryPage() {
       const res = await fetch('/api/inventory/metrics');
       if (res.ok) {
         const data = await res.json();
-        setMetrics(data.metrics || DEFAULT_METRICS);
+        const metricsData = data.metrics || data;
+        setMetrics(metricsData || DEFAULT_METRICS);
       }
     } catch {
       // keep default metrics
@@ -115,8 +116,9 @@ export default function InventoryPage() {
         throw new Error('Failed to load parts');
       }
       const data = await res.json();
-      setParts(data.parts || []);
-      setTotalCount(data.total || 0);
+      const partsList = data.parts || data.items || [];
+      setParts(partsList);
+      setTotalCount(data.total ?? partsList.length);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to fetch inventory';
       toast.error(msg);
