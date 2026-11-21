@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   loadAiConfig: vi.fn(),
   buildConversationContext: vi.fn(),
   retrieveKnowledge: vi.fn(),
+  retrieveInventoryContext: vi.fn().mockResolvedValue(''),
   generateReply: vi.fn(),
   engineSendText: vi.fn(),
   loadAccountMetaCredentials: vi.fn(),
@@ -24,6 +25,7 @@ const h = vi.hoisted(() => ({
 vi.mock('./config', () => ({ loadAiConfig: h.loadAiConfig }))
 vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
 vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
+vi.mock('./inventory-context', () => ({ retrieveInventoryContext: h.retrieveInventoryContext }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,

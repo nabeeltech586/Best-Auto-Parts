@@ -2,6 +2,7 @@ import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
+import { retrieveInventoryContext } from './inventory-context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
@@ -130,10 +131,19 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    // Ground the reply in the account's live inventory catalog (best-effort).
+    const inventoryContext = await retrieveInventoryContext(
+      db,
+      accountId,
+      latestUserMessage(messages),
+      messages,
+    )
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      inventoryContext,
     })
 
     const { text, handoff, usage } = await generateReply({

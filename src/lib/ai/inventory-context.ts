@@ -1,0 +1,478 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ChatMessage } from './types';
+import type { PartCatalogItem, VehicleFitment } from '@/types/inventory';
+import { formatVehicleFitment } from '@/lib/inventory/fitment';
+import { formatCurrency } from '@/lib/inventory/parts';
+
+export interface PartWithFitments extends PartCatalogItem {
+  fitments?: VehicleFitment[];
+}
+
+export interface ExtractedInventoryQuery {
+  raw: string;
+  normalized: string;
+  skuOrOemCandidates: string[];
+  vehicleCandidates: string[];
+  componentKeywords: string[];
+  brandCandidates: string[];
+  generalTokens: string[];
+  modelYear?: number;
+  isPriceInquiry: boolean;
+  isStockInquiry: boolean;
+  isFitmentInquiry: boolean;
+  isAlternativeInquiry: boolean;
+}
+
+export interface InventoryContextResult {
+  parts: PartWithFitments[];
+  alternatives: PartWithFitments[];
+  query: ExtractedInventoryQuery;
+  currency: string;
+  hasMatches: boolean;
+}
+
+// Known Indian & Global vehicle brands and popular models in auto parts catalogs
+const KNOWN_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] }> = [
+  { make: 'Bajaj', models: ['Pulsar', 'Pulsar 150', 'Pulsar 180', 'Pulsar 220', 'Platina', 'Avenger', 'Discover', 'CT 100', 'Dominar', 'Chetak'], aliases: ['बजाज', 'पल्सर'] },
+  { make: 'Hero', models: ['Splendor', 'Super Splendor', 'Splendor Plus', 'HF Deluxe', 'Glamour', 'Passion', 'Passion Pro', 'Xtreme', 'Xpulse', 'Pleasure', 'Maestro'], aliases: ['हीरो', 'स्प्लेंडर', 'ग्लैमर'] },
+  { make: 'Honda', models: ['Activa', 'Activa 6G', 'Shine', 'CB Shine', 'Unicorn', 'Dio', 'Hornet', 'City', 'Civic', 'Amaze', 'Elevate'], aliases: ['होंडा', 'एक्टिवा'] },
+  { make: 'TVS', models: ['Apache', 'RTR 160', 'RTR 200', 'Jupiter', 'XL100', 'Raider', 'Ntorq', 'Sport', 'Star City'], aliases: ['टीवीएस', 'अपाचे', 'जुपिटर'] },
+  { make: 'Royal Enfield', models: ['Bullet', 'Bullet 350', 'Classic 350', 'Meteor', 'Hunter', 'Himalayan', 'Continental GT'], aliases: ['रॉयल एनफील्ड', 'बुलेट', 'क्लासिक'] },
+  { make: 'Yamaha', models: ['R15', 'MT 15', 'FZ', 'FZ-S', 'Fascino', 'RayZR', 'Aerox'], aliases: ['यामाहा'] },
+  { make: 'Suzuki', models: ['Access', 'Access 125', 'Burgman', 'Gixxer', 'Hayate'], aliases: ['सुजुकी', 'एक्सेस'] },
+  { make: 'KTM', models: ['Duke', 'Duke 200', 'Duke 250', 'Duke 390', 'RC 200', 'RC 390', 'Adventure'], aliases: ['ड्यूक'] },
+  { make: 'Maruti Suzuki', models: ['Swift', 'Dzire', 'Baleno', 'Brezza', 'WagonR', 'Alto', 'Ertiga'], aliases: ['मारुति', 'स्विफ्ट'] },
+  { make: 'Toyota', models: ['Innova', 'Innova Crysta', 'Fortuner', 'Corolla', 'Camry', 'Urban Cruiser', 'Glanza'], aliases: ['टोयोटा', 'इनोवा'] },
+  { make: 'Hyundai', models: ['Creta', 'i20', 'i10', 'Venue', 'Verna', 'Tucson'], aliases: ['हुंडई', 'क्रेटा'] },
+  { make: 'Tata', models: ['Nexon', 'Punch', 'Harrier', 'Safari', 'Tiago', 'Altroz'], aliases: ['टाटा', 'नेक्सॉन'] },
+  { make: 'Mahindra', models: ['Scorpio', 'Scorpio-N', 'Thar', 'Bolero', 'XUV700', 'XUV300'], aliases: ['महिंद्रा', 'स्कॉर्पियो', 'थार'] },
+];
+
+// Common automotive parts and spare components in English, Hindi, and Hinglish
+const COMPONENT_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
+  { key: 'clutch', patterns: [/\bclutch\b/i, /\bclutch\s*plate\b/i, /क्लच/i, /क्लच\s*प्लेट/i] },
+  { key: 'brake', patterns: [/\bbrake\b/i, /\bbrake\s*pad\b/i, /\bbrake\s*shoe\b/i, /\bdisc\b/i, /\brotor\b/i, /ब्रेक/i, /ब्रेक\s*पैड/i, /ब्रेक\s*शू/i] },
+  { key: 'oil filter', patterns: [/\boil\s*filter\b/i, /ऑयल\s*फिल्टर/i, /ऑइल\s*फिल्टर/i] },
+  { key: 'air filter', patterns: [/\bair\s*filter\b/i, /एयर\s*फिल्टर/i, /हवा\s*फिल्टर/i] },
+  { key: 'filter', patterns: [/\bfilter\b/i, /फिल्टर/i] },
+  { key: 'spark plug', patterns: [/\bspark\s*plug\b/i, /\bplug\b/i, /स्पार्क\s*प्लग/i, /प्लग/i] },
+  { key: 'piston', patterns: [/\bpiston\b/i, /\bcylinder\b/i, /पिस्टन/i, /सिलेंडर/i] },
+  { key: 'chain sprocket', patterns: [/\bchain\b/i, /\bsprocket\b/i, /\bdrive\s*chain\b/i, /चेन/i, /स्प्रोकेट/i] },
+  { key: 'battery', patterns: [/\bbattery\b/i, /बैटरी/i] },
+  { key: 'horn', patterns: [/\bhorn\b/i, /हॉर्न/i] },
+  { key: 'tyre', patterns: [/\btyre\b/i, /\btire\b/i, /टायर/i] },
+  { key: 'fork', patterns: [/\bfork\b/i, /\binner\s*pipe\b/i, /फोर्क/i, /पाइप/i] },
+  { key: 'seat cover', patterns: [/\bseat\s*cover\b/i, /सीट\s*कवर/i] },
+  { key: 'carburetor', patterns: [/\bcarburetor\b/i, /\bcarb\b/i, /कार्बोरेटर/i] },
+  { key: 'alternator', patterns: [/\balternator\b/i, /अल्टरनेटर/i] },
+  { key: 'engine oil', patterns: [/\bengine\s*oil\b/i, /\b20w[- ]?50\b/i, /\b10w[- ]?40\b/i, /इंजन\s*ऑयल/i] },
+];
+
+// Common auto parts brands
+const KNOWN_BRANDS = [
+  'Bosch',
+  'Brembo',
+  'Denso',
+  'Hero',
+  'Bajaj',
+  'Honda',
+  'Endurance',
+  'ASK Automotive',
+  'Rolon',
+  'Champion',
+  'NGK',
+  'Amaron',
+  'Exide',
+  'CEAT',
+  'MRF',
+  'Minda',
+  'Suprajit',
+  'SKF',
+  'Bando',
+  'Spaco',
+];
+
+/**
+ * Extract automotive search tokens, intents, SKUs, and vehicle keywords
+ * from customer text across English, Hindi, and Hinglish.
+ */
+export function extractInventoryKeywords(
+  customerText: string,
+  history: ChatMessage[] = [],
+): ExtractedInventoryQuery {
+  const raw = customerText.trim();
+  const normalized = raw.toLowerCase();
+
+  // Combine latest user text with previous user messages if short
+  const contextLines = [customerText];
+  if (customerText.split(/\s+/).length <= 4 && history.length > 0) {
+    const prevUser = history
+      .filter((m) => m.role === 'user')
+      .slice(-2)
+      .map((m) => m.content);
+    contextLines.unshift(...prevUser);
+  }
+  const combinedText = contextLines.join(' ');
+  const combinedNorm = combinedText.toLowerCase();
+
+  // 1. Detect SKU or OEM candidate patterns (e.g. SKU-BAJ-014, BP-TY-001, 04465-02220)
+  const skuOrOemCandidates: string[] = [];
+  const skuRegex = /\b[A-Za-z]{2,5}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = skuRegex.exec(raw)) !== null) {
+    skuOrOemCandidates.push(match[0].toUpperCase());
+  }
+  const oemRegex = /\b\d{5}[-\s]?[A-Za-z0-9]{4,6}\b/g;
+  while ((match = oemRegex.exec(raw)) !== null) {
+    skuOrOemCandidates.push(match[0].toUpperCase().replace(/\s+/g, '-'));
+  }
+
+  // 2. Detect Vehicle Manufacturer & Model
+  const vehicleCandidates: string[] = [];
+  for (const v of KNOWN_VEHICLES) {
+    if (combinedNorm.includes(v.make.toLowerCase())) {
+      vehicleCandidates.push(v.make);
+    }
+    for (const model of v.models) {
+      if (combinedNorm.includes(model.toLowerCase())) {
+        vehicleCandidates.push(model);
+      }
+    }
+    for (const alias of v.aliases) {
+      if (combinedText.includes(alias)) {
+        vehicleCandidates.push(alias);
+      }
+    }
+  }
+
+  // 3. Detect Component Keywords
+  const componentKeywords: string[] = [];
+  for (const comp of COMPONENT_PATTERNS) {
+    if (comp.patterns.some((p) => p.test(combinedText))) {
+      componentKeywords.push(comp.key);
+    }
+  }
+
+  // 4. Detect Brands
+  const brandCandidates: string[] = [];
+  for (const brand of KNOWN_BRANDS) {
+    if (combinedNorm.includes(brand.toLowerCase())) {
+      brandCandidates.push(brand);
+    }
+  }
+
+  // 5. Detect Model Year (e.g., 2018, 2015, 2022)
+  let modelYear: number | undefined;
+  const yearMatch = combinedText.match(/\b(19\d\d|20[0-2]\d)\b/);
+  if (yearMatch) {
+    modelYear = parseInt(yearMatch[1], 10);
+  }
+
+  // 6. Detect Intent Flags
+  const isPriceInquiry =
+    /\b(price|cost|rate|kitna|kitne|kitne ka|mrp|rupee|rs|₹)\b/i.test(combinedText) ||
+    /कीमत|दाम|भाव|कितने का/i.test(combinedText);
+
+  const isStockInquiry =
+    /\b(stock|available|availability|pieces|piece|pcs|units|in stock|milega|hai kya|bacha hai)\b/i.test(
+      combinedText,
+    ) || /स्टॉक|मिलेगा|उपलब्ध|है क्या|कितना बचा/i.test(combinedText);
+
+  const isFitmentInquiry =
+    /\b(fit|fits|compatible|compatibility|lagega|lag jayega|chalega|suit|model)\b/i.test(
+      combinedText,
+    ) || /फिट|लगेगा|चलेगा|मैच|सपोर्ट/i.test(combinedText);
+
+  const isAlternativeInquiry =
+    /\b(alternative|substitute|similar|dusra|dusri|aur option|koi aur|another)\b/i.test(
+      combinedText,
+    ) || /दूसरा|कोई और|विकल्प/i.test(combinedText);
+
+  // 7. General search tokens (strip stop words)
+  const stopWords = new Set([
+    'do', 'you', 'have', 'what', 'is', 'the', 'price', 'of', 'for', 'my', 'can',
+    'please', 'tell', 'me', 'how', 'much', 'many', 'in', 'and', 'with', 'a', 'an',
+    'hai', 'kya', 'bhai', 'batao', 'chahiye', 'ka', 'ki', 'ke', 'mein', 'me',
+    'ye', 'yeh', 'ko', 'se', 'ho', 'hoga', 'gaye', 'kuch', 'bhi',
+  ]);
+
+  const generalTokens = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0900-\u097F\s-]/g, ' ')
+    .split(/\s+/)
+    .filter((tok) => tok.length >= 2 && !stopWords.has(tok));
+
+  return {
+    raw,
+    normalized,
+    skuOrOemCandidates: Array.from(new Set(skuOrOemCandidates)),
+    vehicleCandidates: Array.from(new Set(vehicleCandidates)),
+    componentKeywords: Array.from(new Set(componentKeywords)),
+    brandCandidates: Array.from(new Set(brandCandidates)),
+    generalTokens: Array.from(new Set(generalTokens)),
+    modelYear,
+    isPriceInquiry,
+    isStockInquiry,
+    isFitmentInquiry,
+    isAlternativeInquiry,
+  };
+}
+
+/**
+ * Perform a tenant-isolated database lookup in parts_catalog and vehicle_fitment.
+ */
+export async function searchInventoryForAi(
+  db: SupabaseClient,
+  accountId: string,
+  query: ExtractedInventoryQuery,
+  limit = 6,
+): Promise<InventoryContextResult> {
+  // 1. Fetch account default currency
+  let currency = 'USD';
+  try {
+    const { data: acct } = await db
+      .from('accounts')
+      .select('default_currency')
+      .eq('id', accountId)
+      .maybeSingle();
+    if (acct?.default_currency) currency = acct.default_currency;
+  } catch {
+    // fallback USD
+  }
+
+  const matchedPartMap = new Map<string, PartWithFitments>();
+
+  // Strategy A: Direct SKU or OEM match
+  for (const candidate of query.skuOrOemCandidates) {
+    const { data: skuMatches } = await db
+      .from('parts_catalog')
+      .select('*, fitments:vehicle_fitment(*)')
+      .eq('account_id', accountId)
+      .eq('is_active', true)
+      .or(`sku.ilike.%${candidate}%,oem_number.ilike.%${candidate}%`)
+      .limit(limit);
+
+    (skuMatches || []).forEach((p) => matchedPartMap.set(p.id, p as PartWithFitments));
+  }
+
+  // Strategy B: Vehicle Fitment query
+  // If vehicle make or model was mentioned, query vehicle_fitment table
+  if (query.vehicleCandidates.length > 0 && matchedPartMap.size < limit) {
+    for (const veh of query.vehicleCandidates) {
+      const { data: fitmentRows } = await db
+        .from('vehicle_fitment')
+        .select('part_id')
+        .eq('account_id', accountId)
+        .or(`manufacturer.ilike.%${veh}%,model.ilike.%${veh}%`)
+        .limit(10);
+
+      const partIds = (fitmentRows || []).map((f) => f.part_id).filter(Boolean);
+      if (partIds.length > 0) {
+        const { data: partsForVehicle } = await db
+          .from('parts_catalog')
+          .select('*, fitments:vehicle_fitment(*)')
+          .eq('account_id', accountId)
+          .eq('is_active', true)
+          .in('id', partIds)
+          .limit(limit);
+
+        (partsForVehicle || []).forEach((p) => matchedPartMap.set(p.id, p as PartWithFitments));
+      }
+    }
+  }
+
+  // Strategy C: Part Name & Keyword Search
+  const searchTerms = [
+    ...query.componentKeywords,
+    ...query.brandCandidates,
+    ...query.vehicleCandidates,
+    ...query.generalTokens,
+  ];
+
+  for (const term of searchTerms) {
+    if (matchedPartMap.size >= limit) break;
+    if (term.length < 2) continue;
+
+    const { data: textMatches } = await db
+      .from('parts_catalog')
+      .select('*, fitments:vehicle_fitment(*)')
+      .eq('account_id', accountId)
+      .eq('is_active', true)
+      .or(`part_name.ilike.%${term}%,brand.ilike.%${term}%,category.ilike.%${term}%`)
+      .limit(limit);
+
+    (textMatches || []).forEach((p) => matchedPartMap.set(p.id, p as PartWithFitments));
+  }
+
+  const parts = Array.from(matchedPartMap.values()).slice(0, limit);
+
+  // Strategy D: In-stock alternatives if part is out-of-stock or alternative requested
+  const alternatives: PartWithFitments[] = [];
+  const needsAlternatives =
+    query.isAlternativeInquiry ||
+    (parts.length > 0 && parts.some((p) => p.quantity_in_stock <= 0));
+
+  if (needsAlternatives && parts.length > 0) {
+    const categories = Array.from(new Set(parts.map((p) => p.category).filter(Boolean)));
+    const existingIds = new Set(parts.map((p) => p.id));
+
+    for (const cat of categories) {
+      const { data: altParts } = await db
+        .from('parts_catalog')
+        .select('*, fitments:vehicle_fitment(*)')
+        .eq('account_id', accountId)
+        .eq('category', cat)
+        .eq('is_active', true)
+        .gt('quantity_in_stock', 0)
+        .limit(3);
+
+      (altParts || []).forEach((p) => {
+        if (!existingIds.has(p.id)) {
+          alternatives.push(p as PartWithFitments);
+          existingIds.add(p.id);
+        }
+      });
+    }
+  }
+
+  return {
+    parts,
+    alternatives,
+    query,
+    currency,
+    hasMatches: parts.length > 0,
+  };
+}
+
+/**
+ * Format retrieved database inventory into a structured, tamper-proof ground truth
+ * block for the LLM system prompt.
+ */
+export function formatInventoryContext(res: InventoryContextResult): string {
+  const { parts, alternatives, query, currency } = res;
+
+  if (parts.length === 0) {
+    const searchedTokens = [
+      ...query.skuOrOemCandidates,
+      ...query.vehicleCandidates,
+      ...query.componentKeywords,
+      ...query.generalTokens,
+    ].filter(Boolean);
+
+    return [
+      '=== REAL-TIME INVENTORY DATABASE (TENANT VERIFIED) ===',
+      `Searched Query: "${query.raw}"`,
+      searchedTokens.length > 0 ? `Searched Items: ${searchedTokens.join(', ')}` : '',
+      'Status: NO MATCHING INVENTORY RECORDS FOUND.',
+      '',
+      'MANDATORY ASSISTANT INSTRUCTION:',
+      '- The requested part/product is currently NOT listed in our catalog or inventory.',
+      '- State clearly and politely that we do not have this item in stock.',
+      '- Do NOT guess, invent, or hallucinate any product, OEM code, or price.',
+      '- Offer to connect the customer with our human parts specialist for special procurement.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  const sections: string[] = [
+    '=== REAL-TIME INVENTORY DATABASE (TENANT VERIFIED) ===',
+    `Account Default Currency: ${currency}`,
+    `Total Verified Matches: ${parts.length}`,
+    '',
+  ];
+
+  parts.forEach((part, index) => {
+    const isAvailable = part.quantity_in_stock > 0;
+    const formattedPrice = formatCurrency(part.selling_price, currency);
+
+    const fitmentList = (part.fitments || []).map((f) => formatVehicleFitment(f));
+
+    sections.push(`[VERIFIED PART #${index + 1}]`);
+    sections.push(`- Part Name: ${part.part_name}`);
+    sections.push(`- SKU: ${part.sku}`);
+    if (part.oem_number) sections.push(`- OEM Number: ${part.oem_number}`);
+    if (part.alternate_oem_numbers && part.alternate_oem_numbers.length > 0) {
+      sections.push(`- Alternate OEMs: ${part.alternate_oem_numbers.join(', ')}`);
+    }
+    if (part.brand) sections.push(`- Brand: ${part.brand}`);
+    if (part.category) sections.push(`- Category: ${part.category}`);
+    sections.push(`- Condition: ${part.condition}`);
+    sections.push(`- Selling Price: ${formattedPrice}`);
+    sections.push(
+      `- Stock Status: ${
+        isAvailable
+          ? `IN STOCK (${part.quantity_in_stock} units available)`
+          : 'OUT OF STOCK (0 units available)'
+      }`,
+    );
+
+    if (fitmentList.length > 0) {
+      sections.push('- Verified Compatible Vehicles:');
+      fitmentList.forEach((fit) => sections.push(`  * ${fit}`));
+    } else {
+      sections.push(
+        '- Verified Compatible Vehicles: No specific fitment records on file. (If customer asks, politely ask for their vehicle model & year to verify compatibility).',
+      );
+    }
+
+    if (part.description) {
+      sections.push(`- Product Details / Notes: ${part.description}`);
+    }
+    sections.push('');
+  });
+
+  if (alternatives.length > 0) {
+    sections.push('=== AVAILABLE IN-STOCK ALTERNATIVES IN SAME CATEGORY ===');
+    alternatives.forEach((alt, idx) => {
+      const altPrice = formatCurrency(alt.selling_price, currency);
+      sections.push(
+        `[Alternative #${idx + 1}] ${alt.part_name} (${alt.brand || 'OEM'}) | SKU: ${alt.sku} | Price: ${altPrice} | Stock: ${alt.quantity_in_stock} units`,
+      );
+    });
+    sections.push('');
+  }
+
+  sections.push('=== MANDATORY RULES FOR AUTO PARTS SALES ASSISTANT ===');
+  sections.push(
+    '1. DATA ACCURACY: Quote exact prices and stock status ONLY from the verified records above. Never invent prices or quantities.',
+  );
+  sections.push(
+    '2. OUT OF STOCK: If a part has Stock Status "OUT OF STOCK", explicitly inform the customer it is currently out of stock. If an alternative is listed above, offer it.',
+  );
+  sections.push(
+    '3. VEHICLE COMPATIBILITY: Only confirm compatibility if the vehicle matches the "Verified Compatible Vehicles". If compatibility is unverified or the customer did not specify their model/year/variant, ask them for the missing vehicle details.',
+  );
+  sections.push(
+    '4. LANGUAGE: Answer naturally in the customer\'s language (English, Hindi, or Hinglish). Keep WhatsApp responses concise, friendly, and helpful (1 to 4 sentences).',
+  );
+  sections.push(
+    '5. HANDOFF: If the customer asks for a human, is complaining, or needs customized support, output [[HANDOFF]].',
+  );
+
+  return sections.join('\n');
+}
+
+/**
+ * Top-level inventory retrieval orchestrator for AI generation.
+ * Never throws: falls back safely so AI generation never crashes.
+ */
+export async function retrieveInventoryContext(
+  db: SupabaseClient,
+  accountId: string,
+  latestCustomerText: string,
+  history: ChatMessage[] = [],
+): Promise<string> {
+  if (!latestCustomerText || !latestCustomerText.trim()) {
+    return '';
+  }
+
+  try {
+    const query = extractInventoryKeywords(latestCustomerText, history);
+    const result = await searchInventoryForAi(db, accountId, query);
+    return formatInventoryContext(result);
+  } catch (err) {
+    console.warn('[inventory-context] Inventory lookup failed (continuing without inventory):', err);
+    return '';
+  }
+}

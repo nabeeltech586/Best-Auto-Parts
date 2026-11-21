@@ -3,6 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { loadAiConfig } from '@/lib/ai/config'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { retrieveInventoryContext } from '@/lib/ai/inventory-context'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
@@ -81,10 +82,17 @@ export async function POST(request: Request) {
       config,
       latestUserMessage(messages),
     )
+    const inventoryContext = await retrieveInventoryContext(
+      supabase,
+      accountId,
+      latestUserMessage(messages),
+      messages,
+    )
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      inventoryContext,
     })
 
     const { text, handoff } = await generateReply({ config, systemPrompt, messages })
