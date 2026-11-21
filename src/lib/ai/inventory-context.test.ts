@@ -325,5 +325,61 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
     expect(prompt).toContain('Store is open 9am to 8pm');
     expect(prompt).toContain('Best Auto Spare Parts assistant');
     expect(prompt).toContain('[[HANDOFF]]');
+    expect(prompt).toContain('=== REAL-TIME INVENTORY GROUNDING & AUTHORIZATION ===');
+    expect(prompt).toContain('supersedes any legacy instruction to withhold rates');
+  });
+
+  it('correctly extracts tokens for Bajaj Pulsar 150 clutch plate inquiry', () => {
+    const text = 'Bhaiya Bajaj Pulsar 150 ka clutch plate kitne ka hai aur stock mein kitne hain?';
+    const query = extractInventoryKeywords(text);
+
+    expect(query.vehicleCandidates).toContain('Pulsar 150');
+    expect(query.vehicleCandidates).toContain('Pulsar');
+    expect(query.vehicleCandidates).toContain('Bajaj');
+    expect(query.componentKeywords).toContain('clutch');
+    expect(query.isPriceInquiry).toBe(true);
+    expect(query.isStockInquiry).toBe(true);
+  });
+
+  it('extracts compatibility from description when fitments array is empty', () => {
+    const mockResult: InventoryContextResult = {
+      parts: [
+        {
+          id: 'part-pulsar-150',
+          account_id: 'test-account',
+          part_name: 'Pulsar 150 Clutch Plate Set (5 Pcs)',
+          sku: 'SKU-BAJ-014',
+          oem_number: '36-DK-CLT-KIT',
+          alternate_oem_numbers: [],
+          brand: 'Bajaj',
+          category: 'Transmission',
+          subcategory: 'Clutch',
+          condition: 'Genuine',
+          cost_price: 450,
+          selling_price: 690,
+          quantity_in_stock: 15,
+          low_stock_threshold: 3,
+          location: 'Rack C-1',
+          description: 'Compatible: Bajaj Pulsar 150 | UOM: Set | Quality: Genuine',
+          image_urls: [],
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          fitments: [],
+        },
+      ],
+      alternatives: [],
+      query: extractInventoryKeywords('Bhaiya Bajaj Pulsar 150 ka clutch plate kitne ka hai'),
+      currency: 'INR',
+      hasMatches: true,
+    };
+
+    const text = formatInventoryContext(mockResult);
+
+    expect(text).toContain('Verified Compatible Vehicles: Bajaj Pulsar 150 (from catalog specifications)');
+    expect(text).toContain('Selling Price: ₹690.00');
+    expect(text).toContain('IN STOCK (15 units available)');
+    expect(text).toContain('DO NOT HAND OFF FOR NORMAL INQUIRIES');
+    expect(text).toContain('WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if');
   });
 });

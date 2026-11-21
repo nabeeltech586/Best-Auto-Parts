@@ -255,9 +255,28 @@ export async function searchInventoryForAi(
     (skuMatches || []).forEach((p) => matchedPartMap.set(p.id, p as PartWithFitments));
   }
 
-  // Strategy B: Vehicle Fitment query
+  // Strategy B1: Compound Vehicle + Component search (High Priority)
+  // Finds exact vehicle-specific parts (e.g. Pulsar 150 + Clutch Plate)
+  if (query.vehicleCandidates.length > 0 && query.componentKeywords.length > 0) {
+    for (const veh of query.vehicleCandidates) {
+      for (const comp of query.componentKeywords) {
+        const { data: compoundMatches } = await db
+          .from('parts_catalog')
+          .select('*, fitments:vehicle_fitment(*)')
+          .eq('account_id', accountId)
+          .eq('is_active', true)
+          .or(`part_name.ilike.%${veh}%,description.ilike.%${veh}%`)
+          .or(`part_name.ilike.%${comp}%,description.ilike.%${comp}%,category.ilike.%${comp}%`)
+          .limit(limit);
+
+        (compoundMatches || []).forEach((p) => matchedPartMap.set(p.id, p as PartWithFitments));
+      }
+    }
+  }
+
+  // Strategy B2: Vehicle Fitment query
   // If vehicle make or model was mentioned, query vehicle_fitment table
-  if (query.vehicleCandidates.length > 0 && matchedPartMap.size < limit) {
+  if (query.vehicleCandidates.length > 0) {
     for (const veh of query.vehicleCandidates) {
       const { data: fitmentRows } = await db
         .from('vehicle_fitment')
@@ -284,13 +303,12 @@ export async function searchInventoryForAi(
   // Strategy C: Part Name & Keyword Search
   const searchTerms = [
     ...query.componentKeywords,
-    ...query.brandCandidates,
     ...query.vehicleCandidates,
+    ...query.brandCandidates,
     ...query.generalTokens,
   ];
 
   for (const term of searchTerms) {
-    if (matchedPartMap.size >= limit) break;
     if (term.length < 2) continue;
 
     const { data: textMatches } = await db
@@ -298,13 +316,49 @@ export async function searchInventoryForAi(
       .select('*, fitments:vehicle_fitment(*)')
       .eq('account_id', accountId)
       .eq('is_active', true)
-      .or(`part_name.ilike.%${term}%,brand.ilike.%${term}%,category.ilike.%${term}%`)
+      .or(`part_name.ilike.%${term}%,description.ilike.%${term}%,brand.ilike.%${term}%,category.ilike.%${term}%`)
       .limit(limit);
 
     (textMatches || []).forEach((p) => matchedPartMap.set(p.id, p as PartWithFitments));
   }
 
-  const parts = Array.from(matchedPartMap.values()).slice(0, limit);
+  // Score and rank matched parts by relevance
+  function scorePart(p: PartWithFitments): number {
+    let score = 0;
+    const nameLower = (p.part_name || '').toLowerCase();
+    const descLower = (p.description || '').toLowerCase();
+    const brandLower = (p.brand || '').toLowerCase();
+    const catLower = (p.category || '').toLowerCase();
+
+    // Matching vehicle model/make
+    for (const v of query.vehicleCandidates) {
+      const vl = v.toLowerCase();
+      if (nameLower.includes(vl)) score += 30;
+      else if (descLower.includes(vl)) score += 25;
+    }
+
+    // Matching component
+    for (const c of query.componentKeywords) {
+      const cl = c.toLowerCase();
+      if (nameLower.includes(cl)) score += 20;
+      else if (catLower.includes(cl) || descLower.includes(cl)) score += 15;
+    }
+
+    // Matching brand
+    for (const b of query.brandCandidates) {
+      const bl = b.toLowerCase();
+      if (brandLower.includes(bl) || nameLower.includes(bl)) score += 10;
+    }
+
+    // Positive stock bonus
+    if (p.quantity_in_stock > 0) score += 5;
+
+    return score;
+  }
+
+  const parts = Array.from(matchedPartMap.values())
+    .sort((a, b) => scorePart(b) - scorePart(a))
+    .slice(0, limit);
 
   // Strategy D: In-stock alternatives if part is out-of-stock or alternative requested
   const alternatives: PartWithFitments[] = [];
@@ -407,9 +461,13 @@ export function formatInventoryContext(res: InventoryContextResult): string {
       }`,
     );
 
+    const descFitment = part.description?.match(/Compatible:\s*([^|;\n]+)/i)?.[1]?.trim();
+
     if (fitmentList.length > 0) {
       sections.push('- Verified Compatible Vehicles:');
       fitmentList.forEach((fit) => sections.push(`  * ${fit}`));
+    } else if (descFitment) {
+      sections.push(`- Verified Compatible Vehicles: ${descFitment} (from catalog specifications)`);
     } else {
       sections.push(
         '- Verified Compatible Vehicles: No specific fitment records on file. (If customer asks, politely ask for their vehicle model & year to verify compatibility).',
@@ -441,13 +499,16 @@ export function formatInventoryContext(res: InventoryContextResult): string {
     '2. OUT OF STOCK: If a part has Stock Status "OUT OF STOCK", explicitly inform the customer it is currently out of stock. If an alternative is listed above, offer it.',
   );
   sections.push(
-    '3. VEHICLE COMPATIBILITY: Only confirm compatibility if the vehicle matches the "Verified Compatible Vehicles". If compatibility is unverified or the customer did not specify their model/year/variant, ask them for the missing vehicle details.',
+    '3. VEHICLE COMPATIBILITY: Confirm compatibility if the vehicle matches the "Verified Compatible Vehicles" above. If compatibility is unverified or the customer did not specify their model/year/variant, ask them for the missing vehicle details.',
   );
   sections.push(
     '4. LANGUAGE: Answer naturally in the customer\'s language (English, Hindi, or Hinglish). Keep WhatsApp responses concise, friendly, and helpful (1 to 4 sentences).',
   );
   sections.push(
-    '5. HANDOFF: If the customer asks for a human, is complaining, or needs customized support, output [[HANDOFF]].',
+    '5. DO NOT HAND OFF FOR NORMAL INQUIRIES: When the customer asks for price, stock, availability, or part details and matching items exist in the verified records above, provide the answer directly with price in the specified currency and available quantity. Do NOT output [[HANDOFF]] and do NOT tell the customer someone else will check for them.',
+  );
+  sections.push(
+    '6. WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if: (a) the customer explicitly asks to talk to a real person / human agent / manager / owner, (b) the customer is angry, abusive, or filing a serious dispute/complaint, or (c) the customer is negotiating bulk discounts or wholesale credit that cannot be answered from the catalog.',
   );
 
   return sections.join('\n');

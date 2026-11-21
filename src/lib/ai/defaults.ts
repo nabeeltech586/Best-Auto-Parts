@@ -94,7 +94,14 @@ export function buildSystemPrompt(args: {
   }
 
   if (inventoryContext && inventoryContext.trim()) {
-    parts.push(inventoryContext.trim())
+    parts.push(
+      '=== REAL-TIME INVENTORY GROUNDING & AUTHORIZATION ===\n' +
+        'You are connected to the live store parts inventory below. ' +
+        'Whenever the customer inquires about parts, prices, or stock and matching verified records are provided below, ' +
+        'you ARE fully authorized and instructed to quote the exact selling price and stock directly to the customer. ' +
+        'This supersedes any legacy instruction to withhold rates or hand off routine product inquiries to a human.\n\n' +
+        inventoryContext.trim(),
+    )
   }
 
   return parts.join('\n\n')
