@@ -54,6 +54,7 @@ interface VehicleFitmentSectionProps {
   fitments: VehicleFitment[];
   onRefresh: () => void;
   canEdit: boolean;
+  canDelete: boolean;
 }
 
 export function VehicleFitmentSection({
@@ -61,6 +62,7 @@ export function VehicleFitmentSection({
   fitments,
   onRefresh,
   canEdit,
+  canDelete,
 }: VehicleFitmentSectionProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -238,7 +240,7 @@ export function VehicleFitmentSection({
                 <TableHead className="text-xs font-semibold">Years</TableHead>
                 <TableHead className="text-xs font-semibold">Engine & Fuel</TableHead>
                 <TableHead className="text-xs font-semibold">Variant / Notes</TableHead>
-                {canEdit && (
+                {canDelete && (
                   <TableHead className="w-16 text-right text-xs font-semibold">
                     Action
                   </TableHead>
@@ -299,7 +301,7 @@ export function VehicleFitmentSection({
                       )}
                     </div>
                   </TableCell>
-                  {canEdit && (
+                  {canDelete && (
                     <TableCell className="text-right">
                       <Button
                         type="button"

@@ -336,6 +336,7 @@ export default function PartDetailPage() {
           fitments={fitments}
           onRefresh={fetchPartData}
           canEdit={canEdit}
+          canDelete={canDelete}
         />
       </div>
 

@@ -7,7 +7,7 @@ interface Params {
 
 export async function DELETE(request: Request, context: Params) {
   try {
-    const { supabase, accountId } = await requireRole('agent');
+    const { supabase, accountId } = await requireRole('admin');
     const { id } = await context.params;
 
     const { error } = await supabase
