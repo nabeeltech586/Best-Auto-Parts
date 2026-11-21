@@ -48,6 +48,7 @@ export function CsvImportModal({
   onSuccess,
 }: CsvImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
+  const [rawCsv, setRawCsv] = useState<string>('');
   const [validRows, setValidRows] = useState<CsvImportRow[]>([]);
   const [validationErrors, setValidationErrors] = useState<CsvValidationError[]>([]);
   const [duplicateCount, setDuplicateCount] = useState<number>(0);
@@ -58,6 +59,7 @@ export function CsvImportModal({
 
   const resetState = () => {
     setFile(null);
+    setRawCsv('');
     setValidRows([]);
     setValidationErrors([]);
     setDuplicateCount(0);
@@ -94,6 +96,7 @@ export function CsvImportModal({
 
     try {
       const text = await selectedFile.text();
+      setRawCsv(text);
       const parsed = parseCsv(text);
 
       if (parsed.length === 0) {
@@ -144,7 +147,10 @@ export function CsvImportModal({
       const res = await fetch('/api/inventory/csv/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: validRows }),
+        body: JSON.stringify({
+          csv: rawCsv,
+          rows: validRows,
+        }),
       });
 
       const data = await res.json();

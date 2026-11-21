@@ -1,5 +1,6 @@
 // ============================================================
 // Auto Parts Inventory & Vehicle Compatibility Types
+// Best Auto Spare Parts App
 // ============================================================
 
 export type PartCondition = 'Genuine' | 'OEM' | 'Aftermarket' | 'Used';
@@ -17,6 +18,10 @@ export type StockMovementType =
   | 'adjustment'
   | 'sale'
   | 'return';
+
+// ============================================================
+// PART CATALOG
+// ============================================================
 
 export interface PartCatalogItem {
   id: string;
@@ -39,9 +44,14 @@ export interface PartCatalogItem {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+
   // Optional populated relationships
   fitments?: VehicleFitment[];
 }
+
+// ============================================================
+// VEHICLE COMPATIBILITY / FITMENT
+// ============================================================
 
 export interface VehicleFitment {
   id: string;
@@ -59,6 +69,10 @@ export interface VehicleFitment {
   created_at: string;
 }
 
+// ============================================================
+// STOCK MOVEMENT / INVENTORY HISTORY
+// ============================================================
+
 export interface StockMovement {
   id: string;
   account_id: string;
@@ -74,6 +88,10 @@ export interface StockMovement {
   user_name?: string | null;
 }
 
+// ============================================================
+// INVENTORY DASHBOARD METRICS
+// ============================================================
+
 export interface InventoryMetrics {
   total_products: number;
   total_stock_units: number;
@@ -82,6 +100,10 @@ export interface InventoryMetrics {
   total_cost_value: number;
   total_selling_value: number;
 }
+
+// ============================================================
+// INVENTORY FILTERS & PAGINATION
+// ============================================================
 
 export interface InventoryFilterParams {
   search?: string;
@@ -96,6 +118,10 @@ export interface InventoryFilterParams {
   page?: number;
   pageSize?: number;
 }
+
+// ============================================================
+// PART FORM DATA
+// ============================================================
 
 export interface PartFormData {
   part_name: string;
@@ -116,6 +142,10 @@ export interface PartFormData {
   is_active?: boolean;
 }
 
+// ============================================================
+// VEHICLE FITMENT FORM DATA
+// ============================================================
+
 export interface VehicleFitmentFormData {
   vehicle_type?: string;
   manufacturer: string;
@@ -128,6 +158,10 @@ export interface VehicleFitmentFormData {
   notes?: string;
 }
 
+// ============================================================
+// STOCK ADJUSTMENT FORM DATA
+// ============================================================
+
 export interface StockAdjustmentFormData {
   part_id: string;
   delta: number;
@@ -135,6 +169,10 @@ export interface StockAdjustmentFormData {
   reason?: string;
   reference_id?: string;
 }
+
+// ============================================================
+// CSV IMPORT ROW
+// ============================================================
 
 export interface CsvImportRow {
   part_name: string;
@@ -144,14 +182,19 @@ export interface CsvImportRow {
   brand?: string;
   category?: string;
   subcategory?: string;
-  condition?: string;
+  condition?: PartCondition | string;
   cost_price?: string | number;
   selling_price: string | number;
   quantity_in_stock?: string | number;
   low_stock_threshold?: string | number;
   location?: string;
   description?: string;
+  quality_review_notes?: string;
 }
+
+// ============================================================
+// CSV VALIDATION ERROR
+// ============================================================
 
 export interface CsvValidationError {
   row: number;
@@ -159,6 +202,10 @@ export interface CsvValidationError {
   field: string;
   message: string;
 }
+
+// ============================================================
+// CSV IMPORT SUMMARY
+// ============================================================
 
 export interface CsvImportSummary {
   totalRows: number;

@@ -41,6 +41,22 @@ Air Filter,AF-02,15.00,10`;
     expect(parseCsv('')).toEqual([]);
     expect(parseCsv('part_name,sku')).toEqual([]);
   });
+
+  it('strips UTF-8 BOM from start of CSV string', () => {
+    const csvWithBom = '\uFEFFpart_name,sku,selling_price\nBrake Disc,BD-01,45.00';
+    const parsed = parseCsv(csvWithBom);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].part_name).toBe('Brake Disc');
+    expect(parsed[0].sku).toBe('BD-01');
+  });
+
+  it('handles Hindi Unicode characters and multi-lingual text cleanly', () => {
+    const hindiCsv = 'part_name,sku,description,selling_price\n"ऑयल फिल्टर (Oil Filter)",OF-HIN-01,"उच्च गुणवत्ता वाला ऑयल फिल्टर",150.00';
+    const parsed = parseCsv(hindiCsv);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].part_name).toBe('ऑयल फिल्टर (Oil Filter)');
+    expect(parsed[0].description).toBe('उच्च गुणवत्ता वाला ऑयल फिल्टर');
+  });
 });
 
 describe('validateCsvRows', () => {
@@ -97,6 +113,78 @@ describe('validateCsvRows', () => {
     expect(result.errors).toHaveLength(2);
     expect(result.errors[0].field).toBe('part_name');
     expect(result.errors[1].field).toBe('selling_price');
+  });
+
+  it('sanitizes currency symbols and commas in price and stock numbers', () => {
+    const rows = [
+      {
+        part_name: 'Spark Plug Platinum',
+        sku: 'SP-PL-02',
+        selling_price: '$25.50',
+        cost_price: '₹1,250.00',
+        quantity_in_stock: '1,500',
+        low_stock_threshold: '50',
+      },
+    ];
+
+    const result = validateCsvRows(rows);
+    expect(result.validRows).toHaveLength(1);
+    expect(result.validRows[0].selling_price).toBe(25.5);
+    expect(result.validRows[0].cost_price).toBe(1250);
+    expect(result.validRows[0].quantity_in_stock).toBe(1500);
+    expect(result.validRows[0].low_stock_threshold).toBe(50);
+  });
+
+  it('supports quality_review_notes and field aliases', () => {
+    const rows = [
+      {
+        name: 'Clutch Disc',
+        code: 'CD-TOY-01',
+        price: '85.00',
+        cost: '45.00',
+        qty: '12',
+        quality_review_notes: 'Inspected by QA Lead',
+        details: 'Heavy-duty organic friction material',
+      },
+    ];
+
+    const result = validateCsvRows(rows);
+    expect(result.validRows).toHaveLength(1);
+    expect(result.validRows[0].part_name).toBe('Clutch Disc');
+    expect(result.validRows[0].sku).toBe('CD-TOY-01');
+    expect(result.validRows[0].selling_price).toBe(85);
+    expect(result.validRows[0].cost_price).toBe(45);
+    expect(result.validRows[0].quantity_in_stock).toBe(12);
+    expect(result.validRows[0].quality_review_notes).toBe('Inspected by QA Lead');
+    expect(result.validRows[0].description).toBe(
+      'Heavy-duty organic friction material | Quality notes: Inspected by QA Lead',
+    );
+  });
+
+  it('successfully parses and validates exactly 71 automotive spare parts', () => {
+    const lines = [
+      'part_name,sku,oem_number,brand,category,condition,cost_price,selling_price,quantity_in_stock,low_stock_threshold,location,quality_review_notes',
+    ];
+
+    for (let i = 1; i <= 71; i++) {
+      const partName = i % 2 === 0 ? `Brake Pad Set #${i}` : `ऑयल फिल्टर स्पेयर #${i}`;
+      lines.push(
+        `"${partName}",SKU-BATCH-${String(i).padStart(3, '0')},OEM-${1000 + i},Bosch,Braking,OEM,$20.00,"₹1,500.00",${i * 2},5,"Shelf-${i}","QA Passed #${i}"`,
+      );
+    }
+
+    const csvText = lines.join('\n');
+    const parsed = parseCsv(csvText);
+    expect(parsed).toHaveLength(71);
+
+    const validation = validateCsvRows(parsed);
+    expect(validation.errors).toHaveLength(0);
+    expect(validation.duplicateCount).toBe(0);
+    expect(validation.validRows).toHaveLength(71);
+    expect(validation.validRows[0].sku).toBe('SKU-BATCH-001');
+    expect(validation.validRows[70].sku).toBe('SKU-BATCH-071');
+    expect(validation.validRows[0].cost_price).toBe(20);
+    expect(validation.validRows[0].selling_price).toBe(1500);
   });
 });
 

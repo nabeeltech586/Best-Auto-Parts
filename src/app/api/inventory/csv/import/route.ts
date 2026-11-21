@@ -8,14 +8,37 @@ export async function POST(request: Request) {
   try {
     const { supabase, accountId, userId } = await requireRole('agent');
 
-    const body = await request.json();
-    const csvContent = body.csv;
+    const body = await request.json().catch(() => ({}));
 
-    if (!csvContent || typeof csvContent !== 'string') {
-      return NextResponse.json({ error: 'CSV file content is required' }, { status: 400 });
+    // Accept either raw CSV text (body.csv) OR pre-parsed row objects (body.rows or body.products)
+    let parsedRows: Array<Record<string, string>> = [];
+
+    if (typeof body.csv === 'string' && body.csv.trim()) {
+      parsedRows = parseCsv(body.csv);
+    } else if (Array.isArray(body.rows) && body.rows.length > 0) {
+      // Normalize array of row objects into Record<string, string> for unified validation
+      parsedRows = body.rows.map((r: Record<string, unknown>) => {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(r)) {
+          out[k] = v === null || v === undefined ? '' : String(v);
+        }
+        return out;
+      });
+    } else if (Array.isArray(body.products) && body.products.length > 0) {
+      parsedRows = body.products.map((r: Record<string, unknown>) => {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(r)) {
+          out[k] = v === null || v === undefined ? '' : String(v);
+        }
+        return out;
+      });
+    } else {
+      return NextResponse.json(
+        { error: 'CSV file content or parsed product records are required' },
+        { status: 400 },
+      );
     }
 
-    const parsedRows = parseCsv(csvContent);
     if (parsedRows.length === 0) {
       return NextResponse.json(
         { error: 'CSV file is empty or does not contain data rows' },
@@ -29,12 +52,17 @@ export async function POST(request: Request) {
       .select('sku')
       .eq('account_id', accountId);
 
-    const existingSkus = new Set<string>((existingRecords || []).map((r) => r.sku.toUpperCase()));
+    const existingSkus = new Set<string>(
+      (existingRecords || []).map((r) => r.sku.toUpperCase()),
+    );
 
-    // Validate rows
-    const { validRows, errors, duplicateCount } = validateCsvRows(parsedRows, existingSkus);
+    // Validate rows with duplicate SKU detection
+    const { validRows, errors, duplicateCount } = validateCsvRows(
+      parsedRows,
+      existingSkus,
+    );
 
-    // If there are validation errors, do not silently import corrupted records
+    // If there are zero valid rows and validation errors, return early with summary
     if (validRows.length === 0 && errors.length > 0) {
       const summary: CsvImportSummary = {
         totalRows: parsedRows.length,
@@ -73,7 +101,7 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     }));
 
-    // Insert in batches of 50 to avoid query size limits
+    // Insert in batches of 50 to avoid request size limits
     const BATCH_SIZE = 50;
     let importedCount = 0;
     const insertedIds: Array<{ id: string; quantity: number }> = [];
@@ -103,7 +131,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Log initial stock movements for imported items with stock
+    // Log initial stock movements for imported items with starting stock
     if (insertedIds.length > 0) {
       const movementRows = insertedIds.map((item) => ({
         account_id: accountId,
