@@ -1,4 +1,4 @@
-import type { VehicleFitment, VehicleFitmentFormData } from '@/types/inventory';
+import type { VehicleFitment } from '@/types/inventory';
 
 export const COMMON_VEHICLE_MAKES = [
   'Acura',

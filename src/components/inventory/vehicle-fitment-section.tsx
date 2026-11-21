@@ -6,12 +6,10 @@ import {
   Car,
   Plus,
   Trash2,
-  Calendar,
   Fuel,
   Cpu,
   AlertCircle,
   Loader2,
-  CheckCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,7 +43,6 @@ import {
   COMMON_VEHICLE_MAKES,
   FUEL_TYPES,
   validateFitmentYearRange,
-  formatVehicleFitment,
 } from '@/lib/inventory/fitment';
 import type { VehicleFitment } from '@/types/inventory';
 

@@ -10,7 +10,6 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  SlidersHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InventoryOverview } from '@/components/inventory/inventory-overview';

@@ -23,7 +23,6 @@ import {
   FileSpreadsheet,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
   Loader2,
   Trash2,
 } from 'lucide-react';
@@ -273,7 +272,9 @@ export function CsvImportModal({
                 <p className="text-lg font-bold text-emerald-500">{validRows.length}</p>
               </div>
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-center">
-                <p className="text-[11px] text-amber-500">Invalid / Duplicates</p>
+                <p className="text-[11px] text-amber-500">
+                  Invalid {duplicateCount > 0 ? `(${duplicateCount} dupes)` : ''}
+                </p>
                 <p className="text-lg font-bold text-amber-500">{validationErrors.length}</p>
               </div>
             </div>

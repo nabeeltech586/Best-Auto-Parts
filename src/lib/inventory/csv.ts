@@ -1,6 +1,5 @@
 import type {
   CsvImportRow,
-  CsvImportSummary,
   CsvValidationError,
   PartCatalogItem,
   PartCondition,

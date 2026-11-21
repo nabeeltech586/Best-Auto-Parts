@@ -21,14 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { calculateNewStock, STOCK_MOVEMENT_META } from '@/lib/inventory/stock';
+import { calculateNewStock } from '@/lib/inventory/stock';
 import type { PartCatalogItem, StockMovementType } from '@/types/inventory';
 import {
   ArrowDownRight,
   ArrowUpRight,
   AlertTriangle,
   RotateCcw,
-  CheckCircle2,
   Loader2,
   SlidersHorizontal,
 } from 'lucide-react';

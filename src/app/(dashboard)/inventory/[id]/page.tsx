@@ -6,21 +6,13 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
-  Package,
-  Wrench,
   Pencil,
   Trash2,
   SlidersHorizontal,
   MapPin,
-  Tag,
-  DollarSign,
   AlertTriangle,
-  CheckCircle2,
   Copy,
-  Layers,
   History,
-  Car,
-  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
