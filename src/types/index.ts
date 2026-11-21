@@ -712,3 +712,6 @@ export interface QuickReply {
   created_at: string;
   updated_at: string;
 }
+
+export * from './inventory';
+
