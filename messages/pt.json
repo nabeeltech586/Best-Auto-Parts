@@ -43,7 +43,8 @@
     "menuProfile": "Perfil",
     "menuSettings": "Configurações",
     "menuSignOut": "Sair",
-    "payments": "Pagamentos"
+    "payments": "Pagamentos",
+    "orders": "Histórico de pedidos"
   },
   "Header": {
     "dashboard": "Painel",
@@ -51,9 +52,13 @@
     "notifications": "Notificações",
     "contacts": "Contatos",
     "inventory": "Inventário de Peças",
+    "payments": "Pagamentos",
+    "orders": "Histórico de pedidos",
     "pipelines": "Pipelines",
     "broadcasts": "Disparos",
     "automations": "Automações",
+    "flows": "Fluxos",
+    "aiAgents": "Agentes de IA",
     "settings": "Configurações",
     "openMenu": "Abrir menu",
     "openAccountMenu": "Abrir menu da conta",

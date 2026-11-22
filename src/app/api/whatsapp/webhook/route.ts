@@ -22,6 +22,7 @@ import { readCappedBody } from '@/lib/whatsapp/webhook-body'
 import { resumeAwaitingReply, runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
+import { matchIcebreaker, executeIcebreaker } from '@/lib/whatsapp/icebreakers'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -784,6 +785,30 @@ async function processMessage(
   const inboundText = contentText ?? message.text?.body ?? ''
 
   // ============================================================
+  // Meta WhatsApp Icebreakers Dispatch (Top Priority)
+  // Ensures all 4 Meta Icebreaker buttons immediately reply in clean English
+  // and trigger their respective CRM actions (AI enable, Wholesale tag, Saud Bhai handoff, Location)
+  // bypassing Out-of-Office and language gating.
+  // ============================================================
+  let icebreakerConsumed = false
+  const matchedIcebreaker = matchIcebreaker(inboundText, interactiveReplyId)
+  if (matchedIcebreaker) {
+    const icebreakerRes = await executeIcebreaker({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      inboundText,
+      interactiveReplyId,
+    }).catch((err) => {
+      console.error('[icebreaker] dispatch error:', err)
+      return { handled: false }
+    })
+    icebreakerConsumed = Boolean(icebreakerRes.handled)
+  }
+
+  // ============================================================
   // Welcome & Language Flow dispatch.
   //
   // Handles:
@@ -794,20 +819,22 @@ async function processMessage(
   //
   // If consumed: takes precedence over generic flows, automations, and AI.
   // ============================================================
-  const welcomeResult = await handleWelcomeFlowInbound({
-    db: supabaseAdmin(),
-    accountId,
-    userId: configOwnerUserId,
-    conversationId: conversation.id,
-    contactId: contactRecord.id,
-    inboundText,
-    interactiveReplyId,
-    isFirstInboundMessage,
-  }).catch((err) => {
-    console.error('[welcome-flow] dispatch error:', err)
-    return { consumed: false }
-  })
-  const welcomeConsumed = welcomeResult.consumed
+  const welcomeResult = icebreakerConsumed
+    ? { consumed: true }
+    : await handleWelcomeFlowInbound({
+        db: supabaseAdmin(),
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        inboundText,
+        interactiveReplyId,
+        isFirstInboundMessage,
+      }).catch((err) => {
+        console.error('[welcome-flow] dispatch error:', err)
+        return { consumed: false }
+      })
+  const welcomeConsumed = icebreakerConsumed || welcomeResult.consumed
 
   // ============================================================
   // Flow runner dispatch.

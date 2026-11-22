@@ -17,7 +17,7 @@
     "linkInvalid": "That link couldn’t be used to sign you in. If you were confirming your email, it may already be verified — just sign in below. For a password reset, request a new link and open it in the same browser you requested it from."
   },
   "Sidebar": {
-    "title": "CRM Template for WhatsApp",
+    "title": "Best Auto Parts",
     "primaryNav": "Primary",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
@@ -43,7 +43,8 @@
     "menuProfile": "Profile",
     "menuSettings": "Settings",
     "menuSignOut": "Sign out",
-    "payments": "Payments"
+    "payments": "Payments",
+    "orders": "Order History"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -51,9 +52,13 @@
     "notifications": "Notifications",
     "contacts": "Contacts",
     "inventory": "Auto Parts Inventory",
+    "payments": "Payments",
+    "orders": "Order History",
     "pipelines": "Pipelines",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
+    "flows": "Flows",
+    "aiAgents": "AI Agents",
     "settings": "Settings",
     "openMenu": "Open menu",
     "openAccountMenu": "Open account menu",

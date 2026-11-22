@@ -24,9 +24,13 @@ const pageTitles: Record<string, string> = {
   "/notifications": "notifications",
   "/contacts": "contacts",
   "/inventory": "inventory",
+  "/payments": "payments",
+  "/orders": "orders",
   "/pipelines": "pipelines",
   "/broadcasts": "broadcasts",
   "/automations": "automations",
+  "/flows": "flows",
+  "/agents": "aiAgents",
   "/settings": "settings",
 };
 

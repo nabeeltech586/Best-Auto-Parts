@@ -193,13 +193,10 @@ export async function dispatchInboundToAiReply(
       messages,
     )
 
-    const customerLang = await getContactLanguage(db, accountId, contactId)
     const languageInstruction =
-      customerLang === 'hinglish'
-        ? 'Customer preferred language: Hinglish (Hindi + English mix). Reply in natural, polite Hinglish. Never disclose internal stock counts, warehouse numbers, or packaging quantity suffixes such as "(5 pcs)". Show verified price and state only that the item is available.'
-        : customerLang === 'en'
-          ? 'Customer preferred language: English. Reply in polite English. Never disclose internal stock counts, warehouse numbers, or packaging quantity suffixes such as "(5 pcs)". Show verified price and state only that the item is available.'
-          : null
+      'CRITICAL: All customer-facing WhatsApp messages, quotes, and receipts must be in clean, professional English, regardless of whether the customer asked in English, Hindi, or Hinglish. ' +
+      'When quoting a verified spare part from the catalog, state the exact Part Name, Brand (Genuine OEM or Aftermarket), OEM Number, Live Selling Price (formatted with ₹), and In-Stock status (In Stock ✅). ' +
+      'Never disclose internal numerical stock quantities, warehouse bin locations, or cost prices. Offer a direct PhonePe payment link if they would like to place an order.'
 
     const effectiveUserPrompt = [config.systemPrompt, languageInstruction]
       .filter(Boolean)

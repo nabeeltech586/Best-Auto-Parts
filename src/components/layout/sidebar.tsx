@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useTotalUnread } from "@/hooks/use-total-unread";
@@ -20,6 +20,7 @@ import {
   Radio,
   Settings,
   Shield,
+  ShoppingBag,
   User,
   UserCog,
   Users,
@@ -98,6 +99,7 @@ const navItems: NavItem[] = [
   { href: "/contacts", labelKey: "contacts", icon: Users },
   { href: "/inventory", labelKey: "inventory", icon: Package },
   { href: "/payments", labelKey: "payments", icon: CreditCard },
+  { href: "/orders", labelKey: "orders", icon: ShoppingBag },
   { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
   { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
   { href: "/automations", labelKey: "automations", icon: Zap },
@@ -123,6 +125,18 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
+  const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/payments/links")
+      .then((res) => (res.ok ? res.json() : { links: [] }))
+      .then((data) => {
+        const list = data.links || [];
+        const pending = list.filter((l: { status: string }) => l.status === "PENDING").length;
+        setPendingOrdersCount(pending);
+      })
+      .catch(() => {});
+  }, [pathname]);
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -190,14 +204,19 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       >
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
-        <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <MessageSquare className="h-4 w-4" />
+        <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+          <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold shadow-sm shrink-0">
+              <Package className="h-5 w-5" />
             </div>
-            <span className="text-sm font-semibold text-foreground">
-              {t("title")}
-            </span>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-bold tracking-tight text-foreground leading-tight truncate">
+                Best Auto Parts
+              </span>
+              <span className="text-[10px] font-medium text-muted-foreground leading-tight mt-0.5 truncate">
+                Bajaj • Hero • Honda Spares
+              </span>
+            </div>
           </Link>
           <button
             type="button"
@@ -264,6 +283,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                         className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
                       >
                         {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                      </span>
+                    )}
+                    {item.href === "/orders" && pendingOrdersCount > 0 && (
+                      <span
+                        title={`${pendingOrdersCount} pending payment orders`}
+                        className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 border border-amber-500/40 px-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"
+                      >
+                        {pendingOrdersCount}
                       </span>
                     )}
                   </Link>

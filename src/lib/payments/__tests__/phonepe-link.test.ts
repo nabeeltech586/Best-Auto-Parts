@@ -9,31 +9,35 @@ import {
   getPaymentLinkByTxnId,
   markPaymentAsPaid,
   verifyAndSyncPaymentStatus,
+  deductStockForPaidOrder,
 } from '../phonepe-link'
 
 // Mock supabaseAdmin
-vi.mock('@/lib/flows/admin-client', () => ({
-  supabaseAdmin: vi.fn(() => ({
-    from: vi.fn().mockReturnValue({
-      insert: vi.fn().mockResolvedValue({ error: null }),
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({ data: null, error: null }),
-          maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-          limit: vi.fn().mockReturnValue({
-            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-          }),
-        }),
-        limit: vi.fn().mockReturnValue({
-          maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+vi.mock('@/lib/flows/admin-client', () => {
+  const createChainable = () => {
+    const chain: any = {
+      eq: vi.fn(() => chain),
+      ilike: vi.fn(() => chain),
+      limit: vi.fn(() => chain),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      then: (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve),
+    }
+    return chain
+  }
+
+  return {
+    supabaseAdmin: vi.fn(() => ({
+      from: vi.fn().mockReturnValue({
+        insert: vi.fn().mockResolvedValue({ error: null }),
+        select: vi.fn(() => createChainable()),
+        update: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ error: null }),
         }),
       }),
-      update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({ error: null }),
-      }),
-    }),
-  })),
-}))
+    })),
+  }
+})
 
 // Mock engineSendText
 vi.mock('@/lib/flows/meta-send', () => ({
@@ -303,6 +307,93 @@ describe('PhonePe Payment Link Module', () => {
       expect(result.status).toBe('PAID')
       expect(result.record?.phonepe_transaction_id).toBe('T2401011200000001')
       expect(result.record?.payment_mode).toBe('UPI')
+    })
+  })
+
+  describe('deductStockForPaidOrder', () => {
+    it('handles empty part details gracefully', async () => {
+      const res = await deductStockForPaidOrder({
+        order_id: 'ORD_EMPTY',
+        merchant_transaction_id: 'BAP_EMPTY_1',
+        customer_phone: '+919634722174',
+        part_details: '',
+        amount: 100,
+        status: 'PAID',
+      })
+      expect(res.deducted).toBe(false)
+    })
+
+    it('matches part and executes stock deduction and audit trail', async () => {
+      const mockDb: any = {
+        from: vi.fn((table: string) => {
+          if (table === 'parts_catalog') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn().mockReturnThis(),
+                ilike: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [
+                      {
+                        id: 'part-uuid-123',
+                        account_id: 'acc-uuid-1',
+                        part_name: 'Hero Splendor Brake Shoe',
+                        oem_number: '43125-KCC-900',
+                        quantity_in_stock: 12,
+                        low_stock_threshold: 4,
+                      },
+                    ],
+                  }),
+                }),
+              })),
+              update: vi.fn(() => ({
+                eq: vi.fn().mockResolvedValue({ error: null }),
+              })),
+            }
+          }
+          if (table === 'stock_movements') {
+            return {
+              insert: vi.fn().mockResolvedValue({ error: null }),
+            }
+          }
+          if (table === 'accounts') {
+            return {
+              select: vi.fn(() => ({
+                eq: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: { owner_user_id: 'user-uuid-99' },
+                  }),
+                }),
+              })),
+            }
+          }
+          if (table === 'notifications') {
+            return {
+              insert: vi.fn().mockResolvedValue({ error: null }),
+            }
+          }
+          return {
+            insert: vi.fn().mockResolvedValue({ error: null }),
+          }
+        }),
+      }
+
+      const res = await deductStockForPaidOrder(
+        {
+          order_id: 'ORD_STOCK_TEST',
+          merchant_transaction_id: 'BAP_STOCK_1',
+          customer_phone: '+919634722174',
+          part_details: 'Hero Splendor Brake Shoe (Genuine)',
+          amount: 220,
+          status: 'PAID',
+        },
+        mockDb
+      )
+
+      expect(res.deducted).toBe(true)
+      expect(res.partId).toBe('part-uuid-123')
+      expect(res.remainingStock).toBe(11)
+      expect(mockDb.from).toHaveBeenCalledWith('parts_catalog')
+      expect(mockDb.from).toHaveBeenCalledWith('stock_movements')
     })
   })
 })

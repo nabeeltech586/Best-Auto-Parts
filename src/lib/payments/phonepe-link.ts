@@ -346,8 +346,15 @@ export async function markPaymentAsPaid(args: {
     // optional
   }
 
-  // Trigger WhatsApp payment receipt confirmation to customer
+  // Deduct stock in parts_catalog and log in stock_movements
   const targetRecord = record || (await getPaymentLinkByTxnId(args.merchantTransactionId))
+  if (targetRecord) {
+    await deductStockForPaidOrder(targetRecord, db).catch((err) => {
+      console.warn('[PhonePe] Stock deduction error:', err)
+    })
+  }
+
+  // Trigger WhatsApp payment receipt confirmation to customer
   if (targetRecord && targetRecord.customer_phone) {
     await sendWhatsAppPaymentConfirmation(targetRecord).catch((err) => {
       console.warn('[PhonePe] WhatsApp confirmation send failed:', err)
@@ -355,6 +362,138 @@ export async function markPaymentAsPaid(args: {
   }
 
   return targetRecord
+}
+
+/**
+ * Auto-deduct inventory stock in parts_catalog and log in stock_movements.
+ * Also triggers a low-stock alert notification if stock drops to or below threshold.
+ */
+export async function deductStockForPaidOrder(
+  record: PaymentLinkRecord,
+  db = supabaseAdmin()
+): Promise<{
+  partId?: string
+  deducted: boolean
+  remainingStock?: number
+}> {
+  try {
+    const rawName = record.part_details?.trim() || ''
+    if (!rawName) return { deducted: false }
+
+    let matchedPart: any = null
+
+    // Extract clean name before any parenthesis or brackets
+    const cleanName = rawName.split(/[([/]/)[0].trim()
+
+    let query = db
+      .from('parts_catalog')
+      .select('id, account_id, part_name, oem_number, quantity_in_stock, low_stock_threshold')
+      .eq('is_active', true)
+
+    if (record.account_id) {
+      query = query.eq('account_id', record.account_id)
+    }
+
+    // 1. Attempt match by part_name
+    if (cleanName.length >= 2) {
+      const { data: exactMatches } = await query.ilike('part_name', `%${cleanName}%`).limit(1)
+      if (exactMatches && exactMatches.length > 0) {
+        matchedPart = exactMatches[0]
+      }
+    }
+
+    // 2. Fallback: match by OEM candidate if present in raw string
+    if (!matchedPart) {
+      const oemCandidate = rawName.match(/[A-Z0-9]{5,}/i)?.[0]
+      if (oemCandidate) {
+        let oemQuery = db
+          .from('parts_catalog')
+          .select('id, account_id, part_name, oem_number, quantity_in_stock, low_stock_threshold')
+          .eq('is_active', true)
+          .ilike('oem_number', `%${oemCandidate}%`)
+          .limit(1)
+
+        if (record.account_id) {
+          oemQuery = oemQuery.eq('account_id', record.account_id)
+        }
+
+        const { data: oemMatches } = await oemQuery
+        if (oemMatches && oemMatches.length > 0) {
+          matchedPart = oemMatches[0]
+        }
+      }
+    }
+
+    if (!matchedPart) {
+      console.log('[PhonePe] No matching catalog part found for:', rawName)
+      return { deducted: false }
+    }
+
+    const currentStock = typeof matchedPart.quantity_in_stock === 'number' ? matchedPart.quantity_in_stock : 0
+    const newStock = Math.max(0, currentStock - 1)
+    const threshold = typeof matchedPart.low_stock_threshold === 'number' ? matchedPart.low_stock_threshold : 5
+    const accountId = matchedPart.account_id || record.account_id
+
+    // Update quantity in parts_catalog
+    const { error: updateErr } = await db
+      .from('parts_catalog')
+      .update({
+        quantity_in_stock: newStock,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', matchedPart.id)
+
+    if (updateErr) {
+      console.warn('[PhonePe] Failed to update parts_catalog stock:', updateErr.message)
+      return { deducted: false }
+    }
+
+    // Record audit trail in stock_movements
+    await db.from('stock_movements').insert({
+      account_id: accountId,
+      part_id: matchedPart.id,
+      movement_type: 'decrease',
+      quantity_delta: -1,
+      quantity_before: currentStock,
+      quantity_after: newStock,
+      reason: `Customer Sale (Order #${record.order_id} via PhonePe)`,
+      reference_id: record.merchant_transaction_id,
+    })
+
+    // Low-stock alert notification if at or below threshold
+    if (newStock <= threshold && accountId) {
+      try {
+        const { data: acc } = await db
+          .from('accounts')
+          .select('owner_user_id')
+          .eq('id', accountId)
+          .maybeSingle()
+
+        const targetUserId = acc?.owner_user_id
+        if (targetUserId) {
+          await db.from('notifications').insert({
+            account_id: accountId,
+            user_id: targetUserId,
+            type: 'conversation_assigned',
+            title: `⚠️ Low Stock Alert: ${matchedPart.part_name}`,
+            body: `Stock for ${matchedPart.part_name} is down to ${newStock} unit(s) remaining (threshold: ${threshold}). Restock recommended.`,
+            created_at: new Date().toISOString(),
+          })
+        }
+      } catch (notifErr) {
+        console.warn('[PhonePe] Low stock notification insert skipped:', notifErr)
+      }
+    }
+
+    return {
+      partId: matchedPart.id,
+      deducted: true,
+      remainingStock: newStock,
+    }
+  } catch (err) {
+    console.warn('[PhonePe] deductStockForPaidOrder error:', err)
+    return { deducted: false }
+  }
 }
 
 /**
@@ -417,18 +556,40 @@ export async function sendWhatsAppPaymentConfirmation(record: PaymentLinkRecord)
   }
 
   const amtFormatted = `₹${record.amount.toFixed(2)}`
+  const dateFormatted = record.paid_at
+    ? new Date(record.paid_at).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : new Date().toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+
   const confirmationText =
-    `✅ *Payment Received — Best Auto Parts* 🏍️\n` +
+    `✅ *PAYMENT RECEIPT — BEST AUTO PARTS* 🏍️\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `• Order ID: #${record.order_id}\n` +
-    `• Item: ${record.part_details}\n` +
-    `• Amount Paid: ${amtFormatted}\n` +
-    `• Payment Mode: ${record.payment_mode || 'UPI'}\n` +
-    `• PhonePe Ref ID: ${record.phonepe_transaction_id || 'VERIFIED'}\n` +
+    `• *Order ID:* #${record.order_id}\n` +
+    `• *Item / Part:* ${record.part_details}\n` +
+    `• *Amount Paid:* ${amtFormatted}\n` +
+    `• *Payment Mode:* ${record.payment_mode || 'PhonePe / UPI'}\n` +
+    `• *PhonePe Ref ID:* ${record.phonepe_transaction_id || 'VERIFIED'}\n` +
+    `• *Date & Time:* ${dateFormatted}\n` +
+    `• *Status:* Confirmed / Paid ✅\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `Aapka payment successfully verify ho gaya hai! Hamari team aapka order process kar rahi hai. 😊\n\n` +
-    `📍 Store: Main Market, Auto Parts Hub\n` +
-    `📞 Contact: Saud Bhai (+91 96347 22174)`
+    `Thank you for your payment! Your transaction is verified and our team is preparing your order for collection / dispatch.\n\n` +
+    `📍 *Store Address:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
+    `📞 *Direct Helpline:* Saud Bhai (+91 96347 22174)`
 
   if (contact?.id && accountId && userId && conversationId) {
     await engineSendText({

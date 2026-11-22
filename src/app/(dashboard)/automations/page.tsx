@@ -43,6 +43,9 @@ import {
 import { AUTOMATION_TEMPLATES, type TemplateSlug } from "@/lib/automations/templates"
 import { triggerMeta, formatRelative, isKnownTrigger } from "@/lib/automations/trigger-meta"
 import { cn } from "@/lib/utils"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { IcebreakersPanel } from "@/components/automations/icebreakers-panel"
+import { Sparkles } from "lucide-react"
 
 const TEMPLATE_ORDER: TemplateSlug[] = [
   "welcome_message",
@@ -179,57 +182,76 @@ export default function AutomationsPage() {
         </GatedButton>
       </div>
 
-      {showTemplates && (
-        <section>
-          <h2 className="mb-3 text-sm font-semibold text-muted-foreground">{t("templatesTitle")}</h2>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {TEMPLATE_ORDER.map((slug) => {
-              const t = AUTOMATION_TEMPLATES[slug]
-              const Icon = TEMPLATE_ICON[slug]
-              return (
-                <button
-                  key={slug}
-                  onClick={() => startFromTemplate(slug)}
-                  className="group flex flex-col items-start rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-card/80"
-                >
-                  <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/15">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <div className="text-sm font-semibold text-foreground">{t.name}</div>
-                  <p className="mt-1 text-xs text-muted-foreground">{t.description}</p>
-                </button>
-              )
-            })}
-          </div>
-        </section>
-      )}
+      <Tabs defaultValue="icebreakers" className="space-y-4">
+        <TabsList className="bg-muted/60 p-1">
+          <TabsTrigger value="icebreakers" className="gap-1.5 text-xs">
+            <Sparkles className="size-3.5 text-emerald-500" />
+            Meta WhatsApp Icebreakers
+          </TabsTrigger>
+          <TabsTrigger value="workflows" className="gap-1.5 text-xs">
+            <Zap className="size-3.5 text-primary" />
+            Custom Workflows ({automations.length})
+          </TabsTrigger>
+        </TabsList>
 
-      {automations.length === 0 ? (
-        <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            <Zap className="h-6 w-6 text-primary" />
-          </div>
-          <p className="mt-3 text-sm font-medium text-foreground">{t("emptyTitle")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("emptyDesc")}
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {automations.map((a) => (
-            <AutomationCard
-              key={a.id}
-              automation={a}
-              onToggle={(next) => toggleActive(a, next)}
-              onEdit={() => router.push(`/automations/${a.id}/edit`)}
-              onDuplicate={() => duplicate(a)}
-              onLogs={() => router.push(`/automations/${a.id}/logs`)}
-              onDelete={() => setPendingDelete(a)}
-              t={t}
-            />
-          ))}
-        </ul>
-      )}
+        <TabsContent value="icebreakers" className="space-y-4 mt-0">
+          <IcebreakersPanel />
+        </TabsContent>
+
+        <TabsContent value="workflows" className="space-y-6 mt-0">
+          {showTemplates && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold text-muted-foreground">{t("templatesTitle")}</h2>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {TEMPLATE_ORDER.map((slug) => {
+                  const t = AUTOMATION_TEMPLATES[slug]
+                  const Icon = TEMPLATE_ICON[slug]
+                  return (
+                    <button
+                      key={slug}
+                      onClick={() => startFromTemplate(slug)}
+                      className="group flex flex-col items-start rounded-xl border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-card/80"
+                    >
+                      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/15">
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <div className="text-sm font-semibold text-foreground">{t.name}</div>
+                      <p className="mt-1 text-xs text-muted-foreground">{t.description}</p>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {automations.length === 0 ? (
+            <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                <Zap className="h-6 w-6 text-primary" />
+              </div>
+              <p className="mt-3 text-sm font-medium text-foreground">{t("emptyTitle")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("emptyDesc")}
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {automations.map((a) => (
+                <AutomationCard
+                  key={a.id}
+                  automation={a}
+                  onToggle={(next) => toggleActive(a, next)}
+                  onEdit={() => router.push(`/automations/${a.id}/edit`)}
+                  onDuplicate={() => duplicate(a)}
+                  onLogs={() => router.push(`/automations/${a.id}/logs`)}
+                  onDelete={() => setPendingDelete(a)}
+                  t={t}
+                />
+              ))}
+            </ul>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!pendingDelete} onOpenChange={(v) => !v && setPendingDelete(null)}>
         <DialogContent>

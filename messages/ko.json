@@ -43,7 +43,8 @@
     "menuProfile": "프로필",
     "menuSettings": "설정",
     "menuSignOut": "로그아웃",
-    "payments": "결제"
+    "payments": "결제",
+    "orders": "주문 내역"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -51,9 +52,13 @@
     "notifications": "알림",
     "contacts": "연락처",
     "inventory": "부품 재고 관리",
+    "payments": "결제",
+    "orders": "주문 내역",
     "pipelines": "파이프라인",
     "broadcasts": "브로드캐스트",
     "automations": "자동화",
+    "flows": "플로우",
+    "aiAgents": "AI 상담원",
     "settings": "설정",
     "openMenu": "메뉴 열기",
     "openAccountMenu": "계정 메뉴 열기",
