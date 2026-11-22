@@ -295,16 +295,23 @@ export async function dispatchInboundToAiReply(
 
     if (isInventoryInquiry && typeof engineSendInteractiveButtons === 'function') {
       try {
+        const custLang = await getContactLanguage(db, accountId, contactId).catch(() => null)
+        const isHinglish = custLang === 'hinglish'
         await engineSendInteractiveButtons({
           accountId,
           userId: configOwnerUserId,
           conversationId,
           contactId,
           bodyText: sanitizeCustomerStockPrivacy(text),
-          buttons: [
-            { id: 'BUY_NOW', title: 'Buy Now' },
-            { id: 'BUY_EXPLORING', title: 'Just Exploring' },
-          ],
+          buttons: isHinglish
+            ? [
+                { id: 'BUY_NOW', title: 'Kharidna Hai' },
+                { id: 'BUY_EXPLORING', title: 'Abhi Dekh Raha Hoon' },
+              ]
+            : [
+                { id: 'BUY_NOW', title: 'Buy Now' },
+                { id: 'BUY_EXPLORING', title: 'Just Exploring' },
+              ],
         })
         return
       } catch (btnErr) {

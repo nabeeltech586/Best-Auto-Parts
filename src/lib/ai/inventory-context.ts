@@ -101,7 +101,8 @@ export function extractInventoryKeywords(
   customerText: string,
   history: ChatMessage[] = [],
 ): ExtractedInventoryQuery {
-  const raw = customerText.trim();
+  const normalizedDashes = (customerText || '').replace(/[\u2010-\u2015\u2212]/g, ' - ');
+  const raw = normalizedDashes.trim();
   const normalized = raw.toLowerCase();
 
   // Combine latest user text with previous user messages if short

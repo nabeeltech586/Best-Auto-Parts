@@ -8,6 +8,7 @@ import {
   WELCOME_CALLBACKS,
   isLanguageChangeRequest,
   verifyDeliveryArea,
+  clearContactLanguageCache,
 } from './welcome-flow'
 import { createFakeDb } from '@/lib/flows/fake-db.test-helper'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
@@ -51,6 +52,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
   const conversationId = 'conv-test-012'
 
   beforeEach(() => {
+    clearContactLanguageCache()
     sentButtons.length = 0
     sentLists.length = 0
     sentTexts.length = 0
@@ -1288,5 +1290,354 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     // Order in DB MUST still be pending!
     const { data: orders } = await (db as any).from('orders').select('*')
     expect(orders[0].order_status).toBe('pending_payment')
+  })
+
+  // ------------------------------------------------------------
+  // Test 36: Typed Language Selection (Hinglish, hindi, 2, English, 1)
+  // ------------------------------------------------------------
+  it('36. Typed language selection: supports Hinglish, hindi, 2, English, 1', async () => {
+    // 36a: Typed "Hinglish"
+    const db1 = createFakeDb({
+      contacts: [{ id: 'c-typed-1', account_id: accountId, preferred_language: null }],
+    })
+    const res1 = await handleWelcomeFlowInbound({
+      db: db1 as any,
+      accountId,
+      userId,
+      conversationId: 'conv-1',
+      contactId: 'c-typed-1',
+      inboundText: 'Hinglish',
+    })
+    expect(res1.consumed).toBe(true)
+    expect(res1.responseSent).toContain('Aapne Hinglish select kiya hai')
+    expect(await getContactLanguage(db1 as any, accountId, 'c-typed-1')).toBe('hinglish')
+
+    // 36b: Typed "hindi"
+    const db2 = createFakeDb({
+      contacts: [{ id: 'c-typed-2', account_id: accountId, preferred_language: null }],
+    })
+    const res2 = await handleWelcomeFlowInbound({
+      db: db2 as any,
+      accountId,
+      userId,
+      conversationId: 'conv-2',
+      contactId: 'c-typed-2',
+      inboundText: 'hindi',
+    })
+    expect(res2.consumed).toBe(true)
+    expect(res2.responseSent).toContain('Aapne Hinglish select kiya hai')
+    expect(await getContactLanguage(db2 as any, accountId, 'c-typed-2')).toBe('hinglish')
+
+    // 36c: Typed "2"
+    const db3 = createFakeDb({
+      contacts: [{ id: 'c-typed-3', account_id: accountId, preferred_language: null }],
+    })
+    const res3 = await handleWelcomeFlowInbound({
+      db: db3 as any,
+      accountId,
+      userId,
+      conversationId: 'conv-3',
+      contactId: 'c-typed-3',
+      inboundText: '2',
+    })
+    expect(res3.consumed).toBe(true)
+    expect(res3.responseSent).toContain('Aapne Hinglish select kiya hai')
+    expect(await getContactLanguage(db3 as any, accountId, 'c-typed-3')).toBe('hinglish')
+
+    // 36d: Typed "English"
+    const db4 = createFakeDb({
+      contacts: [{ id: 'c-typed-4', account_id: accountId, preferred_language: null }],
+    })
+    const res4 = await handleWelcomeFlowInbound({
+      db: db4 as any,
+      accountId,
+      userId,
+      conversationId: 'conv-4',
+      contactId: 'c-typed-4',
+      inboundText: 'English',
+    })
+    expect(res4.consumed).toBe(true)
+    expect(res4.responseSent).toContain('You have selected English')
+    expect(await getContactLanguage(db4 as any, accountId, 'c-typed-4')).toBe('en')
+
+    // 36e: Typed "1"
+    const db5 = createFakeDb({
+      contacts: [{ id: 'c-typed-5', account_id: accountId, preferred_language: null }],
+    })
+    const res5 = await handleWelcomeFlowInbound({
+      db: db5 as any,
+      accountId,
+      userId,
+      conversationId: 'conv-5',
+      contactId: 'c-typed-5',
+      inboundText: '1',
+    })
+    expect(res5.consumed).toBe(true)
+    expect(res5.responseSent).toContain('You have selected English')
+    expect(await getContactLanguage(db5 as any, accountId, 'c-typed-5')).toBe('en')
+  })
+
+  // ------------------------------------------------------------
+  // Test 37: Language retention across turns in unmigrated environment
+  // ------------------------------------------------------------
+  it('37. Language retention: preserves Hinglish preference without preferred_language column', async () => {
+    // DB without preferred_language column (migration 061 not run)
+    const db = createFakeDb({
+      contacts: [{ id: 'c-unmigrated', account_id: accountId }],
+      tags: [],
+      contact_tags: [],
+    })
+
+    // Customer selects Hinglish
+    await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-unmigrated',
+      contactId: 'c-unmigrated',
+      inboundText: '',
+      interactiveReplyId: WELCOME_CALLBACKS.LANG_HINGLISH,
+    })
+
+    // Turn 2: Customer greets again
+    const resTurn2 = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-unmigrated',
+      contactId: 'c-unmigrated',
+      inboundText: 'Hi',
+    })
+
+    expect(resTurn2.consumed).toBe(true)
+    expect(resTurn2.responseSent).toContain('Best Auto Parts mein aapka phir se swagat hai')
+  })
+
+  // ------------------------------------------------------------
+  // Test 38-44: Product Search across all 7 variations (Known Issue 2)
+  // ------------------------------------------------------------
+  it('38. Product Search Variation 1: "Bajaj Pulsar 150 – Clutch Plate" (with en dash) in Hinglish', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-1', account_id: accountId, preferred_language: 'hinglish' }],
+      parts_catalog: [
+        {
+          id: 'p-1',
+          account_id: accountId,
+          part_name: 'Pulsar 150 Clutch Plate Set (5 Pcs)',
+          brand: 'Bajaj',
+          selling_price: 690,
+          quantity_in_stock: 15,
+          is_active: true,
+        },
+      ],
+      vehicle_fitment: [],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-1',
+      contactId: 'c-search-1',
+      inboundText: 'Bajaj Pulsar 150 – Clutch Plate',
+    })
+
+    expect(res.consumed).toBe(true)
+    expect(sentButtons.length).toBe(1)
+    const call = sentButtons[0]
+    expect(call.bodyText).toContain('Bajaj Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('Shop par available hai (In Stock)')
+    expect(call.bodyText).toContain('₹690.00')
+    expect(call.bodyText).not.toMatch(/\b(15|10|5)\s*(units|pieces|in stock)\b/i) // Stock privacy
+    expect(call.buttons).toEqual([
+      { id: 'BUY_NOW', title: 'Kharidna Hai' },
+      { id: 'BUY_EXPLORING', title: 'Abhi Dekh Raha Hoon' },
+    ])
+  })
+
+  it('39. Product Search Variation 2: "Bajaj Pulsar 150 - Clutch Plate" (with hyphen) in Hinglish', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-2', account_id: accountId, preferred_language: 'hinglish' }],
+      parts_catalog: [],
+      vehicle_fitment: [],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-2',
+      contactId: 'c-search-2',
+      inboundText: 'Bajaj Pulsar 150 - Clutch Plate',
+    })
+
+    expect(res.consumed).toBe(true)
+    const call = sentButtons[sentButtons.length - 1]
+    expect(call.bodyText).toContain('Bajaj Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('₹690.00')
+    expect(call.buttons).toEqual([
+      { id: 'BUY_NOW', title: 'Kharidna Hai' },
+      { id: 'BUY_EXPLORING', title: 'Abhi Dekh Raha Hoon' },
+    ])
+  })
+
+  it('40. Product Search Variation 3: "Bajaj Pulsar 150 clutch plate" in Hinglish', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-3', account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-3',
+      contactId: 'c-search-3',
+      inboundText: 'Bajaj Pulsar 150 clutch plate',
+    })
+
+    expect(res.consumed).toBe(true)
+    const call = sentButtons[sentButtons.length - 1]
+    expect(call.bodyText).toContain('Bajaj Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('₹690.00')
+  })
+
+  it('41. Product Search Variation 4: "Pulsar 150 clutch plate" in Hinglish', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-4', account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-4',
+      contactId: 'c-search-4',
+      inboundText: 'Pulsar 150 clutch plate',
+    })
+
+    expect(res.consumed).toBe(true)
+    const call = sentButtons[sentButtons.length - 1]
+    expect(call.bodyText).toContain('Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('₹690.00')
+  })
+
+  it('42. Product Search Variation 5: "Pulsar 150 ki clutch plate chahiye" in Hinglish', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-5', account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-5',
+      contactId: 'c-search-5',
+      inboundText: 'Pulsar 150 ki clutch plate chahiye',
+    })
+
+    expect(res.consumed).toBe(true)
+    const call = sentButtons[sentButtons.length - 1]
+    expect(call.bodyText).toContain('Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('₹690.00')
+  })
+
+  it('43. Product Search Variation 6: "Bajaj Pulsar 150 ka clutch plate" in Hinglish', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-6', account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-6',
+      contactId: 'c-search-6',
+      inboundText: 'Bajaj Pulsar 150 ka clutch plate',
+    })
+
+    expect(res.consumed).toBe(true)
+    const call = sentButtons[sentButtons.length - 1]
+    expect(call.bodyText).toContain('Bajaj Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('₹690.00')
+  })
+
+  it('44. Product Search Variation 7: "Clutch plate for Pulsar 150" in English', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-search-7', account_id: accountId, preferred_language: 'en' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-search-7',
+      contactId: 'c-search-7',
+      inboundText: 'Clutch plate for Pulsar 150',
+    })
+
+    expect(res.consumed).toBe(true)
+    const call = sentButtons[sentButtons.length - 1]
+    expect(call.bodyText).toContain('Pulsar 150 Clutch Plate Set')
+    expect(call.bodyText).toContain('In Stock (Available at shop)')
+    expect(call.bodyText).toContain('₹690.00')
+    expect(call.buttons).toEqual([
+      { id: 'BUY_NOW', title: 'Buy Now' },
+      { id: 'BUY_EXPLORING', title: 'Just Exploring' },
+    ])
+  })
+
+  // ------------------------------------------------------------
+  // Test 45: Product search -> Click BUY_NOW -> Shows Store Pickup, Home Delivery, Online Payment
+  // ------------------------------------------------------------
+  it('45. End-to-end: Product search -> BUY_NOW -> Online Payment -> PhonePe choices', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: 'c-e2e', account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    // Step 1: Customer searches for part
+    const resSearch = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-e2e',
+      contactId: 'c-e2e',
+      inboundText: 'Bajaj Pulsar 150 – Clutch Plate',
+    })
+    expect(resSearch.consumed).toBe(true)
+
+    // Step 2: Customer taps BUY_NOW (Kharidna Hai)
+    const resBuy = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-e2e',
+      contactId: 'c-e2e',
+      inboundText: '',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_NOW,
+    })
+    expect(resBuy.consumed).toBe(true)
+    const buyCall = sentButtons[sentButtons.length - 1]
+    expect(buyCall.buttons).toEqual([
+      { id: 'BUY_PICKUP', title: 'Store Pickup' },
+      { id: 'BUY_DELIVERY', title: 'Home Delivery' },
+      { id: 'BUY_ONLINE_PAY', title: 'Online Payment' },
+    ])
+
+    // Step 3: Customer taps Online Payment
+    const resPay = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: 'conv-e2e',
+      contactId: 'c-e2e',
+      inboundText: '',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_ONLINE_PAY,
+    })
+    expect(resPay.consumed).toBe(true)
+    const payCall = sentButtons[sentButtons.length - 1]
+    expect(payCall.buttons).toEqual([
+      { id: 'PAY_UPI_ID', title: 'UPI ID Payment' },
+      { id: 'PAY_SCAN_QR', title: 'Scan QR Code' },
+    ])
   })
 })

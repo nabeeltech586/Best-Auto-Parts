@@ -68,6 +68,39 @@ export function createFakeDb(tables: FakeTables, failingTables: ReadonlySet<stri
         if (operator === "eq") filters.push((r) => readColumn(r, column) === value);
         return builder;
       },
+      or: (expr?: string) => {
+        if (expr) {
+          const clauses = expr.split(',');
+          filters.push((r) => {
+            return clauses.some((clause) => {
+              const match = clause.match(/^([^.]+)\.ilike\.%(.*)%$/);
+              if (!match) return true;
+              const [, col, term] = match;
+              const val = String(readColumn(r, col) ?? '').toLowerCase();
+              return val.includes(term.toLowerCase());
+            });
+          });
+        }
+        return builder;
+      },
+      ilike: (col: string, val: string) => {
+        const clean = val.replace(/^%|%$/g, '').toLowerCase();
+        filters.push((r) => String(readColumn(r, col) ?? '').toLowerCase().includes(clean));
+        return builder;
+      },
+      gt: (col: string, val: unknown) => {
+        filters.push((r) => ((readColumn(r, col) as number) ?? 0) > ((val as number) ?? 0));
+        return builder;
+      },
+      gte: (col: string, val: unknown) => {
+        filters.push((r) => ((readColumn(r, col) as number) ?? 0) >= ((val as number) ?? 0));
+        return builder;
+      },
+      single: async () => {
+        const result = execute();
+        const data = Array.isArray(result.data) ? (result.data[0] ?? null) : null;
+        return { data, error: result.error };
+      },
       order: () => builder,
       limit: (n: number) => {
         limit = n;

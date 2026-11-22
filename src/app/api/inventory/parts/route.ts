@@ -75,10 +75,23 @@ export async function GET(request: Request) {
 
     // Keyword Search
     if (search) {
-      // Searches part_name, sku, oem_number, brand, or category
-      query = query.or(
-        `part_name.ilike.%${search}%,sku.ilike.%${search}%,oem_number.ilike.%${search}%,brand.ilike.%${search}%,category.ilike.%${search}%`,
-      );
+      // Normalize Unicode dashes: en-dash \u2013, em-dash \u2014, minus \u2212, hyphen-like \u2010-\u2015
+      const normalizedSearch = search.replace(/[\u2010-\u2015\u2212]/g, ' ').trim();
+      const sanitized = normalizedSearch.replace(/[-–—/\\,]/g, ' ').trim();
+      const words = sanitized.split(/\s+/).filter((w) => w.length > 0);
+
+      if (words.length <= 1) {
+        query = query.or(
+          `part_name.ilike.%${normalizedSearch}%,sku.ilike.%${normalizedSearch}%,oem_number.ilike.%${normalizedSearch}%,brand.ilike.%${normalizedSearch}%,category.ilike.%${normalizedSearch}%`,
+        );
+      } else {
+        // Multi-token search: all tokens match across brand, part_name, category, sku, oem_number
+        for (const word of words) {
+          query = query.or(
+            `part_name.ilike.%${word}%,sku.ilike.%${word}%,oem_number.ilike.%${word}%,brand.ilike.%${word}%,category.ilike.%${word}%`,
+          );
+        }
+      }
     }
 
     // Sorting
