@@ -92,8 +92,12 @@ export function matchReplyId(
   return null;
 }
 
+// Keywords that represent natural product inquiries and must never hijack sentences via substring matching
+export const INVENTORY_INQUIRY_TERMS = new Set(['rate', 'price', 'part', 'parts', 'stock', 'cost'])
+export const APPROVED_FAQ_COMMANDS = new Set(['menu', 'help', 'options'])
+
 /**
- * Case-insensitive contains/exact match against a list of keywords.
+ * Case-insensitive contains/exact/command match against a list of keywords.
  * Used by the trigger evaluator. Stable enough that the v3 builder
  * UI can preview matches by passing canned strings.
  */
@@ -103,11 +107,34 @@ export function matchesKeywordTrigger(
 ): boolean {
   if (!text || !cfg.keywords?.length) return false;
   const matchType = cfg.match_type ?? "contains";
-  const haystack = cfg.case_sensitive ? text : text.toLowerCase();
+  const trimmed = text.trim();
+  const haystack = cfg.case_sensitive ? trimmed : trimmed.toLowerCase();
+  const cleanCommand = haystack.replace(/^[/#!\s]+/, "").replace(/[?!.\s]+$/, "").trim();
+
   for (const raw of cfg.keywords) {
     if (!raw) continue;
-    const needle = cfg.case_sensitive ? raw : raw.toLowerCase();
-    if (matchType === "exact" ? haystack === needle : haystack.includes(needle)) {
+    const needle = cfg.case_sensitive ? raw.trim() : raw.trim().toLowerCase();
+
+    // Command match (e.g. "menu", "/menu", "help", "/help", "options", "/options")
+    if (matchType === "command") {
+      if (cleanCommand === needle) return true;
+      continue;
+    }
+
+    if (matchType === "exact") {
+      if (haystack === needle) return true;
+      continue;
+    }
+
+    // Unsafe substring terms (rate, price, part, etc.) should NEVER match inside a sentence:
+    // They only match if the customer literally typed that single token as an exact message.
+    if (INVENTORY_INQUIRY_TERMS.has(needle)) {
+      if (cleanCommand === needle) return true;
+      continue;
+    }
+
+    // Default contains match for other non-inquiry keywords
+    if (haystack.includes(needle)) {
       return true;
     }
   }

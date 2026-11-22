@@ -868,24 +868,26 @@ async function processMessage(
       automationTriggers.push('interactive_reply')
     }
   }
-  // new_contact_created fires only when the webhook just auto-created the
-  // contact row. first_inbound_message fires whenever this is the contact's
-  // first-ever customer-sent message — a superset that also catches
-  // manually-imported contacts sending for the first time. We dispatch both
-  // so users can pick whichever semantic they want; an automation that
-  // listens to only one trigger runs only when that trigger matches.
+  // Relationship triggers:
+  // new_contact_created fires only when the webhook just auto-created the contact row.
+  // first_inbound_message fires whenever this is the contact's first customer-sent message.
+  // Suppress first_inbound_message if a Flow already greeted and consumed the message (e.g. user typed a command like menu).
   if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
-  if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
+  if (isFirstInboundMessage && !flowConsumed) automationTriggers.unshift('first_inbound_message')
+
   // Awaited — not fire-and-forget. We're inside the route's `after()`
   // block, which only keeps the function alive for promises it can see, so
-  // a detached dispatch can be frozen part-way through: the log row is
-  // inserted, then the steps never run. That is issue #301's failure mode
-  // recurring one level down, and it's what issue #409 reported as runs
-  // logging zero steps. `runAutomationsForTrigger` owns its own try/catch
-  // and never throws; the `.catch` is belt-and-braces so one trigger
-  // type's failure can't skip the rest of the loop.
+  // a detached dispatch can be frozen part-way through.
+  let automationSentMessage = false
   for (const triggerType of automationTriggers) {
-    await runAutomationsForTrigger({
+    // If an earlier automation already sent an outbound reply for this inbound
+    // (e.g. Welcome Message on first_inbound_message), skip subsequent competing message triggers
+    // to prevent duplicate welcome / out-of-office collisions on a single inbound.
+    if (automationSentMessage && (triggerType === 'new_message_received' || triggerType === 'first_inbound_message')) {
+      continue
+    }
+
+    const outcome = await runAutomationsForTrigger({
       accountId,
       triggerType,
       contactId: contactRecord.id,
@@ -896,15 +898,20 @@ async function processMessage(
         // trigger's exact-id match.
         interactive_reply_id: interactiveReplyId ?? undefined,
       },
-    }).catch((err) => console.error('[automations] dispatch failed:', err))
+    }).catch((err) => {
+      console.error('[automations] dispatch failed:', err)
+      return null
+    })
+
+    if (outcome && outcome.sentMessageCount > 0) {
+      automationSentMessage = true
+    }
   }
 
   // AI auto-reply. Runs only for plain-text inbound the deterministic
-  // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
-  // eligibility gates + try/catch and never throws.
-  if (!contentConsumed && !interactiveReplyId && inboundText.trim()) {
+  // flow runner did NOT consume (flows win over the LLM), no automation
+  // already sent an outbound reply for this turn, and only when the account has enabled it.
+  if (!contentConsumed && !interactiveReplyId && inboundText.trim() && !automationSentMessage) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
@@ -913,6 +920,7 @@ async function processMessage(
       // Lets the bot show "typing…" (and mark the message read) while
       // the reply is generated.
       inboundMessageId: message.id,
+      automationReplied: automationSentMessage,
     })
   }
 

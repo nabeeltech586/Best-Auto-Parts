@@ -26,6 +26,7 @@ import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
 import { getT } from '@/lib/i18n/translate'
 import { isWithinTimeWindow } from './time-of-day'
+import { hasInventoryIntent } from '@/lib/ai/inventory-context'
 
 /** Step errors land in automation_logs and are shown on the logs page. */
 const tErr = getT('LibErrors.engine')
@@ -69,7 +70,18 @@ export interface DispatchInput {
  * All errors are caught and logged; per-automation failures are
  * recorded into automation_logs with status='failed'.
  */
-export async function runAutomationsForTrigger(input: DispatchInput): Promise<void> {
+export interface RunAutomationsResult {
+  executedCount: number
+  sentMessageCount: number
+  matchedAutomationIds: string[]
+}
+
+export async function runAutomationsForTrigger(input: DispatchInput): Promise<RunAutomationsResult> {
+  const result: RunAutomationsResult = {
+    executedCount: 0,
+    sentMessageCount: 0,
+    matchedAutomationIds: [],
+  }
   try {
     const db = supabaseAdmin()
 
@@ -89,11 +101,11 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
         .maybeSingle()
       if (ownErr) {
         console.error('[automations] contact ownership check failed:', ownErr)
-        return
+        return result
       }
       if (!owned) {
         console.warn('[automations] contact not in account, refusing dispatch', input.contactId)
-        return
+        return result
       }
     }
 
@@ -112,14 +124,14 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
         .maybeSingle()
       if (convErr) {
         console.error('[automations] conversation ownership check failed:', convErr)
-        return
+        return result
       }
       if (!conv) {
         console.warn(
           '[automations] conversation not in account, refusing dispatch',
           input.context.conversation_id,
         )
-        return
+        return result
       }
     }
 
@@ -132,14 +144,19 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
 
     if (error) {
       console.error('[automations] fetch failed:', error)
-      return
+      return result
     }
-    if (!automations || automations.length === 0) return
+    if (!automations || automations.length === 0) return result
 
     for (const automation of automations as Automation[]) {
       if (!triggerMatches(automation, input.context)) continue
+      result.matchedAutomationIds.push(automation.id)
       try {
-        await executeAutomation(automation, input)
+        const outcome = await executeAutomation(automation, input)
+        result.executedCount++
+        if (outcome?.sentMessage) {
+          result.sentMessageCount++
+        }
       } catch (err) {
         console.error('[automations] execute failed:', automation.id, err)
       }
@@ -147,6 +164,7 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
   } catch (err) {
     console.error('[automations] dispatch failed:', err)
   }
+  return result
 }
 
 /**
@@ -417,8 +435,12 @@ export async function requeueStalledExecutions(now: Date = new Date()): Promise<
 // Internal execution
 // ------------------------------------------------------------
 
-async function executeAutomation(automation: Automation, input: DispatchInput) {
+async function executeAutomation(
+  automation: Automation,
+  input: DispatchInput,
+): Promise<{ sentMessage: boolean }> {
   const db = supabaseAdmin()
+  const sentTracker = { sent: false }
 
   const { data: log, error: logErr } = await db
     .from('automation_logs')
@@ -448,7 +470,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
 
   if (logErr || !log) {
     console.error('[automations] cannot create log:', logErr)
-    return
+    return { sentMessage: false }
   }
 
   await executeStepsFrom({
@@ -460,6 +482,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
     startPosition: 0,
     logId: log.id,
     triggerEvent: input.triggerType,
+    sentTracker,
   })
 
   // Atomic counter update via the SQL function from migration 007.
@@ -472,6 +495,8 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
   if (rpcErr) {
     console.error('[automations] increment counter failed:', rpcErr)
   }
+
+  return { sentMessage: sentTracker.sent }
 }
 
 interface ExecuteArgs {
@@ -483,6 +508,7 @@ interface ExecuteArgs {
   startPosition: number
   logId: string | null
   triggerEvent: string
+  sentTracker?: { sent: boolean }
 }
 
 /**
@@ -583,6 +609,7 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<ScopeOutcome> {
           branch: taken ? 'yes' : 'no',
           startPosition: 0,
           logId: args.logId,
+          sentTracker: args.sentTracker,
         })
         // The branch parked: stop here too. The steps after this
         // condition run when the branch resumes and climbs back out
@@ -732,6 +759,44 @@ async function parkForReply(step: AutomationStep, args: ExecuteArgs): Promise<vo
   if (error) throw new Error(tErr('parkForReplyFailed', { message: error.message }))
 }
 
+export async function resolveOrCreateNewLeadTag(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  userId: string,
+): Promise<string> {
+  const { data: existing } = await db
+    .from('tags')
+    .select('id')
+    .eq('account_id', accountId)
+    .ilike('name', 'New Lead')
+    .maybeSingle()
+
+  if (existing?.id) return existing.id
+
+  const { data: created, error } = await db
+    .from('tags')
+    .insert({
+      account_id: accountId,
+      user_id: userId,
+      name: 'New Lead',
+      color: '#3b82f6',
+    })
+    .select('id')
+    .maybeSingle()
+
+  if (created?.id) return created.id
+
+  const { data: fallback } = await db
+    .from('tags')
+    .select('id')
+    .eq('account_id', accountId)
+    .ilike('name', 'New Lead')
+    .maybeSingle()
+
+  if (fallback?.id) return fallback.id
+  throw new Error(`Failed to resolve or create New Lead tag: ${error?.message}`)
+}
+
 async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string> {
   const db = supabaseAdmin()
 
@@ -749,6 +814,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         text,
       })
+      if (args.sentTracker) args.sentTracker.sent = true
       return `sent via Meta (${whatsapp_message_id})`
     }
 
@@ -769,6 +835,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         payload,
       })
+      if (args.sentTracker) args.sentTracker.sent = true
       return `interactive sent via Meta (${whatsapp_message_id})`
     }
 
@@ -804,18 +871,48 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         language: cfg.language,
         params,
       })
+      if (args.sentTracker) args.sentTracker.sent = true
       return `template sent via Meta (${whatsapp_message_id})`
     }
 
     case 'add_tag': {
-      const cfg = step.step_config as TagStepConfig
-      if (!args.contactId || !cfg.tag_id) throw new Error(tErr('needsContactAndTag', { step: 'add_tag' }))
+      const cfg = step.step_config as TagStepConfig & { tag_name?: string }
+      if (!args.contactId) throw new Error(tErr('needsContactAndTag', { step: 'add_tag' }))
+
+      let targetTagId = cfg.tag_id
+
+      // Fix Five: Guard against misclassifying ordinary first contact as "Special Order"
+      if (args.automation.trigger_type === 'first_inbound_message') {
+        if (targetTagId) {
+          const { data: tagRow } = await db
+            .from('tags')
+            .select('name')
+            .eq('id', targetTagId)
+            .maybeSingle()
+          if (tagRow?.name?.toLowerCase() === 'special order') {
+            targetTagId = await resolveOrCreateNewLeadTag(
+              db,
+              args.automation.account_id,
+              args.automation.user_id,
+            )
+          }
+        } else if (cfg.tag_name) {
+          targetTagId = await resolveOrCreateNewLeadTag(
+            db,
+            args.automation.account_id,
+            args.automation.user_id,
+          )
+        }
+      }
+
+      if (!targetTagId) throw new Error(tErr('needsContactAndTag', { step: 'add_tag' }))
+
       const added = await addContactTagIfAbsent(db, {
         accountId: args.automation.account_id,
         contactId: args.contactId,
-        tagId: cfg.tag_id,
+        tagId: targetTagId,
       })
-      if (!added) return `tag ${cfg.tag_id} already present`
+      if (!added) return `tag ${targetTagId} already present`
 
       const depth = getTagChainDepth(args.context)
       if (depth >= MAX_TAG_CHAIN_DEPTH) {
@@ -1123,6 +1220,34 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
   return true
 }
 
+/**
+ * Detect whether an automation is specifically the customer-facing Out-of-Office
+ * auto-responder (which sends closed-store replies to customers during off-hours).
+ */
+export function isOutOfOfficeAutomation(
+  automation?: Automation | { id?: string; name?: string; trigger_type?: string } | null,
+): boolean {
+  if (!automation) return false
+
+  // Known production Out-of-Office UUID
+  if (automation.id === 'cfd5fead-fe4f-4d04-8b6f-c1f0380c8501') return true
+
+  if (automation.trigger_type !== 'new_message_received') return false
+
+  const name = (automation.name ?? '').trim().toLowerCase()
+  // Must explicitly be an Out of Office auto-responder
+  const isOooName = name.includes('out of office')
+  // Exclude internal non-messaging automations (tagging, webhooks, alerts, sync)
+  const isInternal =
+    name.includes('tag') ||
+    name.includes('webhook') ||
+    name.includes('sync') ||
+    name.includes('internal') ||
+    name.includes('alert')
+
+  return isOooName && !isInternal
+}
+
 async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
   switch (cfg.subject) {
@@ -1157,8 +1282,58 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
       const text = (args.context.message_text ?? '').toString()
       return text.toLowerCase().includes(needle)
     }
-    case 'time_of_day':
-      return isWithinTimeWindow(cfg.operand, new Date(), cfg.timezone)
+    case 'time_of_day': {
+      const inWindow = isWithinTimeWindow(cfg.operand, new Date(), cfg.timezone)
+      if (!inWindow) return false
+
+      // Precision inventory bypass: applies ONLY to the customer-facing Out-of-Office auto-responder.
+      // Unrelated time-based automations (tagging, webhooks, internal alerts, etc.) are NEVER bypassed.
+      if (isOutOfOfficeAutomation(args.automation)) {
+        const messageText = (args.context.message_text ?? '').toString().trim()
+        if (messageText && hasInventoryIntent(messageText)) {
+          let isAiEligible = true
+          if (args.context.conversation_id) {
+            try {
+              const { data: conv } = await db
+                .from('conversations')
+                .select('assigned_agent_id, ai_autoreply_disabled')
+                .eq('id', args.context.conversation_id)
+                .maybeSingle()
+              if (conv?.assigned_agent_id || conv?.ai_autoreply_disabled) {
+                isAiEligible = false
+              }
+            } catch {
+              // keep default isAiEligible
+            }
+          }
+          if (isAiEligible) {
+            return false
+          }
+        }
+      }
+
+      // Prevent repeated closed-store / out-of-office messages on every incoming message.
+      // Default throttle window for time_of_day is 8 hours (or cfg.throttle_hours).
+      const rawCfg = cfg as unknown as Record<string, unknown>
+      const throttleHours = typeof rawCfg.throttle_hours === 'number'
+        ? (rawCfg.throttle_hours as number)
+        : 8
+      if (throttleHours > 0 && args.contactId && args.automation?.id) {
+        const cutoff = new Date(Date.now() - throttleHours * 60 * 60 * 1000).toISOString()
+        const { count } = await db
+          .from('automation_logs')
+          .select('id', { count: 'exact', head: true })
+          .eq('automation_id', args.automation.id)
+          .eq('contact_id', args.contactId)
+          .eq('status', 'success')
+          .gte('created_at', cutoff)
+
+        if ((count ?? 0) > 0) {
+          return false
+        }
+      }
+      return true
+    }
     default:
       return false
   }

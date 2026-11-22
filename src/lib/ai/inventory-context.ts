@@ -219,6 +219,23 @@ export function extractInventoryKeywords(
 }
 
 /**
+ * Detect whether a customer message has automotive inventory intent
+ * (inquiring about parts, vehicles, brands, SKUs/OEMs, price, or stock).
+ */
+export function hasInventoryIntent(textOrQuery: string | ExtractedInventoryQuery): boolean {
+  const query = typeof textOrQuery === 'string' ? extractInventoryKeywords(textOrQuery) : textOrQuery;
+  return Boolean(
+    query.skuOrOemCandidates.length > 0 ||
+      query.componentKeywords.length > 0 ||
+      query.vehicleCandidates.length > 0 ||
+      query.brandCandidates.length > 0 ||
+      query.isPriceInquiry ||
+      query.isStockInquiry ||
+      query.isFitmentInquiry,
+  );
+}
+
+/**
  * Perform a tenant-isolated database lookup in parts_catalog and vehicle_fitment.
  */
 export async function searchInventoryForAi(
@@ -509,6 +526,9 @@ export function formatInventoryContext(res: InventoryContextResult): string {
   );
   sections.push(
     '6. WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if: (a) the customer explicitly asks to talk to a real person / human agent / manager / owner, (b) the customer is angry, abusive, or filing a serious dispute/complaint, or (c) the customer is negotiating bulk discounts or wholesale credit that cannot be answered from the catalog.',
+  );
+  sections.push(
+    '7. STORE HOURS & OFF-HOURS: Store business hours are Monday–Sunday 9:00 AM – 8:00 PM IST (Friday Juma break: 12:30 PM – 2:30 PM). If responding outside business hours, quote verified stock/prices if available and state that parts are available for in-store pickup when the shop opens at 9:00 AM. If handing off outside business hours, assure the customer that Saud Bhai will follow up once the store opens at 9:00 AM.',
   );
 
   return sections.join('\n');

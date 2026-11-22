@@ -22,9 +22,54 @@ export function minutesInTimeZone(now: Date, timeZone: string): number {
   return hour * 60 + minute
 }
 
+export function dayOfWeekInTimeZone(now: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+  })
+    .format(now)
+    .toLowerCase()
+}
+
 function parseClock(s: string): number {
   const [h, m] = s.split(':').map(Number)
   return (h || 0) * 60 + (m || 0)
+}
+
+const SHORT_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+const FULL_TO_SHORT: Record<string, string> = {
+  sunday: 'sun',
+  monday: 'mon',
+  tuesday: 'tue',
+  wednesday: 'wed',
+  thursday: 'thu',
+  friday: 'fri',
+  saturday: 'sat',
+}
+
+function normalizeDay(d: string): string | null {
+  const clean = d.trim().toLowerCase()
+  if (SHORT_DAYS.includes(clean as (typeof SHORT_DAYS)[number])) return clean
+  return FULL_TO_SHORT[clean] ?? null
+}
+
+function matchesDaySpec(spec: string, currentDay: string): boolean {
+  const rangeParts = spec.split('-')
+  if (rangeParts.length === 2) {
+    const start = normalizeDay(rangeParts[0])
+    const end = normalizeDay(rangeParts[1])
+    if (!start || !end) return false
+    const startIndex = SHORT_DAYS.indexOf(start as (typeof SHORT_DAYS)[number])
+    const endIndex = SHORT_DAYS.indexOf(end as (typeof SHORT_DAYS)[number])
+    const currentIndex = SHORT_DAYS.indexOf(currentDay as (typeof SHORT_DAYS)[number])
+    if (startIndex <= endIndex) {
+      return currentIndex >= startIndex && currentIndex <= endIndex
+    } else {
+      return currentIndex >= startIndex || currentIndex <= endIndex
+    }
+  }
+  const single = normalizeDay(spec)
+  return single ? single === currentDay : false
 }
 
 export function isWithinTimeWindow(
@@ -32,14 +77,44 @@ export function isWithinTimeWindow(
   now: Date,
   timeZone: string | undefined,
 ): boolean {
-  const [from, to] = (window ?? '').split('-')
-  if (!from || !to) return false
+  if (!window || !window.trim()) return false
   const zone = timeZone ?? LEGACY_CONDITION_TIMEZONE
   if (!isValidTimeZone(zone)) return false
-  const mins = minutesInTimeZone(now, zone)
-  const f = parseClock(from)
-  const t = parseClock(to)
-  return f <= t ? mins >= f && mins < t : mins >= f || mins < t
+
+  const currentMins = minutesInTimeZone(now, zone)
+  const currentDay = dayOfWeekInTimeZone(now, zone)
+
+  const segments = window
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  if (segments.length === 0) return false
+
+  for (const segment of segments) {
+    let timeRange = segment
+    let dayConstraint: string | null = null
+
+    const colonMatch = segment.match(/^([a-zA-Z\-]+)[:\s]+(\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2})$/)
+    if (colonMatch) {
+      dayConstraint = colonMatch[1]
+      timeRange = colonMatch[2]
+    }
+
+    if (dayConstraint && !matchesDaySpec(dayConstraint, currentDay)) {
+      continue
+    }
+
+    const [from, to] = timeRange.split('-').map((s) => s.trim())
+    if (!from || !to) continue
+
+    const f = parseClock(from)
+    const t = parseClock(to)
+    const inRange = f <= t ? currentMins >= f && currentMins < t : currentMins >= f || currentMins < t
+    if (inRange) return true
+  }
+
+  return false
 }
 
 export function browserTimeZone(): string {

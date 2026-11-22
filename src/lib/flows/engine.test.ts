@@ -233,6 +233,37 @@ describe("matchesKeywordTrigger", () => {
     expect(matchesKeywordTrigger("support center", cfg)).toBe(true);
     expect(matchesKeywordTrigger("nope", cfg)).toBe(false);
   });
+
+  it("prevents FAQ keyword hijacking on product inquiries while matching explicit commands", () => {
+    const faqConfig = {
+      keywords: ["menu", "help", "options", "rate", "price", "part"],
+      match_type: "command" as const,
+    };
+    // Explicit commands trigger the FAQ flow
+    expect(matchesKeywordTrigger("menu", faqConfig)).toBe(true);
+    expect(matchesKeywordTrigger("/menu", faqConfig)).toBe(true);
+    expect(matchesKeywordTrigger("help", faqConfig)).toBe(true);
+    expect(matchesKeywordTrigger("options", faqConfig)).toBe(true);
+    expect(matchesKeywordTrigger("/options", faqConfig)).toBe(true);
+
+    // Natural product inquiries with rate/price/part do NOT match the FAQ flow
+    expect(matchesKeywordTrigger("Pulsar 150 clutch plate price?", faqConfig)).toBe(false);
+    expect(matchesKeywordTrigger("Bhai rate batao", faqConfig)).toBe(false);
+    expect(matchesKeywordTrigger("Mujhe part chahiye", faqConfig)).toBe(false);
+    expect(matchesKeywordTrigger("Splendor ka chain sprocket mil jayega? Rate kya hai?", faqConfig)).toBe(false);
+  });
+
+  it("prevents inquiry substring terms (rate, price, part) from matching in contains mode", () => {
+    const containsConfig = {
+      keywords: ["menu", "rate", "price", "part"],
+      match_type: "contains" as const,
+    };
+    expect(matchesKeywordTrigger("Pulsar 150 clutch plate price?", containsConfig)).toBe(false);
+    expect(matchesKeywordTrigger("Bhai rate batao", containsConfig)).toBe(false);
+    expect(matchesKeywordTrigger("Mujhe part chahiye", containsConfig)).toBe(false);
+    // Explicit standalone command "rate" matches
+    expect(matchesKeywordTrigger("rate", containsConfig)).toBe(true);
+  });
 });
 
 describe("node classification helpers", () => {

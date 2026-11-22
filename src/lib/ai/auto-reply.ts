@@ -2,7 +2,11 @@ import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
-import { retrieveInventoryContext } from './inventory-context'
+import {
+  retrieveInventoryContext,
+  extractInventoryKeywords,
+  hasInventoryIntent,
+} from './inventory-context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
@@ -14,6 +18,9 @@ import {
 } from '@/lib/flows/meta-send'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { triggerMatches } from '@/lib/automations/engine'
+import { isWithinTimeWindow } from '@/lib/automations/time-of-day'
+import type { Automation, ConditionStepConfig } from '@/types'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -27,6 +34,8 @@ interface DispatchArgs {
    *  a typing indicator (which also marks it read) is shown while the
    *  reply is generated. Optional so older callers keep working. */
   inboundMessageId?: string
+  /** Whether a message-level automation already sent an outbound message for this turn */
+  automationReplied?: boolean
 }
 
 /**
@@ -65,22 +74,8 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
-    // Deterministic, user-configured responders win over the LLM — the
-    // caller already excludes messages a Flow consumed. Message-level
-    // automations (`new_message_received` / `keyword_match`) are
-    // dispatched independently for this same inbound and may send their
-    // own reply, so if the account has any active one we stand down to
-    // avoid double-texting the customer. (Relationship triggers like
-    // `first_inbound_message` don't count — they're not per-message
-    // auto-responders.)
-    const { data: autoResponders } = await db
-      .from('automations')
-      .select('id')
-      .eq('account_id', accountId)
-      .eq('is_active', true)
-      .in('trigger_type', ['new_message_received', 'keyword_match'])
-      .limit(1)
-    if (autoResponders && autoResponders.length > 0) return
+    // If an automation already replied to this inbound, stand down to avoid double-texting
+    if (args.automationReplied) return
 
     const { data: conv, error: convErr } = await db
       .from('conversations')
@@ -90,12 +85,69 @@ export async function dispatchInboundToAiReply(
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return // a human owns this thread
     if (conv.ai_autoreply_disabled) return // handed off / turned off here
-    // Cheap early-out; the authoritative cap check is the atomic claim
-    // below (this read can race a concurrent inbound).
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) return
+
+    // Deterministic, user-configured responders win over the LLM.
+    // Query active message-level automations.
+    const { data: autoResponders } = await db
+      .from('automations')
+      .select('id, name, trigger_type, trigger_config')
+      .eq('account_id', accountId)
+      .eq('is_active', true)
+      .in('trigger_type', ['new_message_received', 'keyword_match'])
+      .limit(10)
+
+    if (autoResponders && autoResponders.length > 0) {
+      const latestText = latestUserMessage(messages).toLowerCase()
+      for (const auto of autoResponders) {
+        if (auto.trigger_type === 'keyword_match') {
+          // If keywords match, this automation will fire, so AI stands down
+          if (triggerMatches(auto as unknown as Automation, { message_text: latestText })) {
+            return
+          }
+        } else if (auto.trigger_type === 'new_message_received') {
+          // Check if this automation has a time_of_day condition (e.g. Out of Office)
+          let steps: { step_type: string; step_config: unknown }[] | null = null
+          try {
+            const res = await db
+              .from('automation_steps')
+              .select('step_type, step_config')
+              .eq('automation_id', auto.id)
+            steps = (res as { data: { step_type: string; step_config: unknown }[] | null }).data
+          } catch {
+            steps = null
+          }
+
+          const timeCondition = steps?.find(
+            (s) =>
+              s.step_type === 'condition' &&
+              (s.step_config as ConditionStepConfig)?.subject === 'time_of_day',
+          )
+
+          if (timeCondition) {
+            const timeCfg = timeCondition.step_config as ConditionStepConfig
+            const inWindow = isWithinTimeWindow(timeCfg.operand, new Date(), timeCfg.timezone)
+            if (inWindow) {
+              // Outside business hours. If customer is asking a verified inventory question,
+              // allow AI to answer with inventory facts! Otherwise stand down for Out of Office.
+              if (!hasInventoryIntent(latestText)) {
+                return
+              }
+            }
+            // During business hours (!inWindow), Out of Office is inactive and does NOT block AI!
+          } else {
+            // Unconditional auto-responder that fires on every message 24/7: stand down
+            return
+          }
+        } else {
+          // Default / unknown message-level auto-responder: stand down
+          return
+        }
+      }
+    }
 
     // Account-wide throttle on the shared BYO key. The per-conversation
     // cap bounds one thread; this bounds a burst across many threads (a

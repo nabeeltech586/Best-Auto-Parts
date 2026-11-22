@@ -76,3 +76,49 @@ describe("time zone helpers", () => {
       .toMatchObject({ timezone: "Asia/Seoul" });
   });
 });
+
+describe("Best Auto Parts — Out of Office Schedule & Boundary Times (Asia/Kolkata)", () => {
+  const schedule = "20:00-09:00, fri:12:30-14:30";
+  const tz = "Asia/Kolkata";
+
+  it("handles all required boundary times accurately in Asia/Kolkata", () => {
+    // Friday: 2026-01-16
+    // 08:59 IST (03:29 UTC) -> Out of office (before 09:00)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T03:29:00Z"), tz)).toBe(true);
+
+    // 09:00 IST (03:30 UTC) -> Open (business hours start)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T03:30:00Z"), tz)).toBe(false);
+
+    // 12:29 IST (06:59 UTC) on Friday -> Open (Juma break starts at 12:30)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T06:59:00Z"), tz)).toBe(false);
+
+    // 12:30 IST (07:00 UTC) on Friday -> Out of office (Juma break active)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T07:00:00Z"), tz)).toBe(true);
+
+    // 14:29 IST (08:59 UTC) on Friday -> Out of office (Juma break active)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T08:59:00Z"), tz)).toBe(true);
+
+    // 14:30 IST (09:00 UTC) on Friday -> Open (Juma break ended)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T09:00:00Z"), tz)).toBe(false);
+
+    // 19:59 IST (14:29 UTC) on Friday -> Open (closing at 20:00)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T14:29:00Z"), tz)).toBe(false);
+
+    // 20:00 IST (14:30 UTC) on Friday -> Out of office (night hours active)
+    expect(isWithinTimeWindow(schedule, at("2026-01-16T14:30:00Z"), tz)).toBe(true);
+
+    // Midnight 00:00 IST (18:30 UTC on 2026-01-15) -> Out of office (midnight handled cleanly)
+    expect(isWithinTimeWindow(schedule, at("2026-01-15T18:30:00Z"), tz)).toBe(true);
+  });
+
+  it("does not apply Friday Juma break on Thursday or other days", () => {
+    // Thursday 12:30 IST (07:00 UTC on 2026-01-15) -> Store is OPEN
+    expect(isWithinTimeWindow(schedule, at("2026-01-15T07:00:00Z"), tz)).toBe(false);
+
+    // Thursday 13:00 IST -> Store is OPEN
+    expect(isWithinTimeWindow(schedule, at("2026-01-15T07:30:00Z"), tz)).toBe(false);
+
+    // Thursday 20:00 IST -> Store is CLOSED (night window)
+    expect(isWithinTimeWindow(schedule, at("2026-01-15T14:30:00Z"), tz)).toBe(true);
+  });
+});
