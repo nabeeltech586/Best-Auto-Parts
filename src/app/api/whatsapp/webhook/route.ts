@@ -21,6 +21,7 @@ import {
 import { readCappedBody } from '@/lib/whatsapp/webhook-body'
 import { resumeAwaitingReply, runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
+import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -780,6 +781,34 @@ async function processMessage(
   // trigger installed in migration 003).
   await flagBroadcastReplyIfAny(accountId, contactRecord.id)
 
+  const inboundText = contentText ?? message.text?.body ?? ''
+
+  // ============================================================
+  // Welcome & Language Flow dispatch.
+  //
+  // Handles:
+  // 1. Language selection & unselected-language gating (first inbound or unselected state)
+  // 2. Welcome flow interactive callbacks (LANG_*, MENU_*, BUY_*, PICKUP_*, DELIVERY_*, ORDER_QTY_*, EXIT_*)
+  // 3. Returning customer greetings in saved language
+  // 4. Language change requests
+  //
+  // If consumed: takes precedence over generic flows, automations, and AI.
+  // ============================================================
+  const welcomeResult = await handleWelcomeFlowInbound({
+    db: supabaseAdmin(),
+    accountId,
+    userId: configOwnerUserId,
+    conversationId: conversation.id,
+    contactId: contactRecord.id,
+    inboundText,
+    interactiveReplyId,
+    isFirstInboundMessage,
+  }).catch((err) => {
+    console.error('[welcome-flow] dispatch error:', err)
+    return { consumed: false }
+  })
+  const welcomeConsumed = welcomeResult.consumed
+
   // ============================================================
   // Flow runner dispatch.
   //
@@ -799,26 +828,28 @@ async function processMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
-  const flowResult = await dispatchInboundToFlows({
-    accountId,
-    userId: configOwnerUserId,
-    contactId: contactRecord.id,
-    conversationId: conversation.id,
-    message:
-      interactiveReplyId
-        ? {
-            kind: 'interactive_reply',
-            reply_id: interactiveReplyId,
-            reply_title: contentText ?? '',
-            meta_message_id: message.id,
-          }
-        : {
-            kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
-            meta_message_id: message.id,
-          },
-    isFirstInboundMessage,
-  })
+  const flowResult = welcomeConsumed
+    ? { consumed: true }
+    : await dispatchInboundToFlows({
+        accountId,
+        userId: configOwnerUserId,
+        contactId: contactRecord.id,
+        conversationId: conversation.id,
+        message:
+          interactiveReplyId
+            ? {
+                kind: 'interactive_reply',
+                reply_id: interactiveReplyId,
+                reply_title: contentText ?? '',
+                meta_message_id: message.id,
+              }
+            : {
+                kind: 'text',
+                text: inboundText,
+                meta_message_id: message.id,
+              },
+        isFirstInboundMessage,
+      })
   const flowConsumed = flowResult.consumed
 
   // Fire any automations that react to this webhook event. All dispatches
@@ -826,7 +857,6 @@ async function processMessage(
   // message all exist before any step — including send_message — runs.
   // Fire-and-forget: a slow or failing automation must not block the
   // webhook's 200 OK response to Meta.
-  const inboundText = contentText ?? message.text?.body ?? ''
 
   // An automation parked at a "wait for reply" Send Buttons / Send List
   // step takes this message as its reply — a tap or typed text — and
@@ -836,7 +866,7 @@ async function processMessage(
   // BEFORE the trigger dispatch so the message that parks a run can
   // never also resume it. Flows still win: only checked if no flow
   // consumed the message. Never throws.
-  const automationConsumed = flowConsumed
+  const automationConsumed = (flowConsumed || welcomeConsumed)
     ? false
     : await resumeAwaitingReply({
         accountId,
@@ -847,7 +877,7 @@ async function processMessage(
           interactive_reply_id: interactiveReplyId ?? undefined,
         },
       })
-  const contentConsumed = flowConsumed || automationConsumed
+  const contentConsumed = flowConsumed || automationConsumed || welcomeConsumed
 
   const automationTriggers: (
     | 'new_contact_created'
@@ -871,14 +901,14 @@ async function processMessage(
   // Relationship triggers:
   // new_contact_created fires only when the webhook just auto-created the contact row.
   // first_inbound_message fires whenever this is the contact's first customer-sent message.
-  // Suppress first_inbound_message if a Flow already greeted and consumed the message (e.g. user typed a command like menu).
+  // Suppress first_inbound_message if a Flow or Welcome Flow already greeted and consumed the message.
   if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
-  if (isFirstInboundMessage && !flowConsumed) automationTriggers.unshift('first_inbound_message')
+  if (isFirstInboundMessage && !flowConsumed && !welcomeConsumed) automationTriggers.unshift('first_inbound_message')
 
   // Awaited — not fire-and-forget. We're inside the route's `after()`
   // block, which only keeps the function alive for promises it can see, so
   // a detached dispatch can be frozen part-way through.
-  let automationSentMessage = false
+  let automationSentMessage = welcomeConsumed
   for (const triggerType of automationTriggers) {
     // If an earlier automation already sent an outbound reply for this inbound
     // (e.g. Welcome Message on first_inbound_message), skip subsequent competing message triggers

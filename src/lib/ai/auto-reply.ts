@@ -7,6 +7,7 @@ import {
   extractInventoryKeywords,
   hasInventoryIntent,
 } from './inventory-context'
+import { sanitizeCustomerStockPrivacy } from './stock-privacy'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
@@ -14,8 +15,10 @@ import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
 import {
   engineSendText,
+  engineSendInteractiveButtons,
   loadAccountMetaCredentials,
 } from '@/lib/flows/meta-send'
+import { getContactLanguage } from '@/lib/whatsapp/welcome-flow'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { triggerMatches } from '@/lib/automations/engine'
@@ -191,8 +194,20 @@ export async function dispatchInboundToAiReply(
       messages,
     )
 
+    const customerLang = await getContactLanguage(db, accountId, contactId)
+    const languageInstruction =
+      customerLang === 'hinglish'
+        ? 'Customer preferred language: Hinglish (Hindi + English mix). Reply in natural, polite Hinglish.'
+        : customerLang === 'en'
+          ? 'Customer preferred language: English. Reply in polite English.'
+          : null
+
+    const effectiveUserPrompt = [config.systemPrompt, languageInstruction]
+      .filter(Boolean)
+      .join('\n\n')
+
     const systemPrompt = buildSystemPrompt({
-      userPrompt: config.systemPrompt,
+      userPrompt: effectiveUserPrompt,
       mode: 'auto_reply',
       knowledge,
       inventoryContext,
@@ -275,12 +290,38 @@ export async function dispatchInboundToAiReply(
     }
     if (claimed !== true) return
 
+    const isInventoryInquiry =
+      typeof hasInventoryIntent === 'function' &&
+      hasInventoryIntent(latestUserMessage(messages))
+
+    if (isInventoryInquiry && typeof engineSendInteractiveButtons === 'function') {
+      try {
+        await engineSendInteractiveButtons({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          bodyText: sanitizeCustomerStockPrivacy(text),
+          buttons: [
+            { id: 'BUY_WANT', title: 'I Want to Buy' },
+            { id: 'BUY_EXPLORING', title: 'Just Exploring' },
+          ],
+        })
+        return
+      } catch (btnErr) {
+        console.warn(
+          '[ai auto-reply] failed sending interactive buttons, falling back to text:',
+          btnErr,
+        )
+      }
+    }
+
     await engineSendText({
       accountId,
       userId: configOwnerUserId,
       conversationId,
       contactId,
-      text,
+      text: sanitizeCustomerStockPrivacy(text),
       aiGenerated: true,
     })
   } catch (err) {

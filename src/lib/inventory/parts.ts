@@ -124,3 +124,6 @@ export function formatCurrency(amount: number, currency = 'USD'): string {
     return `$${amount.toFixed(2)}`;
   }
 }
+
+export { toCustomerSafePart } from '@/lib/ai/stock-privacy';
+export const getPartStockStatus = getStockStatus;

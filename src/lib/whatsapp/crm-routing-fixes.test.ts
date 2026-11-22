@@ -125,7 +125,8 @@ describe('BEST AUTO PARTS WHATSAPP CRM — 20 REGRESSION TESTS', () => {
 
     expect(formatted).toContain('Pulsar 150 Clutch Plate Set (5 Pcs)')
     expect(formatted).toContain('₹690')
-    expect(formatted).toContain('15 units available')
+    expect(formatted).toContain('Availability: AVAILABLE (In Stock)')
+    expect(formatted).not.toContain('15 units available')
     expect(formatted).toContain('DO NOT HAND OFF FOR NORMAL INQUIRIES')
   })
 

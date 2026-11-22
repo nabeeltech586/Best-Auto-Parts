@@ -228,11 +228,13 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
     expect(text).toContain('OEM Number: OEM-BAJ-150');
     expect(text).toContain('Alternate OEMs: ALT-001, ALT-002');
     expect(text).toContain('Selling Price: ₹690.00');
-    expect(text).toContain('IN STOCK (15 units available)');
+    expect(text).toContain('Availability: AVAILABLE (In Stock)');
+    expect(text).not.toContain('15 units available');
+    expect(text).toContain('STRICT STOCK PRIVACY: NEVER disclose exact stock quantities');
     expect(text).toContain('Bajaj Pulsar 150 (2010 - 2023)');
   });
 
-  it('formats OUT OF STOCK accurately and offers in-stock alternatives', () => {
+  it('formats OUT OF STOCK accurately and offers in-stock alternatives without leaking unit counts', () => {
     const mockResult: InventoryContextResult = {
       parts: [
         {
@@ -290,13 +292,15 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
 
     const text = formatInventoryContext(mockResult);
 
-    expect(text).toContain('OUT OF STOCK (0 units available)');
+    expect(text).toContain('Availability: OUT OF STOCK');
+    expect(text).not.toContain('0 units available');
     expect(text).toContain('=== AVAILABLE IN-STOCK ALTERNATIVES IN SAME CATEGORY ===');
     expect(text).toContain('Endurance Front Fork Assembly');
-    expect(text).toContain('Stock: 6 units');
+    expect(text).toContain('Availability: AVAILABLE (In Stock)');
+    expect(text).not.toContain('Stock: 6 units');
   });
 
-  it('formats explicit NO MATCHING INVENTORY message when zero parts match', () => {
+  it('formats explicit UNVERIFIED / NO MATCHING INVENTORY message when zero parts match', () => {
     const mockResult: InventoryContextResult = {
       parts: [],
       alternatives: [],
@@ -307,13 +311,14 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
 
     const text = formatInventoryContext(mockResult);
 
-    expect(text).toContain('NO MATCHING INVENTORY RECORDS FOUND');
-    expect(text).toContain('MANDATORY ASSISTANT INSTRUCTION');
-    expect(text).toContain('State clearly and politely that we do not have this item in stock');
+    expect(text).toContain('UNVERIFIED / NO MATCHING INVENTORY RECORDS FOUND');
+    expect(text).toContain('MANDATORY ASSISTANT INSTRUCTIONS');
+    expect(text).toContain('Politely inform the customer that availability for this part cannot be verified');
+    expect(text).toContain('offer assistance from our team');
   });
 
   it('embeds inventory context properly into buildSystemPrompt', () => {
-    const inventoryContext = 'VERIFIED PART: Brake Pads ₹450 (IN STOCK: 10)';
+    const inventoryContext = 'VERIFIED PART: Brake Pads ₹450 (Availability: AVAILABLE)';
     const prompt = buildSystemPrompt({
       userPrompt: 'You are Best Auto Spare Parts assistant.',
       mode: 'auto_reply',
@@ -321,12 +326,12 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
       inventoryContext,
     });
 
-    expect(prompt).toContain('VERIFIED PART: Brake Pads ₹450 (IN STOCK: 10)');
+    expect(prompt).toContain('VERIFIED PART: Brake Pads ₹450 (Availability: AVAILABLE)');
     expect(prompt).toContain('Store is open 9am to 8pm');
     expect(prompt).toContain('Best Auto Spare Parts assistant');
     expect(prompt).toContain('[[HANDOFF]]');
     expect(prompt).toContain('=== REAL-TIME INVENTORY GROUNDING & AUTHORIZATION ===');
-    expect(prompt).toContain('supersedes any legacy instruction to withhold rates');
+    expect(prompt).toContain('STRICT STOCK PRIVACY: Under NO circumstances disclose numeric stock quantities');
   });
 
   it('correctly extracts tokens for Bajaj Pulsar 150 clutch plate inquiry', () => {
@@ -378,7 +383,8 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
 
     expect(text).toContain('Verified Compatible Vehicles: Bajaj Pulsar 150 (from catalog specifications)');
     expect(text).toContain('Selling Price: ₹690.00');
-    expect(text).toContain('IN STOCK (15 units available)');
+    expect(text).toContain('Availability: AVAILABLE (In Stock)');
+    expect(text).not.toContain('15 units available');
     expect(text).toContain('DO NOT HAND OFF FOR NORMAL INQUIRIES');
     expect(text).toContain('WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if');
   });

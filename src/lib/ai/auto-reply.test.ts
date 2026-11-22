@@ -25,10 +25,14 @@ const h = vi.hoisted(() => ({
 vi.mock('./config', () => ({ loadAiConfig: h.loadAiConfig }))
 vi.mock('./context', () => ({ buildConversationContext: h.buildConversationContext }))
 vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
-vi.mock('./inventory-context', () => ({ retrieveInventoryContext: h.retrieveInventoryContext }))
+vi.mock('./inventory-context', () => ({
+  retrieveInventoryContext: h.retrieveInventoryContext,
+  hasInventoryIntent: vi.fn().mockReturnValue(false),
+}))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,
+  engineSendInteractiveButtons: vi.fn(),
   loadAccountMetaCredentials: h.loadAccountMetaCredentials,
 }))
 vi.mock('@/lib/whatsapp/meta-api', () => ({

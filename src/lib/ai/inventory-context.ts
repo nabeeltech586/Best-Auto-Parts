@@ -434,13 +434,16 @@ export function formatInventoryContext(res: InventoryContextResult): string {
       '=== REAL-TIME INVENTORY DATABASE (TENANT VERIFIED) ===',
       `Searched Query: "${query.raw}"`,
       searchedTokens.length > 0 ? `Searched Items: ${searchedTokens.join(', ')}` : '',
-      'Status: NO MATCHING INVENTORY RECORDS FOUND.',
+      'Status: UNVERIFIED / NO MATCHING INVENTORY RECORDS FOUND.',
       '',
-      'MANDATORY ASSISTANT INSTRUCTION:',
-      '- The requested part/product is currently NOT listed in our catalog or inventory.',
-      '- State clearly and politely that we do not have this item in stock.',
-      '- Do NOT guess, invent, or hallucinate any product, OEM code, or price.',
-      '- Offer to connect the customer with our human parts specialist for special procurement.',
+      'MANDATORY ASSISTANT INSTRUCTIONS:',
+      '1. UNVERIFIED AVAILABILITY: The requested part/product is currently not verified in our catalog.',
+      '2. NO FABRICATION: Do NOT invent, assume, or fabricate product availability, prices, discounts, or delivery promises.',
+      '3. POLITE TEAM ASSISTANCE: Politely inform the customer that availability for this part cannot be verified right now, and offer assistance from our team/parts specialist to check or procure it.',
+      '4. NO FALSE CONFIRMATION: Never claim an order is placed or payment received without actual confirmation.',
+      '5. SUPPORTED LANGUAGES: Use ONLY English or natural Hinglish matching the customer\'s language.',
+      '   - Hinglish Example: "Ji, is part ki availability abhi verify nahi ho pa rahi hai. Humari team se Saud Bhai aapki gaadi ke model ke hisaab se check karke jald hi assist karenge.\\n\\nThank you for choosing Best Auto Parts! ❤️"',
+      '   - English Example: "We\'re currently unable to confirm availability for this specific part. Our team will be happy to assist you and check with our suppliers shortly.\\n\\nThank you for choosing Best Auto Parts!"',
     ]
       .filter(Boolean)
       .join('\n');
@@ -470,13 +473,7 @@ export function formatInventoryContext(res: InventoryContextResult): string {
     if (part.category) sections.push(`- Category: ${part.category}`);
     sections.push(`- Condition: ${part.condition}`);
     sections.push(`- Selling Price: ${formattedPrice}`);
-    sections.push(
-      `- Stock Status: ${
-        isAvailable
-          ? `IN STOCK (${part.quantity_in_stock} units available)`
-          : 'OUT OF STOCK (0 units available)'
-      }`,
-    );
+    sections.push(`- Availability: ${isAvailable ? 'AVAILABLE (In Stock)' : 'OUT OF STOCK'}`);
 
     const descFitment = part.description?.match(/Compatible:\s*([^|;\n]+)/i)?.[1]?.trim();
 
@@ -502,7 +499,7 @@ export function formatInventoryContext(res: InventoryContextResult): string {
     alternatives.forEach((alt, idx) => {
       const altPrice = formatCurrency(alt.selling_price, currency);
       sections.push(
-        `[Alternative #${idx + 1}] ${alt.part_name} (${alt.brand || 'OEM'}) | SKU: ${alt.sku} | Price: ${altPrice} | Stock: ${alt.quantity_in_stock} units`,
+        `[Alternative #${idx + 1}] ${alt.part_name} (${alt.brand || 'OEM'}) | SKU: ${alt.sku} | Price: ${altPrice} | Availability: AVAILABLE (In Stock)`,
       );
     });
     sections.push('');
@@ -510,25 +507,40 @@ export function formatInventoryContext(res: InventoryContextResult): string {
 
   sections.push('=== MANDATORY RULES FOR AUTO PARTS SALES ASSISTANT ===');
   sections.push(
-    '1. DATA ACCURACY: Quote exact prices and stock status ONLY from the verified records above. Never invent prices or quantities.',
+    '1. STRICT STOCK PRIVACY: NEVER disclose exact stock quantities, number of units, pieces remaining, or internal inventory counts to the customer under any circumstances. Never state how many units are in stock. State ONLY whether the item is available or out of stock. Never offer or show a stock-checking option.',
   );
   sections.push(
-    '2. OUT OF STOCK: If a part has Stock Status "OUT OF STOCK", explicitly inform the customer it is currently out of stock. If an alternative is listed above, offer it.',
+    '2. DATA ACCURACY: Quote verified product name and selling price ONLY from the verified records above. Never invent product availability, prices, discounts, or delivery promises.',
   );
   sections.push(
-    '3. VEHICLE COMPATIBILITY: Confirm compatibility if the vehicle matches the "Verified Compatible Vehicles" above. If compatibility is unverified or the customer did not specify their model/year/variant, ask them for the missing vehicle details.',
+    '3. OUT OF STOCK / UNVERIFIED: If a part is OUT OF STOCK or availability cannot be verified, politely inform the customer and offer assistance from our team. If a verified alternative is listed above, offer it.',
   );
   sections.push(
-    '4. LANGUAGE: Answer naturally in the customer\'s language (English, Hindi, or Hinglish). Keep WhatsApp responses concise, friendly, and helpful (1 to 4 sentences).',
+    '4. SUPPORTED LANGUAGES: Support ONLY English and Hinglish (Hindi + English mix). Use the customer\'s language naturally. Do not use complex Hindi or pure Devanagari script unless requested; prefer natural Romanized Hinglish or English.',
   );
   sections.push(
-    '5. DO NOT HAND OFF FOR NORMAL INQUIRIES: When the customer asks for price, stock, availability, or part details and matching items exist in the verified records above, provide the answer directly with price in the specified currency and available quantity. Do NOT output [[HANDOFF]] and do NOT tell the customer someone else will check for them.',
+    '5. SALES-ORIENTED STYLE & EXAMPLES:\n' +
+    '   Keep responses concise, natural, helpful, and professional sales-oriented. Structure the message clearly:\n' +
+    '   - Acknowledge the part warmly and state that it is available (without disclosing quantities).\n' +
+    '   - Show verified price clearly on its own line: "Price: ₹690"\n' +
+    '   - Politely ask if they would like to proceed with purchase and offer pickup or delivery assistance.\n' +
+    '   - Conclude with: "Thank you for choosing Best Auto Parts!"\n\n' +
+    '   Example Hinglish:\n' +
+    '   "Ji! Bajaj Pulsar 150 ka Clutch Plate Set available hai. 😊\\n\\nPrice: ₹690\\n\\nKya aap ise purchase karna chahenge? Hum aapko pickup ya delivery ke process mein assist kar sakte hain.\\n\\nThank you for choosing Best Auto Parts! ❤️"\n\n' +
+    '   Example English:\n' +
+    '   "Great choice! 😊 The Bajaj Pulsar 150 Clutch Plate Set is available.\\n\\nPrice: ₹690\\n\\nWould you like to proceed with your purchase? We\'d be happy to assist you with pickup or delivery.\\n\\nThank you for choosing Best Auto Parts!"',
   );
   sections.push(
-    '6. WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if: (a) the customer explicitly asks to talk to a real person / human agent / manager / owner, (b) the customer is angry, abusive, or filing a serious dispute/complaint, or (c) the customer is negotiating bulk discounts or wholesale credit that cannot be answered from the catalog.',
+    '6. ORDER & PAYMENT INTEGRITY: Never claim an order is placed or payment received without actual confirmation.',
   );
   sections.push(
-    '7. STORE HOURS & OFF-HOURS: Store business hours are Monday–Sunday 9:00 AM – 8:00 PM IST (Friday Juma break: 12:30 PM – 2:30 PM). If responding outside business hours, quote verified stock/prices if available and state that parts are available for in-store pickup when the shop opens at 9:00 AM. If handing off outside business hours, assure the customer that Saud Bhai will follow up once the store opens at 9:00 AM.',
+    '7. DO NOT HAND OFF FOR NORMAL INQUIRIES: When the customer asks for price, availability, or part details and matching items exist in the verified records above, provide the answer directly with product name and price. Do NOT output [[HANDOFF]].',
+  );
+  sections.push(
+    '8. WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if: (a) the customer explicitly asks to talk to a real person / human agent / manager / owner, (b) the customer is angry, abusive, or filing a serious dispute/complaint, or (c) the customer is negotiating bulk discounts or wholesale credit that cannot be answered from the catalog.',
+  );
+  sections.push(
+    '9. STORE HOURS & OFF-HOURS: Store business hours are Monday–Sunday 9:00 AM – 8:00 PM IST (Friday Juma break: 12:30 PM – 2:30 PM). If responding outside business hours, quote verified product name and price, confirm availability without disclosing quantity, and state that parts are available for in-store pickup when the shop opens at 9:00 AM. If handing off outside business hours, assure the customer that Saud Bhai will follow up once the store opens at 9:00 AM.',
   );
 
   return sections.join('\n');

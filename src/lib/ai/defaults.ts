@@ -97,9 +97,12 @@ export function buildSystemPrompt(args: {
     parts.push(
       '=== REAL-TIME INVENTORY GROUNDING & AUTHORIZATION ===\n' +
         'You are connected to the live store parts inventory below. ' +
-        'Whenever the customer inquires about parts, prices, or stock and matching verified records are provided below, ' +
-        'you ARE fully authorized and instructed to quote the exact selling price and stock directly to the customer. ' +
-        'This supersedes any legacy instruction to withhold rates or hand off routine product inquiries to a human.\n\n' +
+        'Whenever the customer inquires about parts, prices, or availability and matching verified records are provided below, ' +
+        'you ARE fully authorized to quote the verified product name and verified selling price directly to the customer.\n' +
+        'STRICT STOCK PRIVACY: Under NO circumstances disclose numeric stock quantities, units available, or pieces remaining. ' +
+        'Never state how many units are in stock. State ONLY whether the item is available or out of stock.\n' +
+        'SUPPORTED LANGUAGES: Support ONLY English and Hinglish (Hindi + English mix). Adapt to the customer\'s language naturally.\n' +
+        'STYLE & RULES: Keep replies concise, helpful, and professional sales-oriented. Never invent prices, availability, or delivery promises. Never claim an order is placed or payment received without confirmation.\n\n' +
         inventoryContext.trim(),
     )
   }

@@ -49,6 +49,27 @@ export interface PartCatalogItem {
   fitments?: VehicleFitment[];
 }
 
+/**
+ * Customer-Facing Part Representation.
+ * Strictly excludes internal stock quantities, cost prices, and storage locations.
+ */
+export interface CustomerFacingPart {
+  id: string;
+  part_name: string;
+  sku: string;
+  oem_number: string | null;
+  alternate_oem_numbers: string[];
+  brand: string | null;
+  category: string | null;
+  subcategory: string | null;
+  condition: PartCondition;
+  description: string | null;
+  selling_price: number;
+  image_urls: string[];
+  is_available: boolean;
+  fitments?: VehicleFitment[];
+}
+
 // ============================================================
 // VEHICLE COMPATIBILITY / FITMENT
 // ============================================================
