@@ -13,7 +13,7 @@
 import { getT } from "@/lib/i18n/translate";
 
 /** App-wide fallback when no account/deal currency is available. */
-export const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "INR";
 
 export interface CurrencyOption {
   /** ISO-4217 code, e.g. "USD". Stored verbatim in the DB. */
@@ -32,10 +32,10 @@ const t = getT("Currency");
  * list to offer more — nothing else needs to change.
  */
 export const CURRENCIES: CurrencyOption[] = [
+  { code: "INR", label: t("INR"), symbol: "₹" },
   { code: "USD", label: t("USD"), symbol: "$" },
   { code: "EUR", label: t("EUR"), symbol: "€" },
   { code: "GBP", label: t("GBP"), symbol: "£" },
-  { code: "INR", label: t("INR"), symbol: "₹" },
   { code: "AUD", label: t("AUD"), symbol: "A$" },
   { code: "CAD", label: t("CAD"), symbol: "C$" },
   { code: "BRL", label: t("BRL"), symbol: "R$" },
@@ -50,10 +50,9 @@ export const CURRENCIES: CurrencyOption[] = [
 ];
 
 /**
- * Format a deal value as a currency string. Whole-number output
- * (no minor units) — deal values are tracked to the dollar across
- * the app. `currency` defaults to USD so callers with nothing better
- * stay safe, but pass the account/deal currency wherever known.
+ * Format a deal value as a currency string.
+ * For INR (default currency), uses the exact same ₹ prefix and en-IN 2-decimal formatting
+ * as the /payments ledger: ₹410.00, ₹3,90,430.00.
  *
  * Total by design: `Intl.NumberFormat` throws a RangeError on a
  * structurally invalid currency code, and `deals.currency` carries
@@ -66,8 +65,11 @@ export function formatCurrency(
   value: number,
   currency: string = DEFAULT_CURRENCY,
 ): string {
-  const code = (currency || DEFAULT_CURRENCY).trim();
+  const code = (currency || DEFAULT_CURRENCY).trim().toUpperCase();
   const amount = Number(value) || 0;
+  if (!code || code === "INR") {
+    return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",

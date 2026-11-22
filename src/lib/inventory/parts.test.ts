@@ -124,8 +124,15 @@ describe('getStockStatus', () => {
 });
 
 describe('formatCurrency', () => {
-  it('formats standard currency values', () => {
+  it('formats standard currency values in INR with 2 decimals matching /payments', () => {
     const formatted = formatCurrency(49.99);
-    expect(formatted).toBe('$49.99');
+    expect(formatted).toBe('₹49.99');
+  });
+
+  it('formats amounts matching /payments exact output', () => {
+    expect(formatCurrency(0)).toBe('₹0.00');
+    expect(formatCurrency(220)).toBe('₹220.00');
+    expect(formatCurrency(410)).toBe('₹410.00');
+    expect(formatCurrency(390430)).toBe('₹3,90,430.00');
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { Package, Boxes, AlertTriangle, XCircle, DollarSign, TrendingUp } from 'lucide-react';
+import { Package, Boxes, AlertTriangle, XCircle, IndianRupee, TrendingUp } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatCurrency } from '@/lib/inventory/parts';
 import type { InventoryMetrics } from '@/types/inventory';
@@ -50,7 +50,7 @@ export function InventoryOverview({ metrics, loading }: InventoryOverviewProps) 
       title: 'Inventory Cost',
       value: loading ? '...' : formatCurrency(metrics?.total_cost_value ?? 0),
       subtext: 'Total cost basis',
-      icon: DollarSign,
+      icon: IndianRupee,
       iconColor: 'text-zinc-400',
       bgColor: 'bg-zinc-500/10',
     },

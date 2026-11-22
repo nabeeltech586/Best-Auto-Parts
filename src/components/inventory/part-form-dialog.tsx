@@ -308,7 +308,7 @@ export function PartFormDialog({
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div className="space-y-1.5">
                 <Label htmlFor="costPrice" className="text-xs">
-                  Cost Price ($)
+                  Cost Price (₹)
                 </Label>
                 <Input
                   id="costPrice"
@@ -323,7 +323,7 @@ export function PartFormDialog({
 
               <div className="space-y-1.5">
                 <Label htmlFor="sellingPrice" className="text-xs">
-                  Selling Price ($) <span className="text-red-400">*</span>
+                  Selling Price (₹) <span className="text-red-400">*</span>
                 </Label>
                 <Input
                   id="sellingPrice"

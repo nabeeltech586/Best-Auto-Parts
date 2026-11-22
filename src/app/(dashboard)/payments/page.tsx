@@ -31,6 +31,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SendPaymentLinkDialog } from '@/components/inbox/send-payment-link-dialog';
+import { formatCurrency } from '@/lib/currency';
 
 interface PaymentLinkItem {
   id?: string;
@@ -170,10 +171,6 @@ export default function PaymentsPage() {
     } catch {
       return dateString;
     }
-  };
-
-  const formatCurrency = (amt: number) => {
-    return `₹${Number(amt || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   return (

@@ -112,16 +112,21 @@ export function getStockStatus(part: Pick<PartCatalogItem, 'quantity_in_stock' |
 }
 
 /**
- * Format currency with 2 decimals.
+ * Format currency with 2 decimals matching /payments: ₹410.00, ₹3,90,430.00
  */
-export function formatCurrency(amount: number, currency = 'USD'): string {
+export function formatCurrency(amount: number, currency = 'INR'): string {
+  if (currency === 'INR' || !currency) {
+    return `₹${Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
   try {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch {
-    return `$${amount.toFixed(2)}`;
+    return `₹${Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 }
 

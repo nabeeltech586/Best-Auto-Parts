@@ -14,8 +14,17 @@ describe("formatCurrency", () => {
     expect(out).not.toContain(".00");
   });
 
-  it("defaults to USD when no currency is given", () => {
+  it("defaults to INR when no currency is given", () => {
+    expect(DEFAULT_CURRENCY).toBe("INR");
     expect(formatCurrency(10)).toBe(formatCurrency(10, DEFAULT_CURRENCY));
+    expect(formatCurrency(10)).toBe("₹10.00");
+  });
+
+  it("formats INR matching /payments exact output", () => {
+    expect(formatCurrency(0)).toBe("₹0.00");
+    expect(formatCurrency(220)).toBe("₹220.00");
+    expect(formatCurrency(410)).toBe("₹410.00");
+    expect(formatCurrency(390430)).toBe("₹3,90,430.00");
   });
 
   it("treats an empty-string currency as the default", () => {

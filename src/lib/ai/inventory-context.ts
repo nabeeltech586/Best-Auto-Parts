@@ -247,7 +247,7 @@ export async function searchInventoryForAi(
   limit = 6,
 ): Promise<InventoryContextResult> {
   // 1. Fetch account default currency
-  let currency = 'USD';
+  let currency = 'INR';
   try {
     const { data: acct } = await db
       .from('accounts')
@@ -256,7 +256,7 @@ export async function searchInventoryForAi(
       .maybeSingle();
     if (acct?.default_currency) currency = acct.default_currency;
   } catch {
-    // fallback USD
+    // fallback INR
   }
 
   const matchedPartMap = new Map<string, PartWithFitments>();
