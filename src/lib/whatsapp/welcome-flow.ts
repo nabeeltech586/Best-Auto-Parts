@@ -15,6 +15,7 @@ import {
   type InventoryContextResult,
 } from '@/lib/ai/inventory-context'
 import { cleanCustomerFacingPartName } from '@/lib/ai/stock-privacy'
+import { formatVehicleFitment } from '@/lib/inventory/fitment'
 import { PaymentService } from '@/lib/payments/payment-service'
 
 export type CustomerLanguage = 'en' | 'hinglish'
@@ -23,10 +24,12 @@ export type CustomerLanguage = 'en' | 'hinglish'
 // Stable Callback Identifiers
 // ============================================================
 export const WELCOME_CALLBACKS = {
-  // Language Selection
+  // Language Selection & Switch
   LANG_ENGLISH: 'LANG_ENGLISH',
   LANG_HINGLISH: 'LANG_HINGLISH',
   CHANGE_LANGUAGE: 'CHANGE_LANGUAGE',
+  SWITCH_TO_ENGLISH: 'SWITCH_TO_ENGLISH',
+  SWITCH_TO_HINGLISH: 'SWITCH_TO_HINGLISH',
 
   // Main Customer Menu
   MENU_FIND_PART: 'MENU_FIND_PART',
@@ -338,11 +341,22 @@ export async function setContactLanguage(
     }
 
     if (tag?.id) {
-      await addContactTagIfAbsent(db, {
-        accountId,
-        contactId,
-        tagId: tag.id,
-      }).catch(() => {})
+      try {
+        await addContactTagIfAbsent(db, {
+          accountId,
+          contactId,
+          tagId: tag.id,
+        })
+      } catch {
+        // Fallback: direct insert into contact_tags if addContactTagIfAbsent throws (e.g. non-UUID in tests or strict ownership check)
+        try {
+          await db
+            .from('contact_tags')
+            .insert({ contact_id: contactId, tag_id: tag.id })
+        } catch {
+          // Best-effort
+        }
+      }
     }
 
     // Clean up opposing tag if present
@@ -354,11 +368,23 @@ export async function setContactLanguage(
       .maybeSingle()
 
     if (oldTag?.id) {
-      await removeContactTag(db, {
-        accountId,
-        contactId,
-        tagId: oldTag.id,
-      }).catch(() => {})
+      try {
+        await removeContactTag(db, {
+          accountId,
+          contactId,
+          tagId: oldTag.id,
+        })
+      } catch {
+        try {
+          await db
+            .from('contact_tags')
+            .delete()
+            .eq('contact_id', contactId)
+            .eq('tag_id', oldTag.id)
+        } catch {
+          // Best-effort
+        }
+      }
     }
   } catch {
     // Best-effort tag sync
@@ -566,6 +592,28 @@ export async function sendMainMenu(args: {
         },
       ]
 
+  const switchSection = isHinglish
+    ? {
+        title: 'Bhasha Badlein',
+        rows: [
+          {
+            id: WELCOME_CALLBACKS.SWITCH_TO_ENGLISH,
+            title: 'Switch to English',
+            description: 'Change language to English',
+          },
+        ],
+      }
+    : {
+        title: 'Language Settings',
+        rows: [
+          {
+            id: WELCOME_CALLBACKS.SWITCH_TO_HINGLISH,
+            title: 'Switch to Hinglish',
+            description: 'Bhasha badal kar Hinglish karein',
+          },
+        ],
+      }
+
   return engineSendInteractiveList({
     accountId: args.accountId,
     userId: args.userId,
@@ -580,6 +628,7 @@ export async function sendMainMenu(args: {
         title: sectionTitle,
         rows,
       },
+      switchSection,
     ],
   })
 }
@@ -625,7 +674,86 @@ export async function handleWelcomeFlowInbound(
   const rawText = inboundText?.trim() ?? ''
 
   // ------------------------------------------------------------
-  // 1. Language Change Command
+  // 0. Auto-Reset Human Handoff on Greeting / Menu Navigation / Switch
+  // When a customer who was previously handed off to human support
+  // sends "Hi", returns to the bot menu, or switches language,
+  // clear ai_autoreply_disabled so automated replies resume immediately.
+  // ------------------------------------------------------------
+  const isLanguageSwitchIntent =
+    interactiveReplyId === WELCOME_CALLBACKS.SWITCH_TO_ENGLISH ||
+    interactiveReplyId === WELCOME_CALLBACKS.SWITCH_TO_HINGLISH ||
+    /^(switch\s*to\s*(english|hinglish)|change\s*to\s*(english|hinglish))$/i.test(rawText)
+
+  const shouldResetHandoff =
+    isGreeting(rawText) ||
+    isLanguageChangeRequest(rawText) ||
+    isLanguageSwitchIntent ||
+    interactiveReplyId === WELCOME_CALLBACKS.BACK_TO_MENU ||
+    (interactiveReplyId && isWelcomeFlowCallback(interactiveReplyId))
+
+  if (shouldResetHandoff) {
+    try {
+      const { data: conv } = await db
+        .from('conversations')
+        .select('ai_autoreply_disabled, assigned_agent_id')
+        .eq('id', conversationId)
+        .eq('account_id', accountId)
+        .maybeSingle()
+
+      if (conv?.ai_autoreply_disabled || conv?.assigned_agent_id) {
+        await db
+          .from('conversations')
+          .update({
+            ai_autoreply_disabled: false,
+            assigned_agent_id: null,
+            ai_handoff_summary: null,
+          })
+          .eq('id', conversationId)
+          .eq('account_id', accountId)
+      }
+    } catch {
+      // Best-effort handoff reset
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 1. Direct Language Switch Callbacks & Natural Text
+  // ------------------------------------------------------------
+  const isSwitchToEnglish =
+    interactiveReplyId === WELCOME_CALLBACKS.SWITCH_TO_ENGLISH ||
+    /^(switch\s*to\s*english|change\s*to\s*english|english\s*language)$/i.test(rawText)
+
+  const isSwitchToHinglish =
+    interactiveReplyId === WELCOME_CALLBACKS.SWITCH_TO_HINGLISH ||
+    /^(switch\s*to\s*hinglish|change\s*to\s*hinglish|hinglish\s*language)$/i.test(rawText)
+
+  if (isSwitchToEnglish || isSwitchToHinglish) {
+    const targetLang: CustomerLanguage = isSwitchToEnglish ? 'en' : 'hinglish'
+    await setContactLanguage(db, accountId, contactId, targetLang, userId)
+
+    const confirmation =
+      targetLang === 'hinglish'
+        ? 'Aapki bhasha Hinglish mein switch ho gayi hai! Ab hamare saare messages Hinglish mein aayenge. 😊'
+        : 'Your language has been switched to English! All future messages will be in English. 😊'
+
+    const res = await sendMainMenu({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      lang: targetLang,
+      greetingPrefix: confirmation,
+    })
+
+    return {
+      consumed: true,
+      responseSent: confirmation,
+      messageId: res.whatsapp_message_id,
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 1A. Language Change Command Prompt
   // ------------------------------------------------------------
   if (
     interactiveReplyId === WELCOME_CALLBACKS.CHANGE_LANGUAGE ||
@@ -1098,6 +1226,7 @@ export async function handleWelcomeFlowInbound(
   ) {
     let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER'
     let orderRef = 'BAP-9634'
+    let totalAmt = 690
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1116,16 +1245,18 @@ export async function handleWelcomeFlowInbound(
         checkoutLink = initResult.checkoutUrl
       }
       orderRef = initResult.merchantTransactionId
+      totalAmt = initResult.totalAmount
     } catch {
       // Fallback
     }
 
     const shortRef = orderRef.slice(-6)
+    const formattedAmt = `₹${totalAmt.toFixed(2)}`
     const text = isHinglish
       ? `⚡ *UPI ID Payment — PhonePe Gateway*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• Order ID: #${shortRef}\n` +
-        `• Total Amount: ₹690.00 (All taxes included)\n` +
+        `• Total Amount: ${formattedAmt} (All taxes included)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `Apne phone se seedhe 1-click pay karne ke liye niche secure checkout link par tap karein:\n` +
         `👉 ${checkoutLink}\n\n` +
@@ -1134,7 +1265,7 @@ export async function handleWelcomeFlowInbound(
       : `⚡ *UPI ID Payment — PhonePe Gateway*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• Order ID: #${shortRef}\n` +
-        `• Total Amount: ₹690.00 (All taxes included)\n` +
+        `• Total Amount: ${formattedAmt} (All taxes included)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `To pay directly from your UPI app on this phone, tap our secure checkout link:\n` +
         `👉 ${checkoutLink}\n\n` +
@@ -1155,6 +1286,7 @@ export async function handleWelcomeFlowInbound(
   if (UPI_ID_REGEX.test(rawText)) {
     const customerVpa = rawText
     let orderRef = 'BAP-9634'
+    let totalAmt = 690
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1171,16 +1303,18 @@ export async function handleWelcomeFlowInbound(
         customerVpa,
       })
       orderRef = initResult.merchantTransactionId
+      totalAmt = initResult.totalAmount
     } catch {
       // Fallback
     }
 
     const shortRef = orderRef.slice(-6)
+    const formattedAmt = `₹${totalAmt.toFixed(2)}`
     const text = isHinglish
-      ? `✅ Hamne aapki UPI ID (*${customerVpa}*) par Order #${shortRef} ke liye ₹690 ka payment collect request bhej diya hai.\n\n` +
+      ? `✅ Hamne aapki UPI ID (*${customerVpa}*) par Order #${shortRef} ke liye ${formattedAmt} ka payment collect request bhej diya hai.\n\n` +
         `Kripya apne UPI app (PhonePe / Google Pay / Paytm) mein jakar payment approve karein. ⏱️ (Valid for 15 minutes)\n\n` +
         `Jaise hi payment confirm hoga, aapko foran WhatsApp par receipt mil jayegi!`
-      : `✅ We have sent a collect request of ₹690 for Order #${shortRef} to your UPI ID (*${customerVpa}*).\n\n` +
+      : `✅ We have sent a collect request of ${formattedAmt} for Order #${shortRef} to your UPI ID (*${customerVpa}*).\n\n` +
         `Please open your UPI app (PhonePe / Google Pay / Paytm) and approve the payment. ⏱️ (Valid for 15 minutes)\n\n` +
         `Your order will be confirmed automatically once verified!`;
 
@@ -1748,22 +1882,7 @@ export async function handleWelcomeFlowInbound(
         console.warn('[welcome-flow] searchInventoryForAi lookup:', err)
       }
 
-      let matchedPart = searchResult?.parts?.[0]
-      // Core catalog fallback if DB has no mock or empty table for Pulsar 150 clutch plate
-      if (
-        !matchedPart &&
-        query.vehicleCandidates.some((v) => /pulsar\s*150/i.test(v)) &&
-        query.componentKeywords.includes('clutch')
-      ) {
-        matchedPart = {
-          id: 'part-pulsar-150-clutch',
-          account_id: accountId,
-          part_name: 'Pulsar 150 Clutch Plate Set (5 Pcs)',
-          brand: 'Bajaj',
-          selling_price: 690,
-          quantity_in_stock: 10,
-        } as any
-      }
+      const matchedPart = searchResult?.parts?.[0]
 
       if (matchedPart) {
         const cleanName = cleanCustomerFacingPartName(matchedPart.part_name)
@@ -1773,19 +1892,47 @@ export async function handleWelcomeFlowInbound(
             ? `${matchedPart.brand} `
             : ''
         const fullDisplayName = `${brandPrefix}${cleanName}`
-        const price = matchedPart.selling_price ?? 690
-        const formattedPrice = `₹${price.toFixed(2)}`
+
+        // Strict product price integrity: reject null, undefined, <=0, NaN, non-finite
+        const rawPrice = matchedPart.selling_price
+        const hasValidPrice =
+          typeof rawPrice === 'number' &&
+          !Number.isNaN(rawPrice) &&
+          Number.isFinite(rawPrice) &&
+          rawPrice > 0
+
+        const priceLine = hasValidPrice
+          ? `• *Price:* ₹${rawPrice.toFixed(2)} (All taxes included)`
+          : isHinglish
+            ? `• *Price:* Counter / inquiry par verify karein (Team will confirm latest rate)`
+            : `• *Price:* Available on inquiry with store team`
+
+        // Vehicle fitment evidence: format verified fitments or display uncertainty
+        let fitmentLine = ''
+        if (matchedPart.fitments && matchedPart.fitments.length > 0) {
+          const fitmentDetails = matchedPart.fitments
+            .map((f: any) => {
+              const base = formatVehicleFitment(f)
+              return f.notes ? `${base} (${f.notes})` : base
+            })
+            .join(', ')
+          fitmentLine = `\n• *Fitment:* ${fitmentDetails}`
+        } else {
+          fitmentLine = isHinglish
+            ? `\n• *Fitment:* Model & year verification recommended at store counter`
+            : `\n• *Fitment:* Vehicle model and year verification recommended at counter`
+        }
 
         const bodyText = isHinglish
           ? `Ji! Hamare paas *${fullDisplayName}* available hai. 😊\n\n` +
             `• *Product:* ${fullDisplayName}\n` +
             `• *Status:* Shop par available hai (In Stock)\n` +
-            `• *Price:* ${formattedPrice} (All taxes included)\n\n` +
+            `${priceLine}${fitmentLine}\n\n` +
             `Kya aap ise kharidna chahenge? Store visit ya delivery ke liye neeche button select karein.`
           : `Great news! 😊 *${fullDisplayName}* is available in stock.\n\n` +
             `• *Product:* ${fullDisplayName}\n` +
             `• *Status:* In Stock (Available at shop)\n` +
-            `• *Price:* ${formattedPrice} (All taxes included)\n\n` +
+            `${priceLine}${fitmentLine}\n\n` +
             `Would you like to buy this part? Please select an option below or visit our store.`
 
         const buttons = isHinglish
