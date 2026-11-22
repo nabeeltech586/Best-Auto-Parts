@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
   retrieveInventoryContext: vi.fn().mockResolvedValue(''),
   generateReply: vi.fn(),
   engineSendText: vi.fn(),
+  engineSendInteractiveButtons: vi.fn(),
+  hasInventoryIntent: vi.fn().mockReturnValue(false),
   loadAccountMetaCredentials: vi.fn(),
   sendTypingIndicator: vi.fn(),
   state: {
@@ -27,12 +29,12 @@ vi.mock('./context', () => ({ buildConversationContext: h.buildConversationConte
 vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
 vi.mock('./inventory-context', () => ({
   retrieveInventoryContext: h.retrieveInventoryContext,
-  hasInventoryIntent: vi.fn().mockReturnValue(false),
+  hasInventoryIntent: (...args: unknown[]) => h.hasInventoryIntent(...args),
 }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: h.engineSendText,
-  engineSendInteractiveButtons: vi.fn(),
+  engineSendInteractiveButtons: h.engineSendInteractiveButtons,
   loadAccountMetaCredentials: h.loadAccountMetaCredentials,
 }))
 vi.mock('@/lib/whatsapp/meta-api', () => ({
@@ -352,5 +354,26 @@ describe('dispatchInboundToAiReply — handoff', () => {
     expect(pause?.isNull).toEqual([])
     expect(assign?.payload).toEqual({ assigned_agent_id: 'agent-7' })
     expect(assign?.isNull).toEqual(['assigned_agent_id'])
+  })
+})
+
+describe('dispatchInboundToAiReply — purchase buttons on inventory intent', () => {
+  it('sends [Buy Now] and [Just Exploring] interactive buttons when inventory inquiry is detected', async () => {
+    h.hasInventoryIntent.mockReturnValue(true)
+    h.generateReply.mockResolvedValue({
+      text: 'The Bajaj Pulsar 150 Clutch Plate Set is available. Price: ₹690. Would you like to purchase it?',
+      handoff: false,
+    })
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.engineSendInteractiveButtons).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: [
+          { id: 'BUY_NOW', title: 'Buy Now' },
+          { id: 'BUY_EXPLORING', title: 'Just Exploring' },
+        ],
+      })
+    )
   })
 })

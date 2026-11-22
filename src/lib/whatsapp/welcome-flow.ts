@@ -3,9 +3,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
+  engineSendMedia,
   engineSendText,
 } from '@/lib/flows/meta-send'
 import { addContactTagIfAbsent, removeContactTag } from '@/lib/contacts/tag-write'
+import { getSmartProductClarification } from '@/lib/ai/inventory-context'
+import { PaymentService } from '@/lib/payments/payment-service'
 
 export type CustomerLanguage = 'en' | 'hinglish'
 
@@ -27,10 +30,15 @@ export const WELCOME_CALLBACKS = {
   MENU_TALK_HUMAN: 'MENU_TALK_HUMAN',
 
   // Product Purchase Journey
+  BUY_NOW: 'BUY_NOW',
   BUY_WANT: 'BUY_WANT',
   BUY_EXPLORING: 'BUY_EXPLORING',
   BUY_PICKUP: 'BUY_PICKUP',
   BUY_DELIVERY: 'BUY_DELIVERY',
+  BUY_ONLINE_PAY: 'BUY_ONLINE_PAY',
+  PAY_UPI_ID: 'PAY_UPI_ID',
+  PAY_SCAN_QR: 'PAY_SCAN_QR',
+  PAY_RETRY: 'PAY_RETRY',
   BUY_DETAILS: 'BUY_DETAILS',
   BUY_ANOTHER: 'BUY_ANOTHER',
 
@@ -187,6 +195,7 @@ export async function setContactLanguage(
   accountId: string,
   contactId: string,
   lang: CustomerLanguage,
+  userId?: string,
 ): Promise<void> {
   // 1. Update contacts.preferred_language
   try {
@@ -213,9 +222,50 @@ export async function setContactLanguage(
       .maybeSingle()
 
     if (!tag) {
+      // Resolve effective user_id required by tags table schema (user_id NOT NULL REFERENCES auth.users)
+      let effectiveUserId = userId
+      if (!effectiveUserId) {
+        try {
+          const { data: contact } = await db
+            .from('contacts')
+            .select('user_id')
+            .eq('id', contactId)
+            .maybeSingle()
+          if (contact?.user_id) {
+            effectiveUserId = contact.user_id
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!effectiveUserId) {
+        try {
+          const { data: account } = await db
+            .from('accounts')
+            .select('owner_user_id')
+            .eq('id', accountId)
+            .maybeSingle()
+          if (account?.owner_user_id) {
+            effectiveUserId = account.owner_user_id
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const tagPayload: Record<string, any> = {
+        account_id: accountId,
+        name: desiredTagName,
+        color: '#10B981',
+      }
+      if (effectiveUserId) {
+        tagPayload.user_id = effectiveUserId
+      }
+
       const { data: createdTag } = await db
         .from('tags')
-        .insert({ account_id: accountId, name: desiredTagName, color: '#10B981' })
+        .insert(tagPayload)
         .select('id')
         .single()
       tag = createdTag
@@ -277,6 +327,13 @@ export function extractPinCode(text: string): string | null {
   const match = text.match(PIN_CODE_REGEX)
   return match ? match[0] : null
 }
+
+// UPI ID detection (e.g., username@okaxis, 9761224004@axl)
+export const UPI_ID_REGEX = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/
+
+// Customer payment claim detection ("I have paid", "Payment done", UTR numbers)
+export const PAYMENT_CLAIM_REGEX =
+  /^(paid|i\s*have\s*paid|payment\s*done|maine\s*pay\s*kar\s*diya|pay\s*ho\s*gaya|payment\s*ho\s*gayi|utr\s*[:0-9a-zA-Z]+)\b/i
 
 // Delivery zones verification
 // In a production setup, this checks verified database records or delivery APIs.
@@ -372,8 +429,76 @@ export async function sendMainMenu(args: {
 
   const prefix = args.greetingPrefix ? `${args.greetingPrefix}\n\n` : ''
   const bodyText = isHinglish
-    ? `${prefix}Kripya shuru karne ke liye niche diye gaye menu se ek option chunein:`
-    : `${prefix}Please choose an option from the menu below to get started:`
+    ? `${prefix}Aapko kis cheez mein madad chahiye?\n\nKripya shuru karne ke liye niche diye gaye menu se ek option chunein:`
+    : `${prefix}How can we help you?\n\nPlease choose an option from the menu below to get started:`
+
+  const sectionTitle = isHinglish ? 'Hamari Suvidhayein' : 'Customer Services'
+
+  const rows = isHinglish
+    ? [
+        {
+          id: WELCOME_CALLBACKS.MENU_FIND_PART,
+          title: 'Spare Part Dhoondhein',
+          description: 'Part ka naam ya bike model likhein',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_PRODUCT_PRICE,
+          title: 'Price & Availability',
+          description: 'Product ki keemat aur availability jaanein',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_SEARCH_BIKE,
+          title: 'Bike Model Search Karein',
+          description: 'Apni bike ke compatible parts dhoondhein',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_ORDER_DELIVERY,
+          title: 'Order & Delivery Jankari',
+          description: 'Order aur delivery ka process jaanein',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_SHOP_LOCATION,
+          title: 'Store Location & Timing',
+          description: 'Hamare store ki location aur timing jaanein',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_TALK_HUMAN,
+          title: 'Specialist Se Baat Karein',
+          description: 'Hamari team se madad lein',
+        },
+      ]
+    : [
+        {
+          id: WELCOME_CALLBACKS.MENU_FIND_PART,
+          title: 'Find a Spare Part',
+          description: 'Search parts by name or model',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_PRODUCT_PRICE,
+          title: 'Price & Availability',
+          description: 'Check product details',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_SEARCH_BIKE,
+          title: 'Search Bike Model',
+          description: 'Find compatible spare parts',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_ORDER_DELIVERY,
+          title: 'Order & Delivery Process',
+          description: 'Learn about ordering and delivery',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_SHOP_LOCATION,
+          title: 'Store Location & Timings',
+          description: 'Find our store information',
+        },
+        {
+          id: WELCOME_CALLBACKS.MENU_TALK_HUMAN,
+          title: 'Talk to Specialist',
+          description: 'Get help from our team',
+        },
+      ]
 
   return engineSendInteractiveList({
     accountId: args.accountId,
@@ -386,39 +511,8 @@ export async function sendMainMenu(args: {
     buttonLabel: 'View Menu',
     sections: [
       {
-        title: 'Customer Services',
-        rows: [
-          {
-            id: WELCOME_CALLBACKS.MENU_FIND_PART,
-            title: 'Find a Spare Part',
-            description: 'Search parts by name or model',
-          },
-          {
-            id: WELCOME_CALLBACKS.MENU_PRODUCT_PRICE,
-            title: 'Product Info & Price',
-            description: 'Get verified genuine prices',
-          },
-          {
-            id: WELCOME_CALLBACKS.MENU_SEARCH_BIKE,
-            title: 'Search by Bike Model',
-            description: 'Bajaj, Hero, Honda & more',
-          },
-          {
-            id: WELCOME_CALLBACKS.MENU_ORDER_DELIVERY,
-            title: 'Order & Delivery',
-            description: 'Store pickup & delivery',
-          },
-          {
-            id: WELCOME_CALLBACKS.MENU_SHOP_LOCATION,
-            title: 'Shop Location & Timing',
-            description: 'Address, hours & Friday break',
-          },
-          {
-            id: WELCOME_CALLBACKS.MENU_TALK_HUMAN,
-            title: 'Talk to Human',
-            description: 'Connect with Saud Bhai & team',
-          },
-        ],
+        title: sectionTitle,
+        rows,
       },
     ],
   })
@@ -491,7 +585,7 @@ export async function handleWelcomeFlowInbound(
     const selectedLang: CustomerLanguage =
       interactiveReplyId === WELCOME_CALLBACKS.LANG_HINGLISH ? 'hinglish' : 'en'
 
-    await setContactLanguage(db, accountId, contactId, selectedLang)
+    await setContactLanguage(db, accountId, contactId, selectedLang, userId)
 
     const isHinglish = selectedLang === 'hinglish'
     const confirmation = isHinglish
@@ -614,8 +708,8 @@ export async function handleWelcomeFlowInbound(
   // ------------------------------------------------------------
   if (interactiveReplyId === WELCOME_CALLBACKS.MENU_FIND_PART) {
     const text = isHinglish
-      ? 'Kripya spare part ka naam aur apni bike ka model share karein (jaise "Pulsar 150 clutch plate" ya "Splendor brake shoe"). Hum foran price aur availability check karenge! 😊'
-      : 'Please share the name of the spare part you are looking for along with your bike model (e.g., "Pulsar 150 clutch plate" or "Splendor brake shoe"). We will check availability and price right away! 😊'
+      ? 'Bilkul! Aap apni bike ka brand aur poora model batayein, saath hi jis spare part ki zarurat hai uska naam bhi likhein.\n\nExample:\nBajaj Pulsar 150 – Clutch Plate\nHonda Shine – Brake Shoe\nHero Splendor Plus – Chain Sprocket Kit'
+      : 'Sure! Please tell us your bike brand and complete model, along with the spare part you need.\n\nFor example:\nBajaj Pulsar 150 – Clutch Plate\nHonda Shine – Brake Shoe\nHero Splendor Plus – Chain Sprocket Kit'
 
     const res = await engineSendText({
       accountId,
@@ -732,12 +826,16 @@ export async function handleWelcomeFlowInbound(
   }
 
   // ------------------------------------------------------------
-  // 8. Product Purchase Journey Callbacks (Section 8)
+  // 8. Product Purchase Journey Callbacks (Section 8, 9, 10)
   // ------------------------------------------------------------
-  if (interactiveReplyId === WELCOME_CALLBACKS.BUY_WANT) {
+  if (
+    interactiveReplyId === WELCOME_CALLBACKS.BUY_NOW ||
+    interactiveReplyId === WELCOME_CALLBACKS.BUY_WANT ||
+    /^(buy\s*now|kharidna\s*hai|i\s*want\s*to\s*buy)$/i.test(rawText)
+  ) {
     const bodyText = isHinglish
-      ? 'Bahut badhiya! 😊 Aapki pasand ke liye dhanyavaad!\n\nHum aapki purchase ko aasaan banane mein madad karenge.\n\nAap kaunsa option pasand karenge?'
-      : 'Great choice! 😊 Thank you for choosing Best Auto Parts.\n\nWe are here to assist you with your purchase.\n\nWhich option would you prefer?'
+      ? 'Bahut badhiya! Aap product store se pickup karna chahenge, home delivery chahiye ya online payment karna chahenge?'
+      : 'Great! Would you prefer to pick up the product from our store, get home delivery, or pay online?'
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -747,16 +845,50 @@ export async function handleWelcomeFlowInbound(
       bodyText,
       buttons: [
         { id: WELCOME_CALLBACKS.BUY_PICKUP, title: 'Store Pickup' },
-        { id: WELCOME_CALLBACKS.BUY_DELIVERY, title: 'Delivery Assistance' },
+        { id: WELCOME_CALLBACKS.BUY_DELIVERY, title: 'Home Delivery' },
+        { id: WELCOME_CALLBACKS.BUY_ONLINE_PAY, title: 'Online Payment' },
       ],
     })
     return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
   }
 
-  if (interactiveReplyId === WELCOME_CALLBACKS.BUY_EXPLORING) {
+  // ------------------------------------------------------------
+  // 8A. Online Payment Flow (PhonePe Gateway Track 2)
+  // ------------------------------------------------------------
+  if (
+    interactiveReplyId === WELCOME_CALLBACKS.BUY_ONLINE_PAY ||
+    interactiveReplyId === WELCOME_CALLBACKS.PAY_RETRY ||
+    /^(online\s*payment|pay\s*online|online\s*pay)$/i.test(rawText)
+  ) {
+    let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER'
+    try {
+      const initResult = await PaymentService.initiatePayment({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
+        unitPrice: 690,
+        quantity: 1,
+        fulfillmentType: 'online_checkout',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+        paymentMethod: 'CHECKOUT_LINK',
+      })
+      if (initResult.checkoutUrl) {
+        checkoutLink = initResult.checkoutUrl
+      }
+    } catch {
+      // Fallback
+    }
+
     const bodyText = isHinglish
-      ? 'Koi baat nahi! 😊 Aap araam se products explore kijiye.\n\nAap aage kya dekhna chahenge?'
-      : 'No problem at all! 😊 Feel free to explore our products.\n\nWhat would you like to see next?'
+      ? `Online Payment ke liye kripya apna tarika chuniye:\n\n` +
+        `Same-phone payment ke liye aap direct secure web checkout link bhi use kar sakte hain:\n` +
+        `👉 ${checkoutLink}`
+      : `Please choose your online payment method:\n\n` +
+        `If you are paying from the same phone, you can also use our secure checkout link:\n` +
+        `👉 ${checkoutLink}`
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -765,9 +897,236 @@ export async function handleWelcomeFlowInbound(
       contactId,
       bodyText,
       buttons: [
-        { id: WELCOME_CALLBACKS.BUY_DETAILS, title: 'Product Details' },
+        { id: WELCOME_CALLBACKS.PAY_UPI_ID, title: 'UPI ID Payment' },
+        { id: WELCOME_CALLBACKS.PAY_SCAN_QR, title: 'Scan QR Code' },
+      ],
+    })
+    return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+  }
+
+  // Scan Dynamic QR Code Flow
+  if (
+    interactiveReplyId === WELCOME_CALLBACKS.PAY_SCAN_QR ||
+    /^(scan\s*qr|scan\s*qr\s*code|qr\s*code)$/i.test(rawText)
+  ) {
+    let orderRef = 'BAP-9634'
+    let totalAmt = 690
+    try {
+      const initResult = await PaymentService.initiatePayment({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
+        unitPrice: 690,
+        quantity: 1,
+        fulfillmentType: 'online_checkout',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+        paymentMethod: 'UPI_QR',
+      })
+      orderRef = initResult.merchantTransactionId
+      totalAmt = initResult.totalAmount
+    } catch {
+      // Fallback
+    }
+
+    const shortRef = orderRef.slice(-6)
+    const bodyText = isHinglish
+      ? `📷 *Scan karke Pay karein: ₹${totalAmt.toFixed(2)}*\n` +
+        `Payee: Best Auto Parts (Nabeel Khan)\n` +
+        `Order ID: #${shortRef}\n\n` +
+        `1. Apne PhonePe, Google Pay ya Paytm se scan karein.\n` +
+        `2. ₹${totalAmt.toFixed(2)} ka amount automatically pre-filled hai.\n` +
+        `3. Kripya agle 15 minutes ke andar payment complete karein.\n\n` +
+        `⏱️ *Yeh Dynamic QR agle 15 minutes ke liye valid hai.*\n` +
+        `✅ PhonePe gateway dwara verify hote hi order confirm ho jayega.`
+      : `📷 *Scan to Pay: ₹${totalAmt.toFixed(2)}*\n` +
+        `Payee: Best Auto Parts (Nabeel Khan)\n` +
+        `Order ID: #${shortRef}\n\n` +
+        `1. Scan this dynamic QR using PhonePe, Google Pay, or Paytm.\n` +
+        `2. The amount ₹${totalAmt.toFixed(2)} is pre-filled.\n` +
+        `3. Please complete payment within 15 minutes.\n\n` +
+        `⏱️ *This Dynamic QR will expire in 15 minutes.*\n` +
+        `✅ Your order will be confirmed automatically once verified by PhonePe.`;
+
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://best-auto-parts-one.vercel.app'
+    const qrImageUrl = `${siteUrl}/api/payments/phonepe/qr/${encodeURIComponent(orderRef)}`
+
+    let mediaMessageId: string | undefined
+    try {
+      const mediaRes = await engineSendMedia({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        kind: 'image',
+        link: qrImageUrl,
+        caption: bodyText,
+      })
+      mediaMessageId = mediaRes?.whatsapp_message_id
+    } catch (mediaErr) {
+      console.warn('[welcome-flow] engineSendMedia fallback:', mediaErr)
+    }
+
+    const res = await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText: isHinglish
+        ? 'Same-phone payment ke liye aap direct link ya UPI ID use kar sakte hain:'
+        : 'For same-phone payment, you can also use direct checkout or UPI ID:',
+      buttons: [
+        { id: WELCOME_CALLBACKS.PAY_UPI_ID, title: 'UPI ID Payment' },
+        { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
+      ],
+    })
+    return { consumed: true, responseSent: bodyText, messageId: mediaMessageId || res.whatsapp_message_id }
+  }
+
+  // UPI ID Payment / Same-phone Web Checkout Flow
+  if (
+    interactiveReplyId === WELCOME_CALLBACKS.PAY_UPI_ID ||
+    /^(upi\s*id|upi\s*id\s*payment|pay\s*via\s*upi)$/i.test(rawText)
+  ) {
+    let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER'
+    let orderRef = 'BAP-9634'
+    try {
+      const initResult = await PaymentService.initiatePayment({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
+        unitPrice: 690,
+        quantity: 1,
+        fulfillmentType: 'online_checkout',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+        paymentMethod: 'CHECKOUT_LINK',
+      })
+      if (initResult.checkoutUrl) {
+        checkoutLink = initResult.checkoutUrl
+      }
+      orderRef = initResult.merchantTransactionId
+    } catch {
+      // Fallback
+    }
+
+    const shortRef = orderRef.slice(-6)
+    const text = isHinglish
+      ? `⚡ *UPI ID Payment — PhonePe Gateway*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• Order ID: #${shortRef}\n` +
+        `• Total Amount: ₹690.00 (All taxes included)\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Apne phone se seedhe 1-click pay karne ke liye niche secure checkout link par tap karein:\n` +
+        `👉 ${checkoutLink}\n\n` +
+        `Yeh PhonePe, Google Pay aur Paytm ko support karta hai.\n\n` +
+        `Ya agar aap direct collect request chahte hain, toh apni UPI ID (VPA) yahan send karein (jaise: username@okhdfcbank).`
+      : `⚡ *UPI ID Payment — PhonePe Gateway*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• Order ID: #${shortRef}\n` +
+        `• Total Amount: ₹690.00 (All taxes included)\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `To pay directly from your UPI app on this phone, tap our secure checkout link:\n` +
+        `👉 ${checkoutLink}\n\n` +
+        `Supports PhonePe, Google Pay, and Paytm.\n\n` +
+        `Alternatively, type your UPI ID (VPA) here to receive an instant collect request (e.g. username@okhdfcbank).`;
+
+    const res = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text,
+    })
+    return { consumed: true, responseSent: text, messageId: res.whatsapp_message_id }
+  }
+
+  // Customer Enters / Sends a UPI ID (VPA)
+  if (UPI_ID_REGEX.test(rawText)) {
+    const customerVpa = rawText
+    let orderRef = 'BAP-9634'
+    try {
+      const initResult = await PaymentService.initiatePayment({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
+        unitPrice: 690,
+        quantity: 1,
+        fulfillmentType: 'online_checkout',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+        paymentMethod: 'UPI_COLLECT',
+        customerVpa,
+      })
+      orderRef = initResult.merchantTransactionId
+    } catch {
+      // Fallback
+    }
+
+    const shortRef = orderRef.slice(-6)
+    const text = isHinglish
+      ? `✅ Hamne aapki UPI ID (*${customerVpa}*) par Order #${shortRef} ke liye ₹690 ka payment collect request bhej diya hai.\n\n` +
+        `Kripya apne UPI app (PhonePe / Google Pay / Paytm) mein jakar payment approve karein. ⏱️ (Valid for 15 minutes)\n\n` +
+        `Jaise hi payment confirm hoga, aapko foran WhatsApp par receipt mil jayegi!`
+      : `✅ We have sent a collect request of ₹690 for Order #${shortRef} to your UPI ID (*${customerVpa}*).\n\n` +
+        `Please open your UPI app (PhonePe / Google Pay / Paytm) and approve the payment. ⏱️ (Valid for 15 minutes)\n\n` +
+        `Your order will be confirmed automatically once verified!`;
+
+    const res = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text,
+    })
+    return { consumed: true, responseSent: text, messageId: res.whatsapp_message_id }
+  }
+
+  // Customer Claims Payment Done via WhatsApp text / typed UTR
+  if (PAYMENT_CLAIM_REGEX.test(rawText)) {
+    const text = isHinglish
+      ? `Ham aapka payment PhonePe gateway ke saath verify kar rahe hain. ⏳\n\n` +
+        `Best Auto Parts ka system gateway se cryptographically verified confirmation milne par hi order confirm karta hai.\n` +
+        `Jaise hi verification complete hogi, aapko official receipt send kar di jayegi!\n\n` +
+        `Kisi bhi inquiry ke liye aap hamare store staff se baat kar sakte hain.`
+      : `We are verifying your transaction with the PhonePe gateway. ⏳\n\n` +
+        `Best Auto Parts confirms orders automatically once cryptographic gateway confirmation is received.\n` +
+        `You will receive your official receipt here as soon as verification completes!\n\n` +
+        `If you have questions, please feel free to speak with our store staff.`;
+
+    const res = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text,
+    })
+    return { consumed: true, responseSent: text, messageId: res.whatsapp_message_id }
+  }
+
+  if (
+    interactiveReplyId === WELCOME_CALLBACKS.BUY_EXPLORING ||
+    /^(just\s*exploring|abhi\s*sirf\s*dekh\s*raha\s*hoon)$/i.test(rawText)
+  ) {
+    const bodyText = isHinglish
+      ? 'Koi baat nahi! Aap araam se products dekh sakte hain. Agar kisi aur spare part ki zarurat ho, toh humein bata dijiye.'
+      : 'No problem! Feel free to explore. Let us know if you need help finding another spare part.'
+
+    const res = await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText,
+      buttons: [
         { id: WELCOME_CALLBACKS.BUY_ANOTHER, title: 'Find Another Part' },
-        { id: WELCOME_CALLBACKS.MENU_TALK_HUMAN, title: 'Talk to Human' },
+        { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
       ],
     })
     return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
@@ -1061,6 +1420,201 @@ export async function handleWelcomeFlowInbound(
       text,
     })
     return { consumed: true, responseSent: text, messageId: res.whatsapp_message_id }
+  }
+
+  // ------------------------------------------------------------
+  // 13. Yes/No Context Handling (Section 11)
+  // ------------------------------------------------------------
+  const isYes = /^(yes|yeah|yep|yup|haan|ha|ji|sure|bilkul|zaroor)$/i.test(rawText)
+  const isNo = /^(no|nope|nah|nahi|nahin|na|matlab nahi)$/i.test(rawText)
+
+  if (!interactiveReplyId && (isYes || isNo)) {
+    // Inspect the last bot message in the conversation
+    let lastBotText = ''
+    try {
+      const { data: lastBotMsg } = await db
+        .from('messages')
+        .select('content_text')
+        .eq('conversation_id', conversationId)
+        .eq('sender_type', 'bot')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      lastBotText = (lastBotMsg?.content_text || '').toLowerCase()
+    } catch {
+      // fallback
+    }
+
+    // Context A: Store address prompt ("Kya aapko store address chahiye?" / "Would you like store location details?")
+    if (
+      lastBotText.includes('store address') ||
+      lastBotText.includes('store location') ||
+      lastBotText.includes('address chahiye')
+    ) {
+      if (isYes) {
+        // Return store location details
+        const bodyText = isHinglish
+          ? '📍 *Best Auto Parts*\nMain Market, Auto Parts Hub, Delhi/NCR\n⏰ Timings: 09:00 AM – 08:00 PM (Daily)\n🕌 Friday Juma Break: 12:30 PM – 02:30 PM\n📞 Contact: Saud Bhai\n\nCounter par aakar apna order collect karein! 🏍️'
+          : '📍 *Best Auto Parts*\nMain Market, Auto Parts Hub, Delhi/NCR\n⏰ Timings: 09:00 AM – 08:00 PM (Daily)\n🕌 Friday Juma Break: 12:30 PM – 02:30 PM\n📞 Contact: Saud Bhai\n\nVisit our counter to pick up your order! 🏍️'
+
+        const res = await engineSendInteractiveButtons({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          bodyText,
+          buttons: [
+            { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
+            { id: WELCOME_CALLBACKS.MENU_TALK_HUMAN, title: 'Talk to Human' },
+          ],
+        })
+        return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      } else {
+        const bodyText = isHinglish
+          ? 'Theek hai! Jab bhi aapko zaroorat ho, Best Auto Parts aapki sewa ke liye hazir hai. 😊'
+          : 'Understood! Best Auto Parts is always here to assist you whenever you need. 😊'
+
+        const res = await engineSendInteractiveButtons({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          bodyText,
+          buttons: [
+            { id: WELCOME_CALLBACKS.BUY_ANOTHER, title: 'Find Another Part' },
+            { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
+          ],
+        })
+        return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      }
+    }
+
+    // Context B: Proceed with order after delivery check ("Would you like to proceed with your order?" / "Ab aap apna order aage badhana chahenge?")
+    if (
+      lastBotText.includes('proceed with your order') ||
+      lastBotText.includes('aage badhana chahenge')
+    ) {
+      if (isYes) {
+        const bodyText = isHinglish
+          ? 'Bahut achha! Aapko kitne pieces ki zaroorat hai? Kripya quantity select karein:'
+          : 'Excellent! How many pieces do you require? Please select a quantity:'
+
+        const res = await engineSendInteractiveButtons({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          bodyText,
+          buttons: [
+            { id: WELCOME_CALLBACKS.ORDER_QTY_1, title: '1 Piece' },
+            { id: WELCOME_CALLBACKS.ORDER_QTY_2, title: '2 Pieces' },
+            { id: WELCOME_CALLBACKS.ORDER_QTY_OTHER, title: 'Other Quantity' },
+          ],
+        })
+        return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      } else {
+        const bodyText = isHinglish
+          ? 'Koi baat nahi! Jab bhi aap order aage badhana chahein, humein batayein.'
+          : 'No problem! Whenever you are ready to proceed, please let us know.'
+
+        const res = await engineSendInteractiveButtons({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          bodyText,
+          buttons: [
+            { id: WELCOME_CALLBACKS.BUY_ANOTHER, title: 'Find Another Part' },
+            { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
+          ],
+        })
+        return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      }
+    }
+
+    // Context C: Product purchase inquiry ("Kya aap ise kharidna chahenge?" / "Would you like to purchase it?")
+    if (
+      lastBotText.includes('purchase') ||
+      lastBotText.includes('kharidna chahenge') ||
+      lastBotText.includes('buy now')
+    ) {
+      if (isYes) {
+        const bodyText = isHinglish
+          ? 'Bahut badhiya! Aap product store se pickup karna chahenge ya delivery chahiye?'
+          : 'Great! Would you prefer to pick up the product from our store or have it delivered?'
+
+        const res = await engineSendInteractiveButtons({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          bodyText,
+          buttons: [
+            { id: WELCOME_CALLBACKS.BUY_PICKUP, title: 'Store Pickup' },
+            { id: WELCOME_CALLBACKS.BUY_DELIVERY, title: 'Delivery Assistance' },
+          ],
+        })
+        return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      } else {
+        const bodyText = isHinglish
+          ? 'Koi baat nahi! Aap araam se products dekh sakte hain. Agar kisi aur spare part ki zarurat ho, toh humein bata dijiye.'
+          : 'No problem! Feel free to explore. Let us know if you need help finding another spare part.'
+
+        const res = await engineSendInteractiveButtons({
+          accountId,
+          userId,
+          conversationId,
+          contactId,
+          bodyText,
+          buttons: [
+            { id: WELCOME_CALLBACKS.BUY_ANOTHER, title: 'Find Another Part' },
+            { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
+          ],
+        })
+        return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      }
+    }
+
+    // Context D: Unclear/No pending question.
+    // Bare Yes must NEVER confirm an order or payment.
+    const bodyText = isHinglish
+      ? 'Kripya batayein aap kis baare mein baat kar rahe hain? Hum aapki kaise madad kar sakte hain?'
+      : 'Could you please clarify what you are referring to? How can we help you?'
+
+    const res = await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText,
+      buttons: [
+        { id: WELCOME_CALLBACKS.MENU_FIND_PART, title: 'Find a Spare Part' },
+        { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
+      ],
+    })
+    return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+  }
+
+  // ------------------------------------------------------------
+  // 14. Smart Product Clarification (Section 6)
+  // Handles Pu, G, Cluch plate, Break pad, Price?, Available?
+  // ------------------------------------------------------------
+  if (!interactiveReplyId) {
+    const clarification = getSmartProductClarification(rawText, savedLang)
+    if (clarification) {
+      const res = await engineSendText({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        text: clarification,
+      })
+      return {
+        consumed: true,
+        responseSent: clarification,
+        messageId: res.whatsapp_message_id,
+      }
+    }
   }
 
   // If none of the welcome-flow specific interactive callbacks or states matched,

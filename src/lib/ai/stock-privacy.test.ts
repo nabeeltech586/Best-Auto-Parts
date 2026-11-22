@@ -3,6 +3,7 @@ import {
   sanitizeCustomerStockPrivacy,
   containsStockQuantityLeak,
   toCustomerSafePart,
+  cleanCustomerFacingPartName,
 } from './stock-privacy';
 import { formatInventoryContext, type InventoryContextResult } from './inventory-context';
 import { parseGeneration } from './generate';
@@ -96,7 +97,8 @@ describe('Customer Stock Privacy & AI Reply Upgrade', () => {
       expect(containsStockQuantityLeak(sanitized)).toBe(false);
       expect(sanitized).not.toContain('15 units');
       expect(sanitized).toContain('₹690');
-      expect(sanitized).toContain('Clutch Plate Set (5 pcs)'); // Preserves pack name
+      expect(sanitized).toContain('Clutch Plate Set');
+      expect(sanitized).not.toContain('(5 pcs)');
       expect(sanitized).toContain('available');
     });
 
@@ -388,6 +390,52 @@ describe('Customer Stock Privacy & AI Reply Upgrade', () => {
       expect(result.text).not.toContain('15 units');
       expect(result.text).toContain('Price: ₹690');
       expect(result.text).toContain('available');
+    });
+  });
+
+  // ============================================================
+  // 9. Section 7 — Packaging Quantity Removal & Fitment Preservation
+  // ============================================================
+  describe('9. Product Display — Packaging Quantity Removal & Vehicle Fitment Preservation', () => {
+    it('strips packaging quantity suffixes like (5 pcs), (5 Pcs), (10 nag) from customer-facing product name', () => {
+      expect(cleanCustomerFacingPartName('Bajaj Pulsar 150 Clutch Plate Set (5 pcs)')).toBe(
+        'Bajaj Pulsar 150 Clutch Plate Set'
+      );
+      expect(cleanCustomerFacingPartName('Hero Splendor Brake Shoe (2 Pcs)')).toBe(
+        'Hero Splendor Brake Shoe'
+      );
+      expect(cleanCustomerFacingPartName('Honda Shine Spark Plug (10 nag)')).toBe(
+        'Honda Shine Spark Plug'
+      );
+      expect(cleanCustomerFacingPartName('TVS Apache Disc Pad (4 units)')).toBe(
+        'TVS Apache Disc Pad'
+      );
+    });
+
+    it('removes bilingual Hindi slash suffixes while keeping English part name clean', () => {
+      expect(
+        cleanCustomerFacingPartName(
+          'Bajaj Pulsar 150 Clutch Plate Set (5 Pcs) / पल्सर 150 क्लच प्लेट सेट'
+        )
+      ).toBe('Bajaj Pulsar 150 Clutch Plate Set');
+    });
+
+    it('strictly preserves genuine vehicle fitment models in parentheses', () => {
+      expect(cleanCustomerFacingPartName('Brake Shoe (Pulsar / Platina)')).toBe(
+        'Brake Shoe (Pulsar / Platina)'
+      );
+      expect(cleanCustomerFacingPartName('Clutch Lever (Splendor / Passion Pro)')).toBe(
+        'Clutch Lever (Splendor / Passion Pro)'
+      );
+    });
+
+    it('integrates cleanly into toCustomerSafePart', () => {
+      const internalPart: PartCatalogItem = {
+        ...sampleInternalPart,
+        part_name: 'Bajaj Pulsar 150 Clutch Plate Set (5 Pcs) / पल्सर 150 क्लच प्लेट सेट',
+      };
+      const safe = toCustomerSafePart(internalPart);
+      expect(safe.part_name).toBe('Bajaj Pulsar 150 Clutch Plate Set');
     });
   });
 });

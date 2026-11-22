@@ -3,9 +3,8 @@ import {
   extractInventoryKeywords,
   searchInventoryForAi,
   formatInventoryContext,
-  retrieveInventoryContext,
+  getSmartProductClarification,
   type InventoryContextResult,
-  type PartWithFitments,
 } from './inventory-context';
 import { buildSystemPrompt } from './defaults';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -387,5 +386,59 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
     expect(text).not.toContain('15 units available');
     expect(text).toContain('DO NOT HAND OFF FOR NORMAL INQUIRIES');
     expect(text).toContain('WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if');
+  });
+
+  describe('Spelling Mistakes & Incomplete Queries (Section 6)', () => {
+    it('handles common bike and component typos in extractInventoryKeywords', () => {
+      const resPulsr = extractInventoryKeywords('Pulsr 150 cluch plate');
+      expect(resPulsr.vehicleCandidates).toContain('Pulsr 150');
+      expect(resPulsr.componentKeywords).toContain('clutch');
+
+      const resPulser = extractInventoryKeywords('Pulser 150 break pad');
+      expect(resPulser.vehicleCandidates).toContain('Pulser 150');
+      expect(resPulser.componentKeywords).toContain('brake');
+
+      const resSplendr = extractInventoryKeywords('Splendr sproket');
+      expect(resSplendr.vehicleCandidates).toContain('Splendr');
+      expect(resSplendr.componentKeywords).toContain('chain sprocket');
+    });
+
+    it('returns exact Section 6 clarifications for incomplete or single-character messages', () => {
+      // Pu
+      expect(getSmartProductClarification('Pu', 'hinglish')).toBe(
+        'Ji, kya aap Bajaj Pulsar ke spare parts dhoondh rahe hain? Kripya apni bike ka poora model aur required part ka naam batayein.'
+      );
+      expect(getSmartProductClarification('Pu', 'en')).toBe(
+        'Are you looking for Bajaj Pulsar spare parts? Please share your complete bike model and the part you need.'
+      );
+
+      // Single char G
+      expect(getSmartProductClarification('G', 'hinglish')).toBe(
+        'Ji, aap kaunsa spare part dhoondh rahe hain? Product ka naam ya bike ka model likh dijiye.'
+      );
+      expect(getSmartProductClarification('G', 'en')).toBe(
+        'Which spare part are you looking for? Please share the product name or your bike model.'
+      );
+
+      // Component without bike model
+      expect(getSmartProductClarification('Cluch plate', 'hinglish')).toBe(
+        'Ji, kya aap Clutch Plate ki baat kar rahe hain? Apni bike ka model bhi bata dijiye, taaki main sahi product check kar sakun.'
+      );
+      expect(getSmartProductClarification('Cluch plate', 'en')).toBe(
+        'Are you looking for a clutch plate? Please share your bike model so I can check the correct product.'
+      );
+
+      expect(getSmartProductClarification('Break pad', 'hinglish')).toBe(
+        'Ji, kya aap Brake Pad ki baat kar rahe hain? Apni bike ka model bata dijiye, taaki sahi part check kar sakun.'
+      );
+
+      expect(getSmartProductClarification('Price?', 'hinglish')).toBe(
+        'Ji, aapko kis bike ke kaunse spare part ka price ya availability check karni hai? Product aur bike model bata dijiye.'
+      );
+
+      // Complete queries should return null (pass to search)
+      expect(getSmartProductClarification('Pulsar 150 clutch plate', 'hinglish')).toBeNull();
+      expect(getSmartProductClarification('Splendor brake shoe', 'en')).toBeNull();
+    });
   });
 });

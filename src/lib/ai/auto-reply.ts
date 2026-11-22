@@ -196,9 +196,9 @@ export async function dispatchInboundToAiReply(
     const customerLang = await getContactLanguage(db, accountId, contactId)
     const languageInstruction =
       customerLang === 'hinglish'
-        ? 'Customer preferred language: Hinglish (Hindi + English mix). Reply in natural, polite Hinglish.'
+        ? 'Customer preferred language: Hinglish (Hindi + English mix). Reply in natural, polite Hinglish. Never disclose internal stock counts, warehouse numbers, or packaging quantity suffixes such as "(5 pcs)". Show verified price and state only that the item is available.'
         : customerLang === 'en'
-          ? 'Customer preferred language: English. Reply in polite English.'
+          ? 'Customer preferred language: English. Reply in polite English. Never disclose internal stock counts, warehouse numbers, or packaging quantity suffixes such as "(5 pcs)". Show verified price and state only that the item is available.'
           : null
 
     const effectiveUserPrompt = [config.systemPrompt, languageInstruction]
@@ -302,7 +302,7 @@ export async function dispatchInboundToAiReply(
           contactId,
           bodyText: sanitizeCustomerStockPrivacy(text),
           buttons: [
-            { id: 'BUY_WANT', title: 'I Want to Buy' },
+            { id: 'BUY_NOW', title: 'Buy Now' },
             { id: 'BUY_EXPLORING', title: 'Just Exploring' },
           ],
         })

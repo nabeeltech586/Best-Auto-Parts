@@ -62,6 +62,8 @@ export function sanitizeCustomerStockPrivacy(text: string): string {
   for (const { regex, replacement } of STOCK_PRIVACY_REPLACEMENTS) {
     result = result.replace(regex, replacement);
   }
+  // Strip packaging quantity suffixes like (5 pcs) or (5 Pcs) from customer text
+  result = result.replace(/\s*\(\s*\d+\s*(?:pcs|pieces?|units?|nag|सेट|पीस|set)\s*\)/gi, '');
   // Clean up horizontal whitespace and repeated periods without modifying newlines
   result = result
     .replace(/[^\S\r\n]{2,}/g, ' ')
@@ -82,13 +84,30 @@ export function containsStockQuantityLeak(text: string): boolean {
 }
 
 /**
+ * Clean customer-facing product name by removing internal packaging quantity
+ * suffixes (e.g. '(5 pcs)', '(5 Pcs)', '(10 nag)') and bilingual slashes,
+ * while strictly preserving genuine vehicle fitment models like '(Pulsar / Platina)'.
+ */
+export function cleanCustomerFacingPartName(rawName: string): string {
+  if (!rawName) return '';
+  return rawName
+    // Remove packaging quantity suffixes like (5 pcs), (5 Pcs), (10 nag), (5 units), (4 set)
+    .replace(/\s*\(\s*\d+\s*(?:pcs|pieces?|units?|nag|सेट|पीस|set)\s*\)/gi, '')
+    // Remove bilingual Hindi slash suffix (e.g. ' / पल्सर 150 क्लच प्लेट सेट')
+    .replace(/\s*\/\s*[\u0900-\u097F].*$/g, '')
+    // Clean multiple spaces and trim
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
  * Convert an internal PartCatalogItem into a privacy-safe CustomerFacingPart.
  * Completely excludes internal stock quantities, cost prices, thresholds, and bin locations.
  */
 export function toCustomerSafePart(part: PartCatalogItem): CustomerFacingPart {
   return {
     id: part.id,
-    part_name: part.part_name,
+    part_name: cleanCustomerFacingPartName(part.part_name),
     sku: part.sku,
     oem_number: part.oem_number,
     alternate_oem_numbers: part.alternate_oem_numbers || [],

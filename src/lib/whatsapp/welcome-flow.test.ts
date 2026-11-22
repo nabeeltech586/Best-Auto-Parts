@@ -19,6 +19,7 @@ import { matchesKeywordTrigger } from '@/lib/flows/engine'
 const sentButtons: any[] = []
 const sentLists: any[] = []
 const sentTexts: any[] = []
+const sentMedia: any[] = []
 
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendInteractiveButtons: vi.fn(async (args: any) => {
@@ -32,6 +33,10 @@ vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: vi.fn(async (args: any) => {
     sentTexts.push(args)
     return { whatsapp_message_id: `wamid.txt.${sentTexts.length}` }
+  }),
+  engineSendMedia: vi.fn(async (args: any) => {
+    sentMedia.push(args)
+    return { whatsapp_message_id: `wamid.media.${sentMedia.length}` }
   }),
   loadAccountMetaCredentials: vi.fn(async () => ({
     phoneNumberId: 'phone-num-id-123',
@@ -49,6 +54,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     sentButtons.length = 0
     sentLists.length = 0
     sentTexts.length = 0
+    sentMedia.length = 0
     vi.clearAllMocks()
   })
 
@@ -251,16 +257,17 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(sentLists.length).toBe(1)
     const list = sentLists[0]
     expect(list.bodyText).toContain('Aapne Hinglish select kiya hai')
+    expect(list.bodyText).toContain('Aapko kis cheez mein madad chahiye?')
     expect(list.bodyText).toContain('Kripya shuru karne ke liye niche diye gaye menu se ek option chunein:')
 
-    // Crucial rule: Button titles must remain in English
+    // Localized menu rows in Hinglish per Section 4
     const rowTitles = list.sections[0].rows.map((r: any) => r.title)
-    expect(rowTitles).toContain('Find a Spare Part')
-    expect(rowTitles).toContain('Product Info & Price')
-    expect(rowTitles).toContain('Search by Bike Model')
-    expect(rowTitles).toContain('Order & Delivery')
-    expect(rowTitles).toContain('Shop Location & Timing')
-    expect(rowTitles).toContain('Talk to Human')
+    expect(rowTitles).toContain('Spare Part Dhoondhein')
+    expect(rowTitles).toContain('Price & Availability')
+    expect(rowTitles).toContain('Bike Model Search Karein')
+    expect(rowTitles).toContain('Order & Delivery Jankari')
+    expect(rowTitles).toContain('Store Location & Timing')
+    expect(rowTitles).toContain('Specialist Se Baat Karein')
 
     // Strictly no stock counting options
     for (const title of rowTitles) {
@@ -513,10 +520,11 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(res.consumed).toBe(true)
     expect(sentButtons.length).toBe(1)
     const btnCall = sentButtons[0]
-    expect(btnCall.bodyText).toContain('Bahut badhiya! 😊 Aapki pasand ke liye dhanyavaad!')
+    expect(btnCall.bodyText).toContain('store se pickup karna chahenge, home delivery chahiye ya online payment')
     expect(btnCall.buttons).toEqual([
       { id: 'BUY_PICKUP', title: 'Store Pickup' },
-      { id: 'BUY_DELIVERY', title: 'Delivery Assistance' },
+      { id: 'BUY_DELIVERY', title: 'Home Delivery' },
+      { id: 'BUY_ONLINE_PAY', title: 'Online Payment' },
     ])
     expect(validateInteractivePayload({ kind: 'buttons', body: btnCall.bodyText, buttons: btnCall.buttons }).ok).toBe(true)
   })
@@ -625,11 +633,10 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(res.consumed).toBe(true)
     expect(sentButtons.length).toBe(1)
     const btnCall = sentButtons[0]
-    expect(btnCall.bodyText).toContain('Koi baat nahi! 😊 Aap araam se products explore kijiye.')
+    expect(btnCall.bodyText).toContain('Koi baat nahi! Aap araam se products dekh sakte hain. Agar kisi aur spare part ki zarurat ho, toh humein bata dijiye.')
     expect(btnCall.buttons).toEqual([
-      { id: 'BUY_DETAILS', title: 'Product Details' },
       { id: 'BUY_ANOTHER', title: 'Find Another Part' },
-      { id: 'MENU_TALK_HUMAN', title: 'Talk to Human' },
+      { id: 'BACK_TO_MENU', title: 'Main Menu' },
     ])
   })
 
@@ -858,5 +865,428 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     // Tenant B queries own contact -> returns 'hinglish'
     const ownLang = await getContactLanguage(db as any, 'acc-B', 'contact-tenant-B')
     expect(ownLang).toBe('hinglish')
+  })
+
+  // ------------------------------------------------------------
+  // Test 25: Section 5 — Selecting Find a Spare Part
+  // ------------------------------------------------------------
+  it('25. Section 5 — Selecting Find a Spare Part sends immediate localized instruction message', async () => {
+    // Hinglish customer
+    const dbHinglish = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+    })
+    const resH = await handleWelcomeFlowInbound({
+      db: dbHinglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Find a Spare Part',
+      interactiveReplyId: WELCOME_CALLBACKS.MENU_FIND_PART,
+    })
+    expect(resH.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+    expect(sentTexts[0].text).toContain('Bilkul! Aap apni bike ka brand aur poora model batayein')
+    expect(sentTexts[0].text).toContain('Bajaj Pulsar 150 – Clutch Plate')
+    expect(sentTexts[0].text).toContain('Honda Shine – Brake Shoe')
+    expect(sentTexts[0].text).toContain('Hero Splendor Plus – Chain Sprocket Kit')
+
+    sentTexts.length = 0
+
+    // English customer
+    const dbEnglish = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'en' }],
+    })
+    const resE = await handleWelcomeFlowInbound({
+      db: dbEnglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Find a Spare Part',
+      interactiveReplyId: WELCOME_CALLBACKS.MENU_FIND_PART,
+    })
+    expect(resE.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+    expect(sentTexts[0].text).toContain('Sure! Please tell us your bike brand and complete model')
+    expect(sentTexts[0].text).toContain('Bajaj Pulsar 150 – Clutch Plate')
+    expect(sentTexts[0].text).toContain('Honda Shine – Brake Shoe')
+    expect(sentTexts[0].text).toContain('Hero Splendor Plus – Chain Sprocket Kit')
+  })
+
+  // ------------------------------------------------------------
+  // Test 26: Section 6 — Smart Product Search Clarifications
+  // ------------------------------------------------------------
+  it('26. Section 6 — Incomplete product queries and typos trigger localized clarifications', async () => {
+    const dbHinglish = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    // "Pu" in Hinglish
+    const resPuH = await handleWelcomeFlowInbound({
+      db: dbHinglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Pu',
+    })
+    expect(resPuH.consumed).toBe(true)
+    expect(sentTexts[sentTexts.length - 1].text).toContain('Bajaj Pulsar')
+
+    // "G" in Hinglish
+    const resGH = await handleWelcomeFlowInbound({
+      db: dbHinglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'G',
+    })
+    expect(resGH.consumed).toBe(true)
+    expect(sentTexts[sentTexts.length - 1].text).toContain('kaunsa spare part dhoondh rahe hain')
+
+    // "Cluch plate" in Hinglish
+    const resCluchH = await handleWelcomeFlowInbound({
+      db: dbHinglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Cluch plate',
+    })
+    expect(resCluchH.consumed).toBe(true)
+    expect(sentTexts[sentTexts.length - 1].text).toContain('Clutch Plate ki baat kar rahe hain')
+
+    // "Price?" in Hinglish
+    const resPriceH = await handleWelcomeFlowInbound({
+      db: dbHinglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Price?',
+    })
+    expect(resPriceH.consumed).toBe(true)
+    expect(sentTexts[sentTexts.length - 1].text).toContain('kis bike ke kaunse spare part ka price')
+
+    // "Pu" in English
+    const dbEnglish = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'en' }],
+    })
+    const resPuE = await handleWelcomeFlowInbound({
+      db: dbEnglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Pu',
+    })
+    expect(resPuE.consumed).toBe(true)
+    expect(sentTexts[sentTexts.length - 1].text).toContain('Are you looking for Bajaj Pulsar spare parts?')
+
+    // "Cluch plate" in English
+    const resCluchE = await handleWelcomeFlowInbound({
+      db: dbEnglish as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Cluch plate',
+    })
+    expect(resCluchE.consumed).toBe(true)
+    expect(sentTexts[sentTexts.length - 1].text).toContain('Are you looking for a clutch plate?')
+  })
+
+  // ------------------------------------------------------------
+  // Test 27: Section 8 & 9 — Buy Now Callback & Natural Language
+  // ------------------------------------------------------------
+  it('27. Section 8 & 9 — Buy Now via callback and text sends Store Pickup & Delivery Assistance buttons', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    // Via BUY_NOW callback
+    const res1 = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Buy Now',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_NOW,
+    })
+    expect(res1.consumed).toBe(true)
+    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('store se pickup karna chahenge, home delivery chahiye ya online payment')
+    expect(sentButtons[sentButtons.length - 1].buttons).toEqual([
+      { id: 'BUY_PICKUP', title: 'Store Pickup' },
+      { id: 'BUY_DELIVERY', title: 'Home Delivery' },
+      { id: 'BUY_ONLINE_PAY', title: 'Online Payment' },
+    ])
+
+    // Via natural language text "kharidna hai"
+    const res2 = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'kharidna hai',
+    })
+    expect(res2.consumed).toBe(true)
+    expect(sentButtons[sentButtons.length - 1].buttons[0].title).toBe('Store Pickup')
+    expect(sentButtons[sentButtons.length - 1].buttons[2].title).toBe('Online Payment')
+  })
+
+  // ------------------------------------------------------------
+  // Test 28: Section 8 & 10 — Just Exploring Flow
+  // ------------------------------------------------------------
+  it('28. Section 8 & 10 — Just Exploring sends polite acknowledgment with Find Another Part and Main Menu', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'just exploring',
+    })
+    expect(res.consumed).toBe(true)
+    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Koi baat nahi! Aap araam se products dekh sakte hain')
+    expect(sentButtons[sentButtons.length - 1].buttons).toEqual([
+      { id: 'BUY_ANOTHER', title: 'Find Another Part' },
+      { id: 'BACK_TO_MENU', title: 'Main Menu' },
+    ])
+  })
+
+  // ------------------------------------------------------------
+  // Test 29: Section 11 — Yes/No Context Handling
+  // ------------------------------------------------------------
+  it('29. Section 11 — Yes/No context handling answers pending questions and bare Yes never confirms order/payment', async () => {
+    // Context A: Store address prompt pending
+    const dbStorePrompt = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      messages: [
+        {
+          id: 'msg-1',
+          conversation_id: conversationId,
+          sender_type: 'bot',
+          content_text: 'Store timing: 09:00 AM – 08:00 PM. Kya aapko store address chahiye?',
+          created_at: '2026-01-15T10:00:00Z',
+        },
+      ],
+    })
+
+    const resYesStore = await handleWelcomeFlowInbound({
+      db: dbStorePrompt as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Haan',
+    })
+    expect(resYesStore.consumed).toBe(true)
+    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Best Auto Parts')
+    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Main Market')
+
+    // Context B: Bare Yes with no pending question
+    const dbEmpty = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      messages: [],
+    })
+    const resBareYes = await handleWelcomeFlowInbound({
+      db: dbEmpty as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Yes',
+    })
+    expect(resBareYes.consumed).toBe(true)
+    // NEVER confirms order or payment!
+    expect(sentButtons[sentButtons.length - 1].bodyText).not.toContain('confirmed')
+    expect(sentButtons[sentButtons.length - 1].bodyText).not.toContain('payment')
+    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Kripya batayein aap kis baare mein baat kar rahe hain?')
+  })
+
+  // ------------------------------------------------------------
+  // Test 30: Section 12 — Missing tenant/user ID handling in tag creation
+  // ------------------------------------------------------------
+  it('30. Section 12 — setContactLanguage resolves user_id when not passed and avoids duplicate tags', async () => {
+    const tagsState: any[] = []
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, user_id: 'resolved-user-id-999' }],
+      tags: tagsState,
+      contact_tags: [],
+    })
+
+    // Call setContactLanguage without userId
+    await setContactLanguage(db as any, accountId, contactId, 'hinglish')
+
+    // Verify tag was created with resolved user_id
+    const { data: createdTags } = await (db as any).from('tags').select('*')
+    expect(createdTags.length).toBe(1)
+    expect(createdTags[0].name).toBe('Language: Hinglish')
+    expect(createdTags[0].user_id).toBe('resolved-user-id-999')
+
+    // Second call with same language does not create duplicate tag
+    await setContactLanguage(db as any, accountId, contactId, 'hinglish')
+    const { data: secondQuery } = await (db as any).from('tags').select('*')
+    expect(secondQuery.length).toBe(1)
+  })
+
+  // ------------------------------------------------------------
+  // Test 31: Online Payment Options & Same-phone link
+  // ------------------------------------------------------------
+  it('31. Online Payment menu: displays UPI ID and Scan QR choices with secure web checkout link', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      orders: [],
+      payments: [],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Online Payment',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_ONLINE_PAY,
+    })
+
+    expect(res.consumed).toBe(true)
+    const btnCall = sentButtons[sentButtons.length - 1]
+    expect(btnCall.bodyText).toContain('Online Payment ke liye kripya apna tarika chuniye')
+    expect(btnCall.bodyText).toContain('https://best-auto-parts-one.vercel.app/pay?order=')
+    expect(btnCall.buttons).toEqual([
+      { id: 'PAY_UPI_ID', title: 'UPI ID Payment' },
+      { id: 'PAY_SCAN_QR', title: 'Scan QR Code' },
+    ])
+    expect(validateInteractivePayload({ kind: 'buttons', body: btnCall.bodyText, buttons: btnCall.buttons }).ok).toBe(true)
+  })
+
+  // ------------------------------------------------------------
+  // Test 32: Scan QR Code with 15-minute validity & pre-filled amount
+  // ------------------------------------------------------------
+  it('32. Scan QR Code: delivers Dynamic QR details with pre-filled ₹690 and 15-minute countdown', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      orders: [],
+      payments: [],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Scan QR Code',
+      interactiveReplyId: WELCOME_CALLBACKS.PAY_SCAN_QR,
+    })
+
+    expect(res.consumed).toBe(true)
+    // Dynamic QR image dispatch verified via engineSendMedia
+    expect(sentMedia.length).toBe(1)
+    const mediaCall = sentMedia[0]
+    expect(mediaCall.kind).toBe('image')
+    expect(mediaCall.link).toContain('/api/payments/phonepe/qr/')
+    expect(mediaCall.caption).toContain('Scan karke Pay karein: ₹690.00')
+    expect(mediaCall.caption).toContain('15 minutes')
+    expect(mediaCall.caption).toContain('Nabeel Khan')
+    // Guarantee stock privacy: no counts
+    expect(mediaCall.caption).not.toMatch(/\b(in stock|remaining|units left)\b/i)
+
+    // Interactive button alternatives sent for same-phone users
+    const btnCall = sentButtons[sentButtons.length - 1]
+    expect(btnCall.bodyText).toContain('Same-phone payment')
+    expect(btnCall.buttons).toEqual([
+      { id: 'PAY_UPI_ID', title: 'UPI ID Payment' },
+      { id: 'BACK_TO_MENU', title: 'Main Menu' },
+    ])
+  })
+
+  // ------------------------------------------------------------
+  // Test 33: UPI ID Payment Callback
+  // ------------------------------------------------------------
+  it('33. UPI ID Payment: provides 1-click checkout link and collect instructions in English for English user', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'en' }],
+      orders: [],
+      payments: [],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'UPI ID Payment',
+      interactiveReplyId: WELCOME_CALLBACKS.PAY_UPI_ID,
+    })
+
+    expect(res.consumed).toBe(true)
+    const txtCall = sentTexts[sentTexts.length - 1]
+    expect(txtCall.text).toContain('UPI ID Payment — PhonePe Gateway')
+    expect(txtCall.text).toContain('https://best-auto-parts-one.vercel.app/pay?order=')
+    expect(txtCall.text).toContain('PhonePe, Google Pay, and Paytm')
+  })
+
+  // ------------------------------------------------------------
+  // Test 34: Customer sends VPA for UPI collect
+  // ------------------------------------------------------------
+  it('34. Customer typing UPI ID: triggers collect request confirmation', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      orders: [],
+      payments: [],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'nabeelkhan@okhdfcbank',
+    })
+
+    expect(res.consumed).toBe(true)
+    const txtCall = sentTexts[sentTexts.length - 1]
+    expect(txtCall.text).toContain('nabeelkhan@okhdfcbank')
+    expect(txtCall.text).toContain('₹690')
+    expect(txtCall.text).toContain('15 minutes')
+  })
+
+  // ------------------------------------------------------------
+  // Test 35: Customer Payment Claim ("I have paid") never marks paid
+  // ------------------------------------------------------------
+  it('35. Customer payment claim: never marks paid, responds that gateway verifies automatically', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      orders: [{ id: 'order-claim', account_id: accountId, order_status: 'pending_payment' }],
+      payments: [{ id: 'pay-claim', account_id: accountId, payment_status: 'pending' }],
+    })
+
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Maine pay kar diya hai',
+    })
+
+    expect(res.consumed).toBe(true)
+    const txtCall = sentTexts[sentTexts.length - 1]
+    expect(txtCall.text).toContain('Ham aapka payment PhonePe gateway ke saath verify kar rahe hain')
+    // Order in DB MUST still be pending!
+    const { data: orders } = await (db as any).from('orders').select('*')
+    expect(orders[0].order_status).toBe('pending_payment')
   })
 })

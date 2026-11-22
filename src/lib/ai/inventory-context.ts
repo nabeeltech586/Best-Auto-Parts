@@ -3,6 +3,7 @@ import type { ChatMessage } from './types';
 import type { PartCatalogItem, VehicleFitment } from '@/types/inventory';
 import { formatVehicleFitment } from '@/lib/inventory/fitment';
 import { formatCurrency } from '@/lib/inventory/parts';
+import { cleanCustomerFacingPartName } from './stock-privacy';
 
 export interface PartWithFitments extends PartCatalogItem {
   fitments?: VehicleFitment[];
@@ -33,9 +34,9 @@ export interface InventoryContextResult {
 
 // Known Indian & Global vehicle brands and popular models in auto parts catalogs
 const KNOWN_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] }> = [
-  { make: 'Bajaj', models: ['Pulsar', 'Pulsar 150', 'Pulsar 180', 'Pulsar 220', 'Platina', 'Avenger', 'Discover', 'CT 100', 'Dominar', 'Chetak'], aliases: ['बजाज', 'पल्सर'] },
-  { make: 'Hero', models: ['Splendor', 'Super Splendor', 'Splendor Plus', 'HF Deluxe', 'Glamour', 'Passion', 'Passion Pro', 'Xtreme', 'Xpulse', 'Pleasure', 'Maestro'], aliases: ['हीरो', 'स्प्लेंडर', 'ग्लैमर'] },
-  { make: 'Honda', models: ['Activa', 'Activa 6G', 'Shine', 'CB Shine', 'Unicorn', 'Dio', 'Hornet', 'City', 'Civic', 'Amaze', 'Elevate'], aliases: ['होंडा', 'एक्टिवा'] },
+  { make: 'Bajaj', models: ['Pulsar', 'Pulsar 150', 'Pulsar 180', 'Pulsar 220', 'Platina', 'Avenger', 'Discover', 'CT 100', 'Dominar', 'Chetak', 'Pulsr', 'Pulser', 'Plsr', 'Pulsur', 'Pulsr 150', 'Pulser 150', 'Platna'], aliases: ['बजाज', 'पल्सर', 'pulsr', 'pulser'] },
+  { make: 'Hero', models: ['Splendor', 'Super Splendor', 'Splendor Plus', 'HF Deluxe', 'Glamour', 'Passion', 'Passion Pro', 'Xtreme', 'Xpulse', 'Pleasure', 'Maestro', 'Splendr', 'Slendor', 'Splender', 'Splendr Plus', 'Passn'], aliases: ['हीरो', 'स्प्लेंडर', 'ग्लैमर', 'splendr', 'slendor'] },
+  { make: 'Honda', models: ['Activa', 'Activa 6G', 'Shine', 'CB Shine', 'Unicorn', 'Dio', 'Hornet', 'City', 'Civic', 'Amaze', 'Elevate', 'Actva', 'Aktiva', 'Acteva'], aliases: ['होंडा', 'एक्टिवा', 'actva', 'aktiva'] },
   { make: 'TVS', models: ['Apache', 'RTR 160', 'RTR 200', 'Jupiter', 'XL100', 'Raider', 'Ntorq', 'Sport', 'Star City'], aliases: ['टीवीएस', 'अपाचे', 'जुपिटर'] },
   { make: 'Royal Enfield', models: ['Bullet', 'Bullet 350', 'Classic 350', 'Meteor', 'Hunter', 'Himalayan', 'Continental GT'], aliases: ['रॉयल एनफील्ड', 'बुलेट', 'क्लासिक'] },
   { make: 'Yamaha', models: ['R15', 'MT 15', 'FZ', 'FZ-S', 'Fascino', 'RayZR', 'Aerox'], aliases: ['यामाहा'] },
@@ -50,14 +51,14 @@ const KNOWN_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] 
 
 // Common automotive parts and spare components in English, Hindi, and Hinglish
 const COMPONENT_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
-  { key: 'clutch', patterns: [/\bclutch\b/i, /\bclutch\s*plate\b/i, /क्लच/i, /क्लच\s*प्लेट/i] },
-  { key: 'brake', patterns: [/\bbrake\b/i, /\bbrake\s*pad\b/i, /\bbrake\s*shoe\b/i, /\bdisc\b/i, /\brotor\b/i, /ब्रेक/i, /ब्रेक\s*पैड/i, /ब्रेक\s*शू/i] },
+  { key: 'clutch', patterns: [/\bclutch\b/i, /\bclutch\s*plate\b/i, /\bcluch\b/i, /\bcluch\s*plate\b/i, /\bclutchplate\b/i, /\bclach\b/i, /क्लच/i, /क्लच\s*प्लेट/i] },
+  { key: 'brake', patterns: [/\bbrake\b/i, /\bbrake\s*pad\b/i, /\bbrake\s*shoe\b/i, /\bbreak\b/i, /\bbreak\s*pad\b/i, /\bbreak\s*shoe\b/i, /\bbrek\b/i, /\bdisc\b/i, /\bdiscpad\b/i, /\bdisc\s*pad\b/i, /\brotor\b/i, /ब्रेक/i, /ब्रेक\s*पैड/i, /ब्रेक\s*शू/i] },
   { key: 'oil filter', patterns: [/\boil\s*filter\b/i, /ऑयल\s*फिल्टर/i, /ऑइल\s*फिल्टर/i] },
   { key: 'air filter', patterns: [/\bair\s*filter\b/i, /एयर\s*फिल्टर/i, /हवा\s*फिल्टर/i] },
-  { key: 'filter', patterns: [/\bfilter\b/i, /फिल्टर/i] },
-  { key: 'spark plug', patterns: [/\bspark\s*plug\b/i, /\bplug\b/i, /स्पार्क\s*प्लग/i, /प्लग/i] },
+  { key: 'filter', patterns: [/\bfilter\b/i, /\bfiltor\b/i, /\bfliter\b/i, /फिल्टर/i] },
+  { key: 'spark plug', patterns: [/\bspark\s*plug\b/i, /\bplug\b/i, /\bplag\b/i, /स्पार्क\s*प्लग/i, /प्लग/i] },
   { key: 'piston', patterns: [/\bpiston\b/i, /\bcylinder\b/i, /पिस्टन/i, /सिलेंडर/i] },
-  { key: 'chain sprocket', patterns: [/\bchain\b/i, /\bsprocket\b/i, /\bdrive\s*chain\b/i, /चेन/i, /स्प्रोकेट/i] },
+  { key: 'chain sprocket', patterns: [/\bchain\b/i, /\bsprocket\b/i, /\bchin\b/i, /\bsproket\b/i, /\bchane\b/i, /\bdrive\s*chain\b/i, /चेन/i, /स्प्रोकेट/i] },
   { key: 'battery', patterns: [/\bbattery\b/i, /बैटरी/i] },
   { key: 'horn', patterns: [/\bhorn\b/i, /हॉर्न/i] },
   { key: 'tyre', patterns: [/\btyre\b/i, /\btire\b/i, /टायर/i] },
@@ -463,7 +464,7 @@ export function formatInventoryContext(res: InventoryContextResult): string {
     const fitmentList = (part.fitments || []).map((f) => formatVehicleFitment(f));
 
     sections.push(`[VERIFIED PART #${index + 1}]`);
-    sections.push(`- Part Name: ${part.part_name}`);
+    sections.push(`- Part Name: ${cleanCustomerFacingPartName(part.part_name)}`);
     sections.push(`- SKU: ${part.sku}`);
     if (part.oem_number) sections.push(`- OEM Number: ${part.oem_number}`);
     if (part.alternate_oem_numbers && part.alternate_oem_numbers.length > 0) {
@@ -499,7 +500,7 @@ export function formatInventoryContext(res: InventoryContextResult): string {
     alternatives.forEach((alt, idx) => {
       const altPrice = formatCurrency(alt.selling_price, currency);
       sections.push(
-        `[Alternative #${idx + 1}] ${alt.part_name} (${alt.brand || 'OEM'}) | SKU: ${alt.sku} | Price: ${altPrice} | Availability: AVAILABLE (In Stock)`,
+        `[Alternative #${idx + 1}] ${cleanCustomerFacingPartName(alt.part_name)} (${alt.brand || 'OEM'}) | SKU: ${alt.sku} | Price: ${altPrice} | Availability: AVAILABLE (In Stock)`,
       );
     });
     sections.push('');
@@ -568,4 +569,64 @@ export async function retrieveInventoryContext(
     console.warn('[inventory-context] Inventory lookup failed (continuing without inventory):', err);
     return '';
   }
+}
+
+/**
+ * Detect incomplete, mistyped, misspelled or unclear customer messages and return
+ * the exact localized clarification message per Section 6.
+ * Returns null if the message is a complete or standard product query.
+ */
+export function getSmartProductClarification(
+  customerText: string,
+  lang: 'en' | 'hinglish',
+): string | null {
+  const raw = customerText.trim();
+  const lower = raw.toLowerCase();
+  const isHinglish = lang === 'hinglish';
+
+  // 1. Single character or random 1-2 char typing
+  if (raw.length <= 2 && !/^(hi|ok|no|ha|ji)$/i.test(raw)) {
+    if (/^pu$/i.test(raw)) {
+      return isHinglish
+        ? 'Ji, kya aap Bajaj Pulsar ke spare parts dhoondh rahe hain? Kripya apni bike ka poora model aur required part ka naam batayein.'
+        : 'Are you looking for Bajaj Pulsar spare parts? Please share your complete bike model and the part you need.';
+    }
+    // Random single character like "G" or "x"
+    return isHinglish
+      ? 'Ji, aap kaunsa spare part dhoondh rahe hain? Product ka naam ya bike ka model likh dijiye.'
+      : 'Which spare part are you looking for? Please share the product name or your bike model.';
+  }
+
+  // 2. Component without vehicle model:
+  // e.g. "cluch plate", "clutch", "break pad", "brake pad"
+  const hasVehicle = KNOWN_VEHICLES.some(
+    (v) =>
+      lower.includes(v.make.toLowerCase()) ||
+      v.models.some((m) => lower.includes(m.toLowerCase())),
+  );
+
+  if (!hasVehicle) {
+    if (/^(cluch\s*plate|clutch\s*plate|cluch|clutch)$/i.test(lower)) {
+      return isHinglish
+        ? 'Ji, kya aap Clutch Plate ki baat kar rahe hain? Apni bike ka model bhi bata dijiye, taaki main sahi product check kar sakun.'
+        : 'Are you looking for a clutch plate? Please share your bike model so I can check the correct product.';
+    }
+    if (/^(break\s*pad|brake\s*pad|break|brake|disc\s*pad)$/i.test(lower)) {
+      return isHinglish
+        ? 'Ji, kya aap Brake Pad ki baat kar rahe hain? Apni bike ka model bata dijiye, taaki sahi part check kar sakun.'
+        : 'Are you looking for brake pads? Please share your bike model so I can check the correct product.';
+    }
+    if (/^(chain\s*sprocket|chain\s*set|drive\s*chain)$/i.test(lower)) {
+      return isHinglish
+        ? 'Ji, kya aap Chain Sprocket Kit ki baat kar rahe hain? Apni bike ka model bata dijiye, taaki sahi part check kar sakun.'
+        : 'Are you looking for a chain sprocket kit? Please share your bike model so I can check the correct product.';
+    }
+    if (/^(price\??|rate\??|available\??|kitna\s*hai\??|stock\??)$/i.test(lower)) {
+      return isHinglish
+        ? 'Ji, aapko kis bike ke kaunse spare part ka price ya availability check karni hai? Product aur bike model bata dijiye.'
+        : 'Which spare part and bike model would you like to check the price or availability for? Please share the details.';
+    }
+  }
+
+  return null;
 }
