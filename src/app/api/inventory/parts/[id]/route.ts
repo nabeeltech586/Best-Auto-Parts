@@ -108,6 +108,28 @@ export async function PATCH(request: Request, context: Params) {
     if (body.description !== undefined) patch.description = body.description?.trim() || null;
     if (body.cost_price !== undefined) patch.cost_price = Math.max(0, parseFloat(body.cost_price) || 0);
     if (body.selling_price !== undefined) patch.selling_price = Math.max(0, parseFloat(body.selling_price) || 0);
+    if (body.quantity_in_stock !== undefined) {
+      const newStock = Math.max(0, parseInt(body.quantity_in_stock, 10) || 0);
+      const prevStock = existing.quantity_in_stock ?? 0;
+      patch.quantity_in_stock = newStock;
+
+      if (newStock !== prevStock) {
+        const delta = newStock - prevStock;
+        // Log movement in stock_movements
+        await supabase
+          .from('stock_movements')
+          .insert({
+            account_id: accountId,
+            part_id: id,
+            movement_type: delta > 0 ? 'increase' : 'decrease',
+            quantity_delta: delta,
+            quantity_before: prevStock,
+            quantity_after: newStock,
+            reason: body.stock_edit_reason?.trim() || 'Manual stock update',
+          })
+          .maybeSingle();
+      }
+    }
     if (body.low_stock_threshold !== undefined) {
       patch.low_stock_threshold = Math.max(0, parseInt(body.low_stock_threshold, 10) || 5);
     }

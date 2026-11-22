@@ -235,3 +235,78 @@ export interface CsvImportSummary {
   skippedDuplicates: number;
   errors: CsvValidationError[];
 }
+
+// ============================================================
+// SUPPLIERS / DISTRIBUTORS DIRECTORY
+// ============================================================
+
+export interface Supplier {
+  id: string;
+  account_id: string;
+  firm_name: string;
+  contact_person?: string | null;
+  whatsapp_number: string;
+  brand_specialty: string[];
+  address?: string | null;
+  notes?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierFormData {
+  firm_name: string;
+  contact_person?: string;
+  whatsapp_number: string;
+  brand_specialty: string[];
+  address?: string;
+  notes?: string;
+  is_active?: boolean;
+}
+
+// ============================================================
+// PURCHASE ORDERS (PO) & RESTOCK
+// ============================================================
+
+export type PurchaseOrderStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'CANCELLED';
+
+export interface PurchaseOrderItem {
+  part_id: string;
+  part_name: string;
+  sku: string;
+  oem_number?: string | null;
+  brand?: string | null;
+  cost_price: number;
+  unit_cost?: number;
+  quantity: number;
+  total_cost: number;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  account_id: string;
+  po_number: string;
+  supplier_id?: string | null;
+  supplier_name: string;
+  supplier_phone: string;
+  items: PurchaseOrderItem[];
+  total_items: number;
+  total_units: number;
+  total_estimated_cost: number;
+  notes?: string | null;
+  status: PurchaseOrderStatus;
+  sent_at?: string | null;
+  received_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreatePurchaseOrderPayload {
+  po_number?: string;
+  supplier_id?: string | null;
+  supplier_name: string;
+  supplier_phone: string;
+  items: PurchaseOrderItem[];
+  notes?: string;
+  send_via_whatsapp?: boolean;
+}

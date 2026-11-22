@@ -10,6 +10,10 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  Truck,
+  ClipboardList,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InventoryOverview } from '@/components/inventory/inventory-overview';
@@ -19,11 +23,15 @@ import { PartFormDialog } from '@/components/inventory/part-form-dialog';
 import { StockAdjustmentModal } from '@/components/inventory/stock-adjustment-modal';
 import { PartDeleteDialog } from '@/components/inventory/part-delete-dialog';
 import { CsvImportModal } from '@/components/inventory/csv-import-modal';
+import { SuppliersManagerDialog } from '@/components/inventory/suppliers-manager-dialog';
+import { PoHistoryDialog } from '@/components/inventory/po-history-dialog';
+import { PurchaseOrderDrawer } from '@/components/inventory/purchase-order-drawer';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   InventoryFilterParams,
   InventoryMetrics,
   PartCatalogItem,
+  PurchaseOrderItem,
 } from '@/types/inventory';
 
 const DEFAULT_METRICS: InventoryMetrics = {
@@ -71,6 +79,14 @@ export default function InventoryPage() {
   const [deletingPart, setDeletingPart] = useState<PartCatalogItem | null>(null);
   const [isCsvImportOpen, setIsCsvImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+
+  // Distributor and Purchase Order states
+  const [isSuppliersManagerOpen, setIsSuppliersManagerOpen] = useState(false);
+  const [isPoHistoryOpen, setIsPoHistoryOpen] = useState(false);
+  const [selectedOrderItems, setSelectedOrderItems] = useState<Map<string, PurchaseOrderItem>>(
+    new Map()
+  );
+  const [isSelectingShortStock, setIsSelectingShortStock] = useState(false);
 
   // Fetch KPI Metrics
   const fetchMetrics = useCallback(async () => {
@@ -140,6 +156,173 @@ export default function InventoryPage() {
     fetchParts();
   };
 
+  // Order item handlers
+  const handleToggleOrderItem = (part: PartCatalogItem, quantity = 10) => {
+    setSelectedOrderItems((prev) => {
+      const next = new Map(prev);
+      if (next.has(part.id)) {
+        next.delete(part.id);
+        toast.info(`Removed "${part.part_name}" from PO`);
+      } else {
+        const unitCost = Number(part.cost_price || 0);
+        next.set(part.id, {
+          part_id: part.id,
+          part_name: part.part_name,
+          sku: part.sku,
+          oem_number: part.oem_number || undefined,
+          brand: part.brand || undefined,
+          quantity,
+          cost_price: unitCost,
+          unit_cost: unitCost,
+          total_cost: quantity * unitCost,
+        });
+        toast.success(`Added "${part.part_name}" (${quantity} pcs) to PO`);
+      }
+      return next;
+    });
+  };
+
+  const handleUpdateOrderQuantity = (partId: string, quantity: number) => {
+    setSelectedOrderItems((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(partId);
+      if (!existing) return prev;
+
+      if (quantity <= 0) {
+        next.delete(partId);
+      } else {
+        const cost = existing.cost_price ?? existing.unit_cost ?? 0;
+        next.set(partId, {
+          ...existing,
+          quantity,
+          cost_price: cost,
+          unit_cost: cost,
+          total_cost: quantity * cost,
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveOrderItem = (partId: string) => {
+    setSelectedOrderItems((prev) => {
+      const next = new Map(prev);
+      next.delete(partId);
+      return next;
+    });
+  };
+
+  const handleClearAllOrderItems = () => {
+    setSelectedOrderItems(new Map());
+  };
+
+  const handleSelectAllVisible = (visibleParts: PartCatalogItem[]) => {
+    setSelectedOrderItems((prev) => {
+      const next = new Map(prev);
+      for (const part of visibleParts) {
+        if (!next.has(part.id)) {
+          const unitCost = Number(part.cost_price || 0);
+          next.set(part.id, {
+            part_id: part.id,
+            part_name: part.part_name,
+            sku: part.sku,
+            oem_number: part.oem_number || undefined,
+            brand: part.brand || undefined,
+            quantity: 10,
+            cost_price: unitCost,
+            unit_cost: unitCost,
+            total_cost: 10 * unitCost,
+          });
+        }
+      }
+      toast.success(`Selected all ${visibleParts.length} visible parts for restock order`);
+      return next;
+    });
+  };
+
+  const handleDeselectAllVisible = (visibleParts: PartCatalogItem[]) => {
+    setSelectedOrderItems((prev) => {
+      const next = new Map(prev);
+      for (const part of visibleParts) {
+        next.delete(part.id);
+      }
+      return next;
+    });
+  };
+
+  // Smart Select Short Stock
+  const handleSelectShortStock = async () => {
+    try {
+      setIsSelectingShortStock(true);
+      const [resLow, resOut] = await Promise.all([
+        fetch('/api/inventory/parts?stockStatus=low_stock&pageSize=100'),
+        fetch('/api/inventory/parts?stockStatus=out_of_stock&pageSize=100'),
+      ]);
+
+      let combined: PartCatalogItem[] = [];
+      if (resLow.ok) {
+        const d = await resLow.json();
+        combined = combined.concat(d.parts || d.items || []);
+      }
+      if (resOut.ok) {
+        const d = await resOut.json();
+        combined = combined.concat(d.parts || d.items || []);
+      }
+
+      // Also include current parts on the page that meet the short-stock threshold
+      for (const p of parts) {
+        if ((p.quantity_in_stock ?? 0) <= (p.low_stock_threshold ?? 5)) {
+          if (!combined.some((c) => c.id === p.id)) {
+            combined.push(p);
+          }
+        }
+      }
+
+      if (combined.length === 0) {
+        toast.info('No low-stock or out-of-stock parts found in inventory');
+        return;
+      }
+
+      setSelectedOrderItems((prev) => {
+        const next = new Map(prev);
+        let addedCount = 0;
+        for (const part of combined) {
+          if (!next.has(part.id)) {
+            const unitCost = Number(part.cost_price || 0);
+            const deficit = (part.low_stock_threshold ?? 5) * 2 - (part.quantity_in_stock ?? 0);
+            const defaultQty = Math.max(10, deficit);
+            next.set(part.id, {
+              part_id: part.id,
+              part_name: part.part_name,
+              sku: part.sku,
+              oem_number: part.oem_number || undefined,
+              brand: part.brand || undefined,
+              quantity: defaultQty,
+              cost_price: unitCost,
+              unit_cost: unitCost,
+              total_cost: defaultQty * unitCost,
+            });
+            addedCount++;
+          }
+        }
+        toast.success(`Added ${addedCount} short-stock items to order (${next.size} total in order)`);
+        return next;
+      });
+    } catch {
+      toast.error('Failed to select short stock parts');
+    } finally {
+      setIsSelectingShortStock(false);
+    }
+  };
+
+  // Immediate in-place update handler for quick edits
+  const handlePartUpdated = (updatedPart: PartCatalogItem) => {
+    setParts((prev) =>
+      prev.map((p) => (p.id === updatedPart.id ? { ...p, ...updatedPart } : p))
+    );
+    fetchMetrics();
+  };
+
   const handleExportCsv = async () => {
     setExporting(true);
     try {
@@ -170,7 +353,7 @@ export default function InventoryPage() {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   return (
-    <div className="flex-1 space-y-6 p-6">
+    <div className="flex-1 space-y-6 p-6 pb-24">
       {/* Header bar */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -181,11 +364,52 @@ export default function InventoryPage() {
             </h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            OEM catalog, warehouse locations, stock thresholds, and vehicle fitment compatibility.
+            OEM catalog, warehouse locations, stock thresholds, and distributor restock purchase orders.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Smart Select Short Stock Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSelectShortStock}
+            disabled={isSelectingShortStock}
+            className="gap-1.5 border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/60"
+            title="Auto-select all low stock and out-of-stock parts for restock PO"
+          >
+            {isSelectingShortStock ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <AlertTriangle className="size-3.5" />
+            )}
+            Select Short Stock
+          </Button>
+
+          {/* Distributors Directory Modal Trigger */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSuppliersManagerOpen(true)}
+            className="gap-1.5 border-border hover:border-foreground/20"
+            title="Manage distributors and wholesalers directory"
+          >
+            <Truck className="size-3.5 text-blue-500" />
+            Distributors
+          </Button>
+
+          {/* PO History Modal Trigger */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsPoHistoryOpen(true)}
+            className="gap-1.5 border-border hover:border-foreground/20"
+            title="View Purchase Order history and receive stock"
+          >
+            <ClipboardList className="size-3.5 text-purple-500" />
+            PO History
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -234,7 +458,18 @@ export default function InventoryPage() {
       </div>
 
       {/* Overview Metrics Cards */}
-      <InventoryOverview metrics={metrics} loading={metricsLoading} />
+      <InventoryOverview
+        metrics={metrics}
+        loading={metricsLoading}
+        activeStatusFilter={filters.stockStatus}
+        onStatusClick={(status) => {
+          setFilters((prev) => ({
+            ...prev,
+            stockStatus: status,
+            page: 1,
+          }));
+        }}
+      />
 
       {/* Advanced Filter and Search Bar */}
       <PartsFilters
@@ -267,6 +502,12 @@ export default function InventoryPage() {
           onAdjustStock={(part) => setAdjustingPart(part)}
           canEdit={canEdit}
           canDelete={canDelete}
+          selectedOrderItems={selectedOrderItems}
+          onToggleOrderItem={handleToggleOrderItem}
+          onUpdateOrderQuantity={handleUpdateOrderQuantity}
+          onSelectAllVisible={handleSelectAllVisible}
+          onDeselectAllVisible={handleDeselectAllVisible}
+          onPartUpdated={handlePartUpdated}
         />
 
         {/* Pagination bar */}
@@ -325,6 +566,29 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+
+      {/* Purchase Order Floating Bottom Bar & Review Drawer */}
+      <PurchaseOrderDrawer
+        selectedItems={selectedOrderItems}
+        onUpdateQuantity={handleUpdateOrderQuantity}
+        onRemoveItem={handleRemoveOrderItem}
+        onClearAll={handleClearAllOrderItems}
+        onOrderSaved={handleRefreshAll}
+        onOpenSuppliersManager={() => setIsSuppliersManagerOpen(true)}
+      />
+
+      {/* Suppliers / Distributors Directory Dialog */}
+      <SuppliersManagerDialog
+        open={isSuppliersManagerOpen}
+        onOpenChange={setIsSuppliersManagerOpen}
+      />
+
+      {/* Purchase Order History & Stock Receive Dialog */}
+      <PoHistoryDialog
+        open={isPoHistoryOpen}
+        onOpenChange={setIsPoHistoryOpen}
+        onStockUpdated={handleRefreshAll}
+      />
 
       {/* Add Part Modal */}
       <PartFormDialog
