@@ -286,3 +286,86 @@ $$;
 ALTER FUNCTION public.redeem_invitation(TEXT) OWNER TO postgres;
 REVOKE ALL ON FUNCTION public.redeem_invitation(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.redeem_invitation(TEXT) TO authenticated;
+
+-- ------------------------------------------------------------
+-- 6. ALLOW service_role BACKGROUND DECREMENT IN adjust_part_stock
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.adjust_part_stock(
+  p_account_id UUID,
+  p_part_id UUID,
+  p_delta INTEGER,
+  p_reason TEXT DEFAULT NULL,
+  p_movement_type TEXT DEFAULT 'adjustment',
+  p_reference_id TEXT DEFAULT NULL,
+  p_user_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_current_stock INTEGER;
+  v_new_stock INTEGER;
+  v_movement_id UUID;
+BEGIN
+  -- Verify membership & role: must be at least agent, or service_role background webhook process
+  IF auth.role() <> 'service_role' AND NOT is_account_member(p_account_id, 'agent') THEN
+    RAISE EXCEPTION 'Unauthorized: insufficient role to adjust inventory stock';
+  END IF;
+
+  -- Lock row for update to prevent concurrent race conditions
+  SELECT quantity_in_stock
+  INTO v_current_stock
+  FROM parts_catalog
+  WHERE id = p_part_id AND account_id = p_account_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Part not found in account';
+  END IF;
+
+  v_new_stock := v_current_stock + p_delta;
+  IF v_new_stock < 0 THEN
+    RAISE EXCEPTION 'Cannot adjust stock below zero. Current stock: %, requested delta: %', v_current_stock, p_delta;
+  END IF;
+
+  -- Update quantity and timestamp
+  UPDATE parts_catalog
+  SET quantity_in_stock = v_new_stock,
+      updated_at = NOW()
+  WHERE id = p_part_id AND account_id = p_account_id;
+
+  -- Record audit trail
+  INSERT INTO stock_movements (
+    account_id,
+    part_id,
+    delta,
+    movement_type,
+    reason,
+    reference_id,
+    created_by
+  ) VALUES (
+    p_account_id,
+    p_part_id,
+    p_delta,
+    p_movement_type,
+    p_reason,
+    p_reference_id,
+    COALESCE(p_user_id, auth.uid())
+  )
+  RETURNING id INTO v_movement_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'part_id', p_part_id,
+    'previous_stock', v_current_stock,
+    'new_stock', v_new_stock,
+    'delta', p_delta,
+    'movement_id', v_movement_id
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.adjust_part_stock(UUID, UUID, INTEGER, TEXT, TEXT, TEXT, UUID) TO authenticated, service_role;
+

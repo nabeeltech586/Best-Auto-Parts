@@ -63,9 +63,9 @@ export class PhonePeClient {
       return this.cachedToken.token;
     }
 
-    const authUrl =
-      this.config.baseUrl ||
-      (this.config.environment === 'PROD' ? URLS.PROD.auth : URLS.UAT.auth);
+    const authUrl = this.config.baseUrl
+      ? `${this.config.baseUrl}/v1/oauth/token`
+      : (this.config.environment === 'PROD' ? URLS.PROD.auth : URLS.UAT.auth);
 
     const body = new URLSearchParams({
       client_id: this.config.clientId,

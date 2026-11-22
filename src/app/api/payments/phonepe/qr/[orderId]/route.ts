@@ -28,8 +28,8 @@ export async function GET(
 ) {
   try {
     const { orderId } = await params;
-    if (!orderId) {
-      return NextResponse.json({ error: 'Missing order ID' }, { status: 400 });
+    if (!orderId || !/^[A-Za-z0-9_-]{1,64}$/.test(orderId)) {
+      return NextResponse.json({ error: 'Invalid order ID' }, { status: 400 });
     }
 
     let paymentRecord: PaymentRow | null = null;
@@ -62,7 +62,7 @@ export async function GET(
           status: 200,
           headers: {
             'Content-Type': 'image/png',
-            'Cache-Control': 'public, max-age=300',
+            'Cache-Control': 'private, no-cache, no-store, max-age=0, must-revalidate',
           },
         });
       }
@@ -84,7 +84,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=600',
+        'Cache-Control': 'private, no-cache, no-store, max-age=0, must-revalidate',
       },
     });
   } catch (err: unknown) {

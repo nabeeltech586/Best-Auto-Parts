@@ -25,15 +25,29 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(orderRef)) {
+      return NextResponse.json(
+        { error: 'Invalid order reference format' },
+        { status: 400 }
+      );
+    }
+
     const db = getSupabaseAdmin();
     const result = await PaymentService.reconcilePaymentStatus(db, orderRef);
 
-    return NextResponse.json({
-      merchantTransactionId: orderRef,
-      status: result.status,
-      success: result.success,
-      utr: result.utr,
-    });
+    return NextResponse.json(
+      {
+        merchantTransactionId: orderRef,
+        status: result.status,
+        success: result.success,
+        utr: result.utr,
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, no-cache, no-store, max-age=0, must-revalidate',
+        },
+      }
+    );
   } catch (err: unknown) {
     console.error('[PhonePe Status Route Error]:', err);
     return NextResponse.json(
