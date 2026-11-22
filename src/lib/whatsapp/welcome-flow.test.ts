@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   getTimeBasedGreeting,
@@ -5,7 +6,6 @@ import {
   setContactLanguage,
   handleWelcomeFlowInbound,
   WELCOME_CALLBACKS,
-  isGreeting,
   isLanguageChangeRequest,
   verifyDeliveryArea,
 } from './welcome-flow'

@@ -5,7 +5,6 @@ import {
   toCustomerSafePart,
 } from './stock-privacy';
 import { formatInventoryContext, type InventoryContextResult } from './inventory-context';
-import { buildSystemPrompt } from './defaults';
 import { parseGeneration } from './generate';
 import { getPartStockStatus } from '@/lib/inventory/parts';
 import type { PartCatalogItem } from '@/types/inventory';

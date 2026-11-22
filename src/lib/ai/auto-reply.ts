@@ -4,7 +4,6 @@ import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
 import {
   retrieveInventoryContext,
-  extractInventoryKeywords,
   hasInventoryIntent,
 } from './inventory-context'
 import { sanitizeCustomerStockPrivacy } from './stock-privacy'

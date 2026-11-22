@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   engineSendInteractiveButtons,
@@ -137,7 +138,6 @@ export async function getContactLanguage(
 
       if (!tagErr && Array.isArray(contactTags)) {
         for (const ct of contactTags) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const tagName = (ct as any).tags?.name?.toLowerCase() ?? ''
           if (tagName.includes('hinglish')) return 'hinglish'
           if (tagName.includes('english')) return 'en'

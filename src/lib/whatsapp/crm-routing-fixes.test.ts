@@ -1,8 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi } from 'vitest'
 import {
   isWithinTimeWindow,
-  dayOfWeekInTimeZone,
-  minutesInTimeZone,
 } from '@/lib/automations/time-of-day'
 import {
   matchesKeywordTrigger,
@@ -435,8 +434,6 @@ describe('BEST AUTO PARTS WHATSAPP CRM — 20 REGRESSION TESTS', () => {
   describe('After-Hours Inventory Routing Scenarios (A - I)', () => {
     // 11 PM IST is 17:30 UTC
     const nightTime11PM = at('2026-01-15T17:30:00Z')
-    // 11 AM IST is 05:30 UTC
-    const dayTime11AM = at('2026-01-15T05:30:00Z')
 
     const oooAutomation = {
       id: 'cfd5fead-fe4f-4d04-8b6f-c1f0380c8501',
