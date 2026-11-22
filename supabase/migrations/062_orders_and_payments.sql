@@ -180,6 +180,7 @@ CREATE POLICY payments_delete ON payments
 -- ------------------------------------------------------------
 -- 5. UPDATE redeem_invitation RPC (ACCOUNT DELETION GUARD)
 -- ------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.redeem_invitation(TEXT);
 CREATE OR REPLACE FUNCTION public.redeem_invitation(p_token TEXT)
 RETURNS UUID
 LANGUAGE plpgsql

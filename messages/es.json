@@ -42,7 +42,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configuración",
-    "menuSignOut": "Cerrar sesión"
+    "menuSignOut": "Cerrar sesión",
+    "payments": "Pagos"
   },
   "Header": {
     "dashboard": "Panel",
@@ -439,7 +440,8 @@
         "document": "documento",
         "audio": "audio"
       },
-      "uploadFailed": "Falló la carga."
+      "uploadFailed": "Falló la carga.",
+      "sendPaymentLink": "Enviar enlace de pago"
     },
     "bubble": {
       "photo": "Foto",

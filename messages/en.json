@@ -42,7 +42,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
-    "menuSignOut": "Sign out"
+    "menuSignOut": "Sign out",
+    "payments": "Payments"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -439,7 +440,8 @@
         "document": "document",
         "audio": "audio"
       },
-      "uploadFailed": "Upload failed."
+      "uploadFailed": "Upload failed.",
+      "sendPaymentLink": "Send Payment Link"
     },
     "bubble": {
       "photo": "Photo",

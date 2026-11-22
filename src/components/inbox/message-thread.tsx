@@ -1305,6 +1305,8 @@ export function MessageThread({
         onOpenTemplates={handleOpenTemplates}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
+        customerName={contactDisplayName}
+        customerPhone={contact?.phone || contact?.phone_normalized || ""}
       />
 
       <TemplatePicker

@@ -42,7 +42,8 @@
     "defaultAvatar": "아바타",
     "menuProfile": "프로필",
     "menuSettings": "설정",
-    "menuSignOut": "로그아웃"
+    "menuSignOut": "로그아웃",
+    "payments": "결제"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -439,7 +440,8 @@
         "document": "문서",
         "audio": "오디오"
       },
-      "uploadFailed": "업로드에 실패했습니다."
+      "uploadFailed": "업로드에 실패했습니다.",
+      "sendPaymentLink": "결제 링크 보내기"
     },
     "bubble": {
       "photo": "사진",

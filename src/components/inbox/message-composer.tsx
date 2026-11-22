@@ -22,6 +22,7 @@ import {
   Plus,
   MessageSquareDashed,
   Zap,
+  CreditCard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -55,6 +56,7 @@ import {
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { SendPaymentLinkDialog } from "./send-payment-link-dialog";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -118,6 +120,8 @@ interface MessageComposerProps {
   onOpenTemplates: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+  customerName?: string;
+  customerPhone?: string;
 }
 
 function formatDuration(seconds: number): string {
@@ -140,6 +144,8 @@ export function MessageComposer({
   onOpenTemplates,
   replyTo,
   onClearReply,
+  customerName,
+  customerPhone,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
   const tGate = useTranslations("GatedButton");
@@ -147,6 +153,7 @@ export function MessageComposer({
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Enter-to-send only on devices with a mouse/keyboard (fine pointer).
@@ -715,8 +722,25 @@ export function MessageComposer({
                 <Zap className="mr-2 h-4 w-4" />
                 {t("quickReplies")}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPaymentDialogOpen(true)}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                {t("sendPaymentLink")}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <GatedButton
+            variant="ghost"
+            size="sm"
+            canAct={!readOnly}
+            gateReason={tGate("reasons.sendMessages")}
+            disabled={sessionExpired}
+            title={readOnly ? undefined : t("sendPaymentLink")}
+            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400"
+            onClick={() => setPaymentDialogOpen(true)}
+          >
+            <CreditCard className="h-4 w-4" />
+          </GatedButton>
 
           <GatedButton
             variant="ghost"
@@ -832,6 +856,16 @@ export function MessageComposer({
         open={quickReplyOpen}
         onOpenChange={setQuickReplyOpen}
         onPick={handlePickQuickReply}
+      />
+
+      {/* PhonePe Payment Link Dialog */}
+      <SendPaymentLinkDialog
+        open={paymentDialogOpen}
+        onOpenChange={setPaymentDialogOpen}
+        customerName={customerName}
+        customerPhone={customerPhone}
+        conversationId={conversationId}
+        onSendPaymentMessage={(msg) => onSend(msg)}
       />
     </div>
   );

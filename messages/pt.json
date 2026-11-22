@@ -42,7 +42,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configurações",
-    "menuSignOut": "Sair"
+    "menuSignOut": "Sair",
+    "payments": "Pagamentos"
   },
   "Header": {
     "dashboard": "Painel",
@@ -439,7 +440,8 @@
         "document": "documento",
         "audio": "áudio"
       },
-      "uploadFailed": "Falha no upload."
+      "uploadFailed": "Falha no upload.",
+      "sendPaymentLink": "Enviar link de pagamento"
     },
     "bubble": {
       "photo": "Foto",
