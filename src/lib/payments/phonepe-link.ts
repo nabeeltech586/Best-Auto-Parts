@@ -241,9 +241,8 @@ export async function getPaymentLinkByTxnId(txnId: string): Promise<PaymentLinkR
 export async function verifyAndSyncPaymentStatus(txnId: string): Promise<{
   status: 'PAID' | 'PENDING' | 'FAILED'
   record: PaymentLinkRecord | null
-  phonepeData?: any
+  phonepeData?: Record<string, unknown>
 }> {
-  const db = supabaseAdmin()
   const { merchantId, saltKey, saltIndex, hostUrl } = getPhonePeConfig()
 
   const record = await getPaymentLinkByTxnId(txnId)
@@ -380,7 +379,15 @@ export async function deductStockForPaidOrder(
     const rawName = record.part_details?.trim() || ''
     if (!rawName) return { deducted: false }
 
-    let matchedPart: any = null
+    interface CatalogPartRow {
+      id: string
+      account_id?: string
+      part_name: string
+      oem_number?: string
+      quantity_in_stock?: number
+      low_stock_threshold?: number
+    }
+    let matchedPart: CatalogPartRow | null = null
 
     // Extract clean name before any parenthesis or brackets
     const cleanName = rawName.split(/[([/]/)[0].trim()
@@ -505,7 +512,13 @@ export async function sendWhatsAppPaymentConfirmation(record: PaymentLinkRecord)
   const cleanPhone = normalizePhone(phone)
 
   // 1. Resolve contact
-  let contact: any
+  interface ContactRow {
+    id: string
+    account_id?: string
+    user_id?: string
+    phone?: string
+  }
+  let contact: ContactRow | null = null
   try {
     const { data: existingContact } = await db
       .from('contacts')
@@ -514,7 +527,7 @@ export async function sendWhatsAppPaymentConfirmation(record: PaymentLinkRecord)
       .limit(1)
       .maybeSingle()
 
-    contact = existingContact
+    contact = existingContact as ContactRow | null
   } catch {}
 
   if (!contact) {
@@ -526,7 +539,7 @@ export async function sendWhatsAppPaymentConfirmation(record: PaymentLinkRecord)
         .limit(1)
         .maybeSingle()
 
-      contact = fallbackContact
+      contact = fallbackContact as ContactRow | null
     } catch {}
   }
 

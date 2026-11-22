@@ -18,9 +18,7 @@ import {
   Receipt,
   MessageCircle,
   Copy,
-  ExternalLink,
   PackageCheck,
-  ArrowRight,
   TrendingUp,
   IndianRupee,
 } from 'lucide-react';

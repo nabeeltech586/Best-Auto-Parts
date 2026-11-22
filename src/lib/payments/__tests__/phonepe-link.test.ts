@@ -14,14 +14,23 @@ import {
 
 // Mock supabaseAdmin
 vi.mock('@/lib/flows/admin-client', () => {
-  const createChainable = () => {
-    const chain: any = {
+  interface MockChain {
+    eq: ReturnType<typeof vi.fn>
+    ilike: ReturnType<typeof vi.fn>
+    limit: ReturnType<typeof vi.fn>
+    maybeSingle: ReturnType<typeof vi.fn>
+    single: ReturnType<typeof vi.fn>
+    then: (resolve: (val: unknown) => unknown) => Promise<unknown>
+  }
+
+  const createChainable = (): MockChain => {
+    const chain: MockChain = {
       eq: vi.fn(() => chain),
       ilike: vi.fn(() => chain),
       limit: vi.fn(() => chain),
       maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
       single: vi.fn().mockResolvedValue({ data: null, error: null }),
-      then: (resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve),
+      then: (resolve: (val: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
     }
     return chain
   }
@@ -324,7 +333,7 @@ describe('PhonePe Payment Link Module', () => {
     })
 
     it('matches part and executes stock deduction and audit trail', async () => {
-      const mockDb: any = {
+      const mockDb = {
         from: vi.fn((table: string) => {
           if (table === 'parts_catalog') {
             return {
@@ -386,7 +395,7 @@ describe('PhonePe Payment Link Module', () => {
           amount: 220,
           status: 'PAID',
         },
-        mockDb
+        mockDb as unknown as Parameters<typeof deductStockForPaidOrder>[1]
       )
 
       expect(res.deducted).toBe(true)

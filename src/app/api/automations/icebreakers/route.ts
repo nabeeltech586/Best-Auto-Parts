@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
+import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { META_ICEBREAKERS, matchIcebreaker } from '@/lib/whatsapp/icebreakers';
 
 export async function GET() {

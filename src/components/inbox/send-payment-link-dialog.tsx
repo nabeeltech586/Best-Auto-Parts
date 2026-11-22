@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CreditCard, Send, Sparkles, Search, PackageCheck, FileText } from 'lucide-react';
+import { Loader2, CreditCard, Send, Search, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/currency';
 import type { PartCatalogItem } from '@/types/inventory';

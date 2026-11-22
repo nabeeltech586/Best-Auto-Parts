@@ -12,7 +12,6 @@ import {
   Loader2,
   HelpCircle,
   Copy,
-  ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,7 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { META_ICEBREAKERS, type IcebreakerDef } from '@/lib/whatsapp/icebreakers';
 
 export function IcebreakersPanel() {
-  const [icebreakers, setIcebreakers] = useState<IcebreakerDef[]>(
+  const [icebreakers] = useState<IcebreakerDef[]>(
     Object.values(META_ICEBREAKERS)
   );
   const [editingId, setEditingId] = useState<string | null>(null);
