@@ -12,15 +12,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ImageIcon, Sparkles, Smartphone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { extractTemplateVariables } from '@/lib/whatsapp/template-validators';
+import { WhatsAppPhonePreview } from './whatsapp-phone-preview';
 
 type VariableType = 'static' | 'field' | 'custom_field';
 
-interface VariableMapping {
+export interface VariableMapping {
   type: VariableType;
   value: string;
+  fallback?: string;
 }
 
 interface Step3Props {
@@ -84,7 +86,6 @@ export function Step3Personalize({
   const [firstContactCustomValues, setFirstContactCustomValues] = useState<
     Map<string, string>
   >(new Map());
-  const [loadingPreview, setLoadingPreview] = useState(true);
 
   // Load user's custom fields + a representative contact for the
   // live preview. Fall back to sample data if no contacts exist yet.
@@ -122,7 +123,6 @@ export function Step3Personalize({
           setFirstContactCustomValues(map);
         }
       }
-      setLoadingPreview(false);
     })();
     return () => {
       cancelled = true;
@@ -134,6 +134,31 @@ export function Step3Personalize({
     () => extractTemplateVariables(template.body_text).map((k) => `{{${k}}}`),
     [template.body_text],
   );
+
+  // Auto-seed {{1}} or any name variable with "Contact Name (Auto-fill per recipient)"
+  // and default fallback "Valued Customer"
+  useEffect(() => {
+    let changed = false;
+    const nextVars: Record<string, VariableMapping> = { ...variables };
+
+    for (const placeholder of placeholders) {
+      const key = placeholder.replace(/^\{\{|\}\}$/g, '');
+      if (!nextVars[key] || !nextVars[key].value) {
+        if (key === '1' || key.toLowerCase().includes('name')) {
+          nextVars[key] = {
+            type: 'field',
+            value: 'name',
+            fallback: 'Valued Customer',
+          };
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      onUpdate(nextVars);
+    }
+  }, [placeholders]);
 
   // Templates with an IMAGE/VIDEO/DOCUMENT header need a media URL at
   // send time — Meta requires the media component on every delivery and
@@ -213,15 +238,16 @@ export function Step3Personalize({
         if (mapping.type === 'static' && mapping.value) {
           replacement = mapping.value;
         } else if (mapping.type === 'field' && mapping.value) {
+          const contactName = contact.name?.trim() || mapping.fallback || 'Valued Customer';
           const fieldMap: Record<string, string | undefined> = {
-            name: contact.name,
+            name: contactName,
             phone: contact.phone,
             email: contact.email,
             company: contact.company,
           };
-          replacement = fieldMap[mapping.value] ?? placeholder;
+          replacement = fieldMap[mapping.value] ?? (mapping.fallback || placeholder);
         } else if (mapping.type === 'custom_field' && mapping.value) {
-          replacement = customValues.get(mapping.value) || placeholder;
+          replacement = customValues.get(mapping.value) || mapping.fallback || placeholder;
         }
       }
       text = text.replaceAll(placeholder, replacement);
@@ -291,139 +317,208 @@ export function Step3Personalize({
         </div>
       )}
 
-      {placeholders.length === 0 && !mediaHeaderType ? (
-        <div className="rounded-xl border border-border bg-card/50 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            {t('personalize.noPreview')}
-          </p>
-        </div>
-      ) : placeholders.length === 0 ? null : (
-        <div className="space-y-4">
-          {placeholders.map((placeholder) => {
-            const key = placeholder.replace(/^\{\{|\}\}$/g, '');
-            const mapping = variables[key] ?? { type: 'static', value: '' };
-
-            return (
-              <div
-                key={placeholder}
-                className="rounded-xl border border-border bg-card/50 p-4"
-              >
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-medium text-primary">
-                    {placeholder}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      {t('personalize.type')}
-                    </label>
-                    <Select
-                      value={mapping.type}
-                      onValueChange={(val) =>
-                        updateVariable(key, {
-                          type: val as VariableType,
-                          value: '',
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-full border-border bg-muted text-foreground">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="border-border bg-popover">
-                        <SelectItem value="static">{t('personalize.typeStatic')}</SelectItem>
-                        <SelectItem value="field">{t('personalize.typeContact')}</SelectItem>
-                        <SelectItem value="custom_field">
-                          {t('personalize.typeCustom')}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      {mapping.type === 'static' ? t('personalize.staticValue') : t('personalize.contactField')}
-                    </label>
-                    {mapping.type === 'static' ? (
-                      <Input
-                        value={mapping.value}
-                        onChange={(e) =>
-                          updateVariable(key, { value: e.target.value })
-                        }
-                        placeholder={t('personalize.enterValue')}
-                        className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-                      />
-                    ) : mapping.type === 'field' ? (
-                      <Select
-                        value={mapping.value || undefined}
-                        onValueChange={(val) =>
-                          updateVariable(key, { value: val || '' })
-                        }
-                      >
-                        <SelectTrigger className="w-full border-border bg-muted text-foreground">
-                          <SelectValue placeholder={t('personalize.selectContactField')} />
-                        </SelectTrigger>
-                        <SelectContent className="border-border bg-popover">
-                          {contactFields.map((field) => (
-                            <SelectItem key={field.value} value={field.value}>
-                              {t(`personalize.fieldMap.${field.labelKey}`)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Select
-                        value={mapping.value || undefined}
-                        onValueChange={(val) =>
-                          updateVariable(key, { value: val || '' })
-                        }
-                      >
-                        <SelectTrigger className="w-full border-border bg-muted text-foreground">
-                          <SelectValue
-                            placeholder={
-                              loadingFields
-                                ? t('personalize.loadingFields')
-                                : customFields.length === 0
-                                  ? t('personalize.noCustomFields')
-                                  : t('personalize.selectCustomField')
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent className="border-border bg-popover">
-                          {customFields.map((f) => (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.field_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      {placeholders.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3.5 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div className="text-xs">
+              <span className="font-semibold text-foreground">Zero-Effort Auto-Name Personalization</span>
+              <p className="text-muted-foreground text-[11px]">
+                Automatically populates each customer&apos;s real name with a respectful &quot;Valued Customer&quot; fallback.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              const updated: Record<string, VariableMapping> = { ...variables };
+              for (const p of placeholders) {
+                const k = p.replace(/^\{\{|\}\}$/g, '');
+                if (k === '1' || k.toLowerCase().includes('name')) {
+                  updated[k] = { type: 'field', value: 'name', fallback: 'Valued Customer' };
+                }
+              }
+              onUpdate(updated);
+            }}
+            className="h-8 text-xs bg-primary hover:bg-primary/90 text-primary-foreground font-medium shrink-0 gap-1.5 shadow-xs"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Auto-Fill Customer Name
+          </Button>
         </div>
       )}
 
-      {/* Live Preview — rendered as a WhatsApp-style bubble so the user
-          sees approximately what the recipient will see. */}
-      <div className="rounded-xl border border-border bg-card/50 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <Eye className="h-4 w-4 text-primary" />
-          <p className="text-sm font-medium text-foreground">{t('personalize.preview')}</p>
-          <span className="text-xs text-muted-foreground">({previewLabel})</span>
-          {loadingPreview && (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_340px] gap-6 items-start">
+        {/* Left Column: Placeholders Form & Media */}
+        <div className="space-y-4">
+          {placeholders.length === 0 && !mediaHeaderType ? (
+            <div className="rounded-xl border border-border bg-card/50 p-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                {t('personalize.noPreview')}
+              </p>
+            </div>
+          ) : placeholders.length === 0 ? null : (
+            <div className="space-y-4">
+              {placeholders.map((placeholder) => {
+                const key = placeholder.replace(/^\{\{|\}\}$/g, '');
+                const mapping = variables[key] ?? { type: 'static', value: '' };
+
+                return (
+                  <div
+                    key={placeholder}
+                    className="rounded-xl border border-border bg-card/50 p-4"
+                  >
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-mono font-medium text-primary">
+                        {placeholder}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                          {t('personalize.type')}
+                        </label>
+                        <Select
+                          value={mapping.type}
+                          onValueChange={(val) =>
+                            updateVariable(key, {
+                              type: val as VariableType,
+                              value: val === 'field' ? 'name' : '',
+                              fallback: val === 'field' ? 'Valued Customer' : undefined,
+                            })
+                          }
+                        >
+                          <SelectTrigger className="w-full border-border bg-muted text-foreground">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="border-border bg-popover">
+                            <SelectItem value="static">{t('personalize.typeStatic')}</SelectItem>
+                            <SelectItem value="field">{t('personalize.typeContact')}</SelectItem>
+                            <SelectItem value="custom_field">
+                              {t('personalize.typeCustom')}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                          {mapping.type === 'static' ? t('personalize.staticValue') : t('personalize.contactField')}
+                        </label>
+                        {mapping.type === 'static' ? (
+                          <Input
+                            value={mapping.value}
+                            onChange={(e) =>
+                              updateVariable(key, { value: e.target.value })
+                            }
+                            placeholder={t('personalize.enterValue')}
+                            className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                          />
+                        ) : mapping.type === 'field' ? (
+                          <Select
+                            value={mapping.value || undefined}
+                            onValueChange={(val) =>
+                              updateVariable(key, {
+                                value: val || '',
+                                fallback: val === 'name' ? (mapping.fallback ?? 'Valued Customer') : undefined,
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-full border-border bg-muted text-foreground">
+                              <SelectValue placeholder={t('personalize.selectContactField')} />
+                            </SelectTrigger>
+                            <SelectContent className="border-border bg-popover">
+                              {contactFields.map((field) => (
+                                <SelectItem key={field.value} value={field.value}>
+                                  {t(`personalize.fieldMap.${field.labelKey}`)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Select
+                            value={mapping.value || undefined}
+                            onValueChange={(val) =>
+                              updateVariable(key, { value: val || '' })
+                            }
+                          >
+                            <SelectTrigger className="w-full border-border bg-muted text-foreground">
+                              <SelectValue
+                                placeholder={
+                                  loadingFields
+                                    ? t('personalize.loadingFields')
+                                    : customFields.length === 0
+                                      ? t('personalize.noCustomFields')
+                                      : t('personalize.selectCustomField')
+                                }
+                              />
+                            </SelectTrigger>
+                            <SelectContent className="border-border bg-popover">
+                              {customFields.map((f) => (
+                                <SelectItem key={f.id} value={f.id}>
+                                  {f.field_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+
+                      {/* Fallback name input for Contact Name dynamic mapping */}
+                      {mapping.type === 'field' && mapping.value === 'name' && (
+                        <div className="sm:col-span-2 rounded-lg border border-primary/20 bg-primary/5 p-2.5 mt-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <label className="font-medium text-foreground flex items-center gap-1.5">
+                              <Sparkles className="h-3.5 w-3.5 text-primary" />
+                              Fallback Name (if contact name is blank)
+                            </label>
+                            <span className="text-[11px] text-muted-foreground">Default: Valued Customer</span>
+                          </div>
+                          <Input
+                            value={mapping.fallback ?? 'Valued Customer'}
+                            onChange={(e) => updateVariable(key, { fallback: e.target.value })}
+                            placeholder="Valued Customer"
+                            className="mt-1.5 h-8 text-xs bg-background border-border font-medium"
+                          />
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Every recipient with a name saved in CRM receives their real name. If no name is found, &quot;{mapping.fallback || 'Valued Customer'}&quot; is sent.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-        <div className="rounded-lg bg-[#0e1a12] p-3">
-          <div className="ml-auto max-w-[85%] rounded-lg bg-primary/30 px-3 py-2 shadow-sm">
-            <p className="whitespace-pre-wrap text-sm text-primary">
-              {previewText}
-            </p>
-          </div>
+
+        {/* Right Column: Realistic Live WhatsApp Phone Mockup */}
+        <div className="flex flex-col items-center">
+          <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Smartphone className="h-3.5 w-3.5 text-primary" />
+            Live Preview ({previewLabel})
+          </p>
+          <WhatsAppPhonePreview
+            businessName="Best Auto Parts"
+            bodyText={previewText}
+            headerType={mediaHeaderType}
+            headerMediaUrl={headerMediaUrl}
+            footerText={template.footer_text || 'Best Auto Parts (Saharanpur) | +91 96347 22174'}
+            buttons={
+              template.buttons as unknown as Array<{
+                type: string;
+                text: string;
+                url?: string;
+                phone_number?: string;
+              }>
+            }
+            recipientName={firstContact?.name || 'Valued Customer'}
+          />
         </div>
       </div>
 

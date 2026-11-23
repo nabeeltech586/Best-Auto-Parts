@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Radio, Plus, Loader2 } from 'lucide-react';
+import { Radio, Plus, Loader2, Send, CheckCheck, Eye, MessageCircle, Copy } from 'lucide-react';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { getBroadcastStatus } from '@/lib/broadcast-status';
@@ -95,6 +95,32 @@ export default function BroadcastsPage() {
     () => broadcasts.some((b) => b.status === 'sending'),
     [broadcasts],
   );
+
+  const kpiStats = useMemo(() => {
+    let totalSent = 0;
+    let totalDelivered = 0;
+    let totalRead = 0;
+    let totalReplied = 0;
+
+    for (const b of broadcasts) {
+      totalSent += Number(b.sent_count) || 0;
+      totalDelivered += Number(b.delivered_count) || 0;
+      totalRead += Number(b.read_count) || 0;
+      totalReplied += Number(b.replied_count) || 0;
+    }
+
+    const deliveryRate = totalSent > 0 ? Math.round((totalDelivered / totalSent) * 100) : 0;
+    const readRate = totalDelivered > 0 ? Math.round((totalRead / totalDelivered) * 100) : 0;
+
+    return {
+      totalSent,
+      totalDelivered,
+      totalRead,
+      totalReplied,
+      deliveryRate,
+      readRate,
+    };
+  }, [broadcasts]);
 
   useEffect(() => {
     function startPolling() {
@@ -199,6 +225,69 @@ export default function BroadcastsPage() {
         </GatedButton>
       </div>
 
+      {/* Broadcast Campaign KPI Cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">Total Sent</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
+              <Send className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {kpiStats.totalSent.toLocaleString()}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Messages dispatched
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">Delivery Rate</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <CheckCheck className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {kpiStats.deliveryRate}%
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {kpiStats.totalDelivered.toLocaleString()} delivered
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">Read Rate</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
+              <Eye className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {kpiStats.readRate}%
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {kpiStats.totalRead.toLocaleString()} opened &amp; read
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground">Customer Replies</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10 text-purple-500">
+              <MessageCircle className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-foreground">
+            {kpiStats.totalReplied.toLocaleString()}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Direct chat responses
+          </p>
+        </div>
+      </div>
+
       {broadcasts.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-border bg-card">
           <Radio className="mb-3 h-10 w-10 text-muted-foreground" />
@@ -228,8 +317,10 @@ export default function BroadcastsPage() {
                 </TableHead>
                 <TableHead className="hidden text-muted-foreground lg:table-cell">{t('table.delivery')}</TableHead>
                 <TableHead className="hidden text-muted-foreground lg:table-cell">{t('table.read')}</TableHead>
+                <TableHead className="hidden xl:table-cell text-muted-foreground">Status Breakdown</TableHead>
                 <TableHead className="text-muted-foreground">{t('table.status')}</TableHead>
                 <TableHead className="hidden text-muted-foreground sm:table-cell">{t('table.date')}</TableHead>
+                <TableHead className="text-right text-muted-foreground">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -264,6 +355,24 @@ export default function BroadcastsPage() {
                         color="bg-blue-500"
                       />
                     </TableCell>
+                    <TableCell className="hidden xl:table-cell">
+                      <div className="flex flex-wrap gap-1">
+                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          Sent: {broadcast.sent_count}
+                        </span>
+                        <span className="inline-flex items-center rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary border border-primary/20">
+                          Delivered: {broadcast.delivered_count}
+                        </span>
+                        <span className="inline-flex items-center rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                          Read: {broadcast.read_count}
+                        </span>
+                        {broadcast.failed_count > 0 && (
+                          <span className="inline-flex items-center rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400 border border-red-500/20">
+                            Failed: {broadcast.failed_count}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <span
                         className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${status.classes}`}
@@ -279,6 +388,18 @@ export default function BroadcastsPage() {
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground sm:table-cell">
                       {new Date(broadcast.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => router.push(`/broadcasts/new?duplicate=${broadcast.id}`)}
+                        className="h-7 text-xs gap-1 border-border hover:bg-primary/10 hover:text-primary transition-colors"
+                        title="Duplicate and send again"
+                      >
+                        <Copy className="h-3 w-3" />
+                        <span className="hidden sm:inline">Send Again</span>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );

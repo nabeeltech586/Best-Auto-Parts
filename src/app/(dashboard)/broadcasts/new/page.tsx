@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -11,7 +11,7 @@ import { Step2SelectAudience } from '@/components/broadcasts/step2-select-audien
 import { Step3Personalize } from '@/components/broadcasts/step3-personalize';
 import { Step4ScheduleSend } from '@/components/broadcasts/step4-schedule-send';
 import { useBroadcastSending } from '@/hooks/use-broadcast-sending';
-import { Check } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 const steps = [
@@ -21,8 +21,9 @@ const steps = [
   { label: 'send', key: 'send' },
 ] as const;
 
-export default function NewBroadcastPage() {
+function NewBroadcastForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const t = useTranslations('Broadcasts.new');
   const { accountId } = useAuth();
   const { createAndSendBroadcast, isProcessing, progress } = useBroadcastSending();
@@ -30,7 +31,7 @@ export default function NewBroadcastPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [template, setTemplate] = useState<MessageTemplate | null>(null);
   const [audience, setAudience] = useState<{
-    type: 'all' | 'tags' | 'custom_field' | 'csv';
+    type: 'all' | 'tags' | 'custom_field' | 'csv' | 'selected_contacts';
     tagIds?: string[];
     customField?: {
       fieldId: string;
@@ -38,13 +39,56 @@ export default function NewBroadcastPage() {
       value: string;
     };
     csvContacts?: { phone: string; name?: string }[];
+    contactIds?: string[];
     excludeTagIds?: string[];
   }>({ type: 'all' });
   const [variables, setVariables] = useState<
-    Record<string, { type: 'static' | 'field' | 'custom_field'; value: string }>
+    Record<string, { type: 'static' | 'field' | 'custom_field'; value: string; fallback?: string }>
   >({});
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
   const [name, setName] = useState('');
+
+  // Handle ?duplicate=<id> to pre-fill from an existing broadcast
+  useEffect(() => {
+    const dupId = searchParams.get('duplicate');
+    if (!dupId || !accountId) return;
+
+    async function loadDuplicate() {
+      try {
+        const supabase = createClient();
+        const { data: b } = await supabase
+          .from('broadcasts')
+          .select('*')
+          .eq('id', dupId)
+          .eq('account_id', accountId)
+          .maybeSingle();
+
+        if (b) {
+          setName(`${b.name} (Copy)`);
+          if (b.template_variables) {
+            setVariables(b.template_variables);
+          }
+          if (b.audience_filter) {
+            setAudience(b.audience_filter);
+          }
+          if (b.template_name) {
+            const { data: tmpl } = await supabase
+              .from('message_templates')
+              .select('*')
+              .eq('name', b.template_name)
+              .maybeSingle();
+            if (tmpl) {
+              setTemplate(tmpl);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to pre-fill duplicate broadcast:', err);
+      }
+    }
+
+    loadDuplicate();
+  }, [searchParams, accountId]);
 
   async function handleSend() {
     if (!template) return;
@@ -58,6 +102,7 @@ export default function NewBroadcastPage() {
           tagIds: audience.tagIds,
           customField: audience.customField,
           csvContacts: audience.csvContacts,
+          contactIds: audience.contactIds,
           excludeTagIds: audience.excludeTagIds,
         },
         variables,
@@ -77,12 +122,7 @@ export default function NewBroadcastPage() {
 
   /**
    * Writes a draft broadcast row — no recipients, no sending. The user
-   * can revisit it via the list page to finish the flow later. We
-   * don't persist the in-progress audience/variable config here
-   * because the current schema doesn't carry it past `audience_filter`
-   * and `template_variables`; those are enough for the user to
-   * recognize the draft but not to exactly round-trip into the wizard.
-   * A full resume-draft UX is a future polish.
+   * can revisit it via the list page to finish the flow later.
    */
   async function handleSaveDraft() {
     if (!template || !name.trim()) {
@@ -113,6 +153,7 @@ export default function NewBroadcastPage() {
       audience_filter: {
         type: audience.type,
         tagIds: audience.tagIds,
+        contactIds: audience.contactIds,
       },
       status: 'draft',
       total_recipients: 0,
@@ -233,5 +274,19 @@ export default function NewBroadcastPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function NewBroadcastPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <NewBroadcastForm />
+    </Suspense>
   );
 }

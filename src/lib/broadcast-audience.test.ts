@@ -368,6 +368,29 @@ describe('countAudience', () => {
     expect(requests).toHaveLength(0);
   });
 
+  it('resolves and counts a selected_contacts audience respecting excluded tags', async () => {
+    const all = contacts(10);
+    const { db } = cappedPostgrest({
+      contacts: all,
+      contact_tags: [
+        { id: uuid('t', 0), contact_id: String(all[0].id), tag_id: 'exclude-tag' },
+      ],
+    });
+
+    const audience: AudienceConfig = {
+      type: 'selected_contacts',
+      contactIds: [String(all[0].id), String(all[1].id), String(all[2].id)],
+      excludeTagIds: ['exclude-tag'],
+    };
+
+    // all[0] is excluded by tag, leaving all[1] and all[2]
+    const resolved = await resolveAudienceContacts(db, audience, async () => []);
+    expect(resolved.map((c) => c.id)).toEqual([all[1].id, all[2].id]);
+
+    const count = await countAudience(db, audience);
+    expect(count).toBe(2);
+  });
+
   it('returns null for a partially configured audience', async () => {
     const { db } = cappedPostgrest({});
     expect(await countAudience(db, { type: 'tags', tagIds: [] })).toBeNull();

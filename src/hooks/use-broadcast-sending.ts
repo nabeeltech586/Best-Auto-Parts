@@ -36,8 +36,8 @@ export type {
  */
 export type VariableMapping =
   | { type: 'static'; value: string }
-  | { type: 'field'; value: string }
-  | { type: 'custom_field'; value: string };
+  | { type: 'field'; value: string; fallback?: string }
+  | { type: 'custom_field'; value: string; fallback?: string };
 
 interface BroadcastPayload {
   name: string;
@@ -137,16 +137,17 @@ export function resolveVariables(
 
     if (v.type === 'field') {
       const fieldMap: Record<string, string | undefined> = {
-        name: contact.name,
+        name: contact.name?.trim() ? contact.name.trim() : (v.fallback || 'Valued Customer'),
         phone: contact.phone,
         email: contact.email,
         company: contact.company,
       };
-      return fieldMap[v.value] ?? '';
+      return fieldMap[v.value] ?? (v.fallback || '');
     }
 
     // custom_field
-    return customValues?.get(v.value) ?? '';
+    const customVal = customValues?.get(v.value)?.trim();
+    return customVal || (v.fallback || '');
   });
 }
 

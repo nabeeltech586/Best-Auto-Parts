@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Loader2, FileText, ArrowRight } from 'lucide-react';
+import { Loader2, FileText, ArrowRight, Smartphone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { WhatsAppPhonePreview } from './whatsapp-phone-preview';
 
 const categoryColors: Record<string, string> = {
   Marketing: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
@@ -41,6 +42,9 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
 
         if (fetchError) throw fetchError;
         setTemplates(data ?? []);
+        if (data && data.length > 0 && !selectedTemplate) {
+          onSelect(data[0]);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : t('chooseTemplate.errorLoad'));
       } finally {
@@ -83,39 +87,65 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
           <p className="mt-1 text-xs text-muted-foreground">{t('chooseTemplate.createFirst')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => {
-            const isSelected = selectedTemplate?.id === template.id;
-            const catColor = categoryColors[template.category] ?? categoryColors.Utility;
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
+          {/* Template Cards */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {templates.map((template) => {
+              const isSelected = selectedTemplate?.id === template.id;
+              const catColor = categoryColors[template.category] ?? categoryColors.Utility;
 
-            return (
-              <button
-                key={template.id}
-                onClick={() => onSelect(template)}
-                className={`flex flex-col gap-3 rounded-xl border p-4 text-left transition-all ${
-                  isSelected
-                    ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
-                    : 'border-border bg-card/50 hover:border-border hover:bg-card'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <h3 className="text-sm font-medium text-foreground">{template.name}</h3>
-                  <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${catColor}`}
-                  >
-                    {template.category}
-                  </span>
-                </div>
-                <p className="line-clamp-3 text-xs text-muted-foreground">{template.body_text}</p>
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span>{template.language ?? 'en_US'}</span>
-                  {/* Status is omitted on purpose — every template
-                      shown here is already filtered to APPROVED,
-                      so the chip carried no information. */}
-                </div>
-              </button>
-            );
-          })}
+              return (
+                <button
+                  key={template.id}
+                  onClick={() => onSelect(template)}
+                  className={`flex flex-col gap-3 rounded-xl border p-4 text-left transition-all ${
+                    isSelected
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                      : 'border-border bg-card/50 hover:border-border hover:bg-card'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <h3 className="text-sm font-medium text-foreground">{template.name}</h3>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${catColor}`}
+                    >
+                      {template.category}
+                    </span>
+                  </div>
+                  <p className="line-clamp-3 text-xs text-muted-foreground">{template.body_text}</p>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span>{template.language ?? 'en_US'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Live WhatsApp Phone Preview */}
+          {selectedTemplate && (
+            <div className="flex flex-col items-center">
+              <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Smartphone className="h-3.5 w-3.5 text-primary" />
+                Live Customer WhatsApp Preview
+              </p>
+              <WhatsAppPhonePreview
+                businessName="Best Auto Parts"
+                bodyText={selectedTemplate.body_text.replace(/\{\{1\}\}/g, 'Saud Bhai')}
+                headerType={selectedTemplate.header_type}
+                headerMediaUrl={selectedTemplate.header_media_url}
+                footerText={selectedTemplate.footer_text || 'Best Auto Parts (Saharanpur) | +91 96347 22174'}
+                buttons={
+                  selectedTemplate.buttons as unknown as Array<{
+                    type: string;
+                    text: string;
+                    url?: string;
+                    phone_number?: string;
+                  }>
+                }
+                recipientName="Saud Bhai"
+              />
+            </div>
+          )}
         </div>
       )}
 

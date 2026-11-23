@@ -17,10 +17,12 @@ import {
   ArrowRight,
   ArrowLeft,
   X,
+  UserCheck,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { SpecificContactsPicker } from './specific-contacts-picker';
 
-type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv';
+type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv' | 'selected_contacts';
 type CustomFieldOperator = 'is' | 'is_not' | 'contains';
 
 interface CustomFieldFilter {
@@ -34,6 +36,7 @@ interface AudienceConfig {
   tagIds?: string[];
   customField?: CustomFieldFilter;
   csvContacts?: { phone: string; name?: string }[];
+  contactIds?: string[];
   excludeTagIds?: string[];
 }
 
@@ -69,6 +72,12 @@ export function Step2SelectAudience({
       label: t('selectAudience.method.all'),
       description: t('selectAudience.allDescLoading'),
       icon: Users,
+    },
+    {
+      type: 'selected_contacts',
+      label: 'Select Specific Contacts',
+      description: 'Pick exact individuals with multi-select search & tag filters',
+      icon: UserCheck,
     },
     {
       type: 'tags',
@@ -232,6 +241,9 @@ export function Step2SelectAudience({
 
   const isValid =
     audience.type === 'all' ||
+    (audience.type === 'selected_contacts' &&
+      !!audience.contactIds &&
+      audience.contactIds.length > 0) ||
     (audience.type === 'tags' && audience.tagIds && audience.tagIds.length > 0) ||
     (audience.type === 'custom_field' &&
       !!audience.customField?.fieldId &&
@@ -263,6 +275,10 @@ export function Step2SelectAudience({
                   // Wipe shape fields from other types to avoid stale
                   // config leaking across selections.
                   tagIds: option.type === 'tags' ? audience.tagIds : undefined,
+                  contactIds:
+                    option.type === 'selected_contacts'
+                      ? audience.contactIds
+                      : undefined,
                   customField:
                     option.type === 'custom_field'
                       ? audience.customField
@@ -296,6 +312,13 @@ export function Step2SelectAudience({
           );
         })}
       </div>
+
+      {audience.type === 'selected_contacts' && (
+        <SpecificContactsPicker
+          selectedContactIds={audience.contactIds ?? []}
+          onChange={(contactIds) => onUpdate({ ...audience, contactIds })}
+        />
+      )}
 
       {audience.type === 'tags' && (
         <div className="rounded-xl border border-border bg-card/50 p-4">
@@ -469,6 +492,16 @@ export function Step2SelectAudience({
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span className="text-xs text-muted-foreground">{t('selectAudience.calculating')}</span>
+          </div>
+        ) : audience.type === 'selected_contacts' ? (
+          <div className="flex items-center gap-2">
+            <UserCheck className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold text-foreground">
+              {(audience.contactIds?.length ?? 0).toLocaleString()}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {(audience.contactIds?.length ?? 0) === 1 ? 'selected recipient' : 'selected recipients'}
+            </span>
           </div>
         ) : estimatedCount !== null ? (
           <div className="flex items-center gap-2">

@@ -11,7 +11,7 @@ export interface CustomFieldFilter {
   value: string;
 }
 
-export type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv';
+export type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv' | 'selected_contacts';
 
 export interface CsvAudienceRow {
   phone: string;
@@ -23,6 +23,7 @@ export interface AudienceConfig {
   tagIds?: string[];
   customField?: CustomFieldFilter;
   csvContacts?: CsvAudienceRow[];
+  contactIds?: string[];
   excludeTagIds?: string[];
 }
 
@@ -137,6 +138,12 @@ export async function resolveAudienceContacts(
     if (!audience.csvContacts) return [];
     return (await resolveCsv(audience.csvContacts)).filter(keep);
   }
+  if (audience.type === 'selected_contacts') {
+    if (!audience.contactIds || audience.contactIds.length === 0) return [];
+    const wanted = audience.contactIds.filter((id) => !excluded.has(id));
+    if (wanted.length === 0) return [];
+    return fetchContactsByIds(db, wanted);
+  }
 
   const ids = await fetchAudienceContactIds(db, audience);
   if (!ids) return [];
@@ -153,6 +160,14 @@ export async function countAudience(
     return audience.csvContacts && audience.csvContacts.length > 0
       ? audience.csvContacts.length
       : null;
+  }
+
+  if (audience.type === 'selected_contacts') {
+    if (!audience.contactIds || audience.contactIds.length === 0) return 0;
+    const excluded = await fetchExcludedIds(db, audience);
+    let size = 0;
+    for (const id of audience.contactIds) if (!excluded.has(id)) size++;
+    return size;
   }
 
   if (audience.type === 'all') {
