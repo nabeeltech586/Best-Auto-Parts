@@ -274,7 +274,7 @@ export interface SupplierFormData {
 // ============================================================
 
 export type PurchaseOrderStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'CANCELLED';
-export type PurchaseOrderPaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
+export type PurchaseOrderPaymentStatus = 'UNPAID' | 'PENDING' | 'PARTIAL' | 'PAID';
 
 export interface PurchaseOrderItem {
   part_id: string;
@@ -324,12 +324,13 @@ export interface CreatePurchaseOrderPayload {
 // SUPPLIER / DISTRIBUTOR KHATA & PAYMENTS
 // ============================================================
 
-export type SupplierPaymentMode = 'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque';
+export type SupplierPaymentMode = 'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque' | 'PhonePe' | 'Cash / Quick Settle' | string;
 
 export interface SupplierPayment {
   id: string;
   account_id: string;
-  supplier_id: string;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
   purchase_order_id?: string | null;
   user_id?: string | null;
   amount: number;

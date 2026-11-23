@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
@@ -47,8 +47,15 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/currency';
-import type { PurchaseOrder } from '@/types/inventory';
+import type { PurchaseOrder, PurchaseOrderPaymentStatus } from '@/types/inventory';
 import type { PaymentLinkRecord } from '@/lib/payments/phonepe-link';
 import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 
@@ -63,6 +70,7 @@ export default function OrderHistoryPage() {
   // Expanded PO row
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
+  const [updatingStatusPoId, setUpdatingStatusPoId] = useState<string | null>(null);
 
   // Digital Receipt Dialog State
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkRecord | null>(null);
@@ -70,7 +78,7 @@ export default function OrderHistoryPage() {
   // Record Payment Dialog State for Purchase Orders
   const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
   const [payAmount, setPayAmount] = useState<string>('');
-  const [payMode, setPayMode] = useState<'UPI' | 'Bank Transfer' | 'Cash' | 'Cheque'>('UPI');
+  const [payMode, setPayMode] = useState<string>('Cash');
   const [payRefId, setPayRefId] = useState<string>('');
   const [payNotes, setPayNotes] = useState<string>('');
   const [recordingPayment, setRecordingPayment] = useState(false);
@@ -82,6 +90,9 @@ export default function OrderHistoryPage() {
     mode: string;
     refId: string;
   } | null>(null);
+
+  // Input ref to focus on partial amount entry
+  const amountInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -134,42 +145,138 @@ export default function OrderHistoryPage() {
   };
 
   // Open Record Payment Modal
-  const handleOpenRecordPayment = (po: PurchaseOrder) => {
+  const handleOpenRecordPayment = (po: PurchaseOrder, focusInput = false) => {
     const totalCost = Number(po.total_estimated_cost) || 0;
     const paidSoFar = Number(po.amount_paid) || 0;
     const remaining = Math.max(0, totalCost - paidSoFar);
     setPayingPo(po);
     setPayAmount(remaining > 0 ? String(remaining) : '');
-    setPayMode('UPI');
+    setPayMode('Cash');
     setPayRefId('');
     setPayNotes('');
     setPaymentSuccessData(null);
+
+    if (focusInput) {
+      setTimeout(() => {
+        amountInputRef.current?.focus();
+        amountInputRef.current?.select();
+      }, 150);
+    }
   };
 
-  // Submit Supplier Payment
+  // Quick Status Dropdown Handler on PO Card
+  const handleQuickUpdateStatus = async (
+    po: PurchaseOrder,
+    targetStatus: PurchaseOrderPaymentStatus
+  ) => {
+    // If PARTIAL selected, open modal focused on amount
+    if (targetStatus === 'PARTIAL') {
+      handleOpenRecordPayment(po, true);
+      return;
+    }
+
+    setUpdatingStatusPoId(po.id);
+
+    const totalCost = Number(po.total_estimated_cost) || 0;
+    const currentPaid = Number(po.amount_paid) || 0;
+    const newAmountPaid = targetStatus === 'PAID' ? totalCost : 0;
+
+    // 1. Immediate optimistic update on PO list and KPIs
+    setPurchaseOrders((prev) =>
+      prev.map((p) => {
+        if (p.id === po.id) {
+          return {
+            ...p,
+            payment_status: targetStatus,
+            amount_paid: newAmountPaid,
+          };
+        }
+        return p;
+      })
+    );
+
+    // 2. Persist to API
+    try {
+      const res = await fetch(`/api/inventory/purchase-orders/${po.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_status: targetStatus,
+          amount_paid: newAmountPaid,
+          payment_mode: 'Cash / Quick Settle',
+          notes: targetStatus === 'PAID' ? 'Quick Settle from Orders Dashboard' : 'Reset to Unpaid',
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update payment status');
+      }
+
+      if (targetStatus === 'PAID') {
+        const remainingSettled = Math.max(0, totalCost - currentPaid);
+        toast.success(
+          `PO #${po.po_number} marked as PAID. ${
+            remainingSettled > 0 ? `Logged ${formatCurrency(remainingSettled)} settlement entry.` : ''
+          }`
+        );
+      } else {
+        toast.success(`PO #${po.po_number} payment status reset to UNPAID.`);
+      }
+
+      fetchData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error updating payment status');
+      fetchData(); // Rollback on failure
+    } finally {
+      setUpdatingStatusPoId(null);
+    }
+  };
+
+  // Submit Supplier Payment from Modal
   const handleSubmitPayment = async () => {
     if (!payingPo) return;
     const amt = Number(payAmount);
     if (!amt || amt <= 0) {
-      toast.error('Please enter a valid payment amount');
+      toast.error('Please enter a valid payment amount greater than ₹0');
       return;
     }
+
     setRecordingPayment(true);
     try {
       const res = await fetch('/api/inventory/suppliers/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          supplier_id: payingPo.supplier_id,
+          supplier_id: payingPo.supplier_id || null,
+          supplier_name: payingPo.supplier_name,
           purchase_order_id: payingPo.id,
           amount: amt,
           payment_mode: payMode,
-          reference_id: payRefId,
-          notes: payNotes,
+          reference_id: payRefId || null,
+          notes: payNotes || null,
         }),
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to record payment');
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to record wholesaler payment');
+      }
+
+      // Immediate optimistic update of purchase order row
+      const currentPaid = Number(payingPo.amount_paid) || 0;
+      const totalCost = Number(payingPo.total_estimated_cost) || 0;
+      const newPaid = Math.max(0, currentPaid + amt);
+      const newStatus: PurchaseOrderPaymentStatus =
+        newPaid >= totalCost && totalCost > 0 ? 'PAID' : newPaid > 0 ? 'PARTIAL' : 'UNPAID';
+
+      setPurchaseOrders((prev) =>
+        prev.map((p) =>
+          p.id === payingPo.id
+            ? { ...p, amount_paid: newPaid, payment_status: newStatus }
+            : p
+        )
+      );
 
       toast.success(`Payment of ${formatCurrency(amt)} recorded for PO #${payingPo.po_number}!`);
       setPaymentSuccessData({
@@ -180,6 +287,7 @@ export default function OrderHistoryPage() {
         mode: payMode,
         refId: payRefId,
       });
+
       fetchData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error recording payment');
@@ -212,7 +320,7 @@ export default function OrderHistoryPage() {
     );
   };
 
-  // Metrics
+  // Customer Metrics
   const paidCustomerOrders = customerOrders.filter((o) => o.status === 'PAID');
   const pendingCustomerOrders = customerOrders.filter((o) => o.status === 'PENDING');
   const totalCustomerRevenue = paidCustomerOrders.reduce(
@@ -221,7 +329,7 @@ export default function OrderHistoryPage() {
   );
   const activeDistributorPOs = purchaseOrders.filter((p) => p.status === 'SENT');
 
-  // Distributor Khata Metrics
+  // Distributor Khata Metrics (instantly reflected from state)
   const totalDistributorBilled = purchaseOrders.reduce(
     (acc, po) => acc + (Number(po.total_estimated_cost) || 0),
     0
@@ -254,7 +362,7 @@ export default function OrderHistoryPage() {
             size="sm"
             onClick={fetchData}
             disabled={loading}
-            className="gap-1.5"
+            className="gap-1.5 border-border"
           >
             <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -272,10 +380,10 @@ export default function OrderHistoryPage() {
 
       {/* Global KPI Summary Cards */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
-        <Card className="border-border bg-card/70">
+        <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Total Paid Revenue</span>
+              <span className="text-xs font-medium text-muted-foreground">Total Customer Revenue</span>
               <div className="rounded-lg p-1.5 bg-emerald-500/10 text-emerald-500">
                 <IndianRupee className="size-4" />
               </div>
@@ -289,7 +397,7 @@ export default function OrderHistoryPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card/70">
+        <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-muted-foreground">Pending Orders</span>
@@ -304,7 +412,7 @@ export default function OrderHistoryPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card/70">
+        <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-muted-foreground">Active Distributor POs</span>
@@ -319,7 +427,7 @@ export default function OrderHistoryPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card/70">
+        <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-muted-foreground">Distributor Due</span>
@@ -327,7 +435,7 @@ export default function OrderHistoryPage() {
                 <Wallet className="size-4" />
               </div>
             </div>
-            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-foreground truncate">
+            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-rose-600 dark:text-rose-400 truncate">
               {formatCurrency(netDistributorBalanceDue)}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5">Pending to wholesalers</p>
@@ -464,7 +572,7 @@ export default function OrderHistoryPage() {
         <TabsContent value="distributor" className="space-y-4 mt-0">
           {/* Distributor Khata Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Card className="border-border bg-card/60">
+            <Card className="border-border bg-card/60 shadow-sm">
               <CardContent className="p-3.5 flex items-center justify-between">
                 <div>
                   <span className="text-xs text-muted-foreground font-medium">Total Billed from Wholesalers</span>
@@ -478,7 +586,7 @@ export default function OrderHistoryPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-border bg-card/60">
+            <Card className="border-border bg-card/60 shadow-sm">
               <CardContent className="p-3.5 flex items-center justify-between">
                 <div>
                   <span className="text-xs text-muted-foreground font-medium">Total Paid to Wholesalers</span>
@@ -492,7 +600,7 @@ export default function OrderHistoryPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-border bg-card/60">
+            <Card className="border-border bg-card/60 shadow-sm">
               <CardContent className="p-3.5 flex items-center justify-between">
                 <div>
                   <span className="text-xs text-muted-foreground font-medium">Net Distributor Balance Due</span>
@@ -551,7 +659,13 @@ export default function OrderHistoryPage() {
 
                   const amountPaid = Number(po.amount_paid) || 0;
                   const totalCost = Number(po.total_estimated_cost) || 0;
-                  const paymentStatus = po.payment_status || (amountPaid >= totalCost && totalCost > 0 ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'UNPAID');
+                  const paymentStatus: PurchaseOrderPaymentStatus =
+                    po.payment_status ||
+                    (amountPaid >= totalCost && totalCost > 0
+                      ? 'PAID'
+                      : amountPaid > 0
+                      ? 'PARTIAL'
+                      : 'UNPAID');
 
                   return (
                     <div key={po.id} className="p-4 hover:bg-muted/20 transition-colors space-y-3">
@@ -573,20 +687,72 @@ export default function OrderHistoryPage() {
                               </Badge>
                             )}
 
-                            {/* Khata Payment Status Badge */}
-                            {paymentStatus === 'PAID' ? (
-                              <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
-                                <Check className="size-3" /> PAID
-                              </Badge>
-                            ) : paymentStatus === 'PARTIAL' ? (
-                              <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-semibold">
-                                PARTIAL PAYMENT
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
-                                UNPAID
-                              </Badge>
-                            )}
+                            {/* Interactive Payment Status Dropdown */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                disabled={updatingStatusPoId === po.id}
+                                className={cn(
+                                  'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition-all hover:opacity-85 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer select-none',
+                                  paymentStatus === 'PAID'
+                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                    : paymentStatus === 'PARTIAL'
+                                    ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                                )}
+                                title="Click to change payment status"
+                              >
+                                {updatingStatusPoId === po.id ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : paymentStatus === 'PAID' ? (
+                                  <Check className="size-3" />
+                                ) : paymentStatus === 'PARTIAL' ? (
+                                  <Wallet className="size-3" />
+                                ) : (
+                                  <Clock className="size-3" />
+                                )}
+                                <span>{paymentStatus === 'PARTIAL' ? 'PARTIAL PAYMENT' : paymentStatus}</span>
+                                <ChevronDown className="size-2.5 opacity-70 ml-0.5" />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" className="w-60 bg-popover border-border text-popover-foreground shadow-md">
+                                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                  Quick Payment Status
+                                </div>
+                                <DropdownMenuItem
+                                  onClick={() => handleQuickUpdateStatus(po, 'PAID')}
+                                  className="text-xs flex items-center justify-between cursor-pointer text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="size-3.5" />
+                                    <span>Mark as PAID (Full Settle)</span>
+                                  </div>
+                                  {paymentStatus === 'PAID' && <Check className="size-3" />}
+                                </DropdownMenuItem>
+
+                                <DropdownMenuItem
+                                  onClick={() => handleQuickUpdateStatus(po, 'PARTIAL')}
+                                  className="text-xs flex items-center justify-between cursor-pointer text-blue-600 dark:text-blue-400 focus:text-blue-600 focus:bg-blue-500/10"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Wallet className="size-3.5" />
+                                    <span>Record PARTIAL Payment...</span>
+                                  </div>
+                                  {paymentStatus === 'PARTIAL' && <Check className="size-3" />}
+                                </DropdownMenuItem>
+
+                                <DropdownMenuSeparator className="bg-border" />
+
+                                <DropdownMenuItem
+                                  onClick={() => handleQuickUpdateStatus(po, 'UNPAID')}
+                                  className="text-xs flex items-center justify-between cursor-pointer text-amber-600 dark:text-amber-400 focus:text-amber-600 focus:bg-amber-500/10"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Clock className="size-3.5" />
+                                    <span>Reset to UNPAID</span>
+                                  </div>
+                                  {(paymentStatus === 'UNPAID' || paymentStatus === 'PENDING') && <Check className="size-3" />}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
 
                             {confirmedDateStr && (
                               <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
@@ -612,7 +778,7 @@ export default function OrderHistoryPage() {
                               {formatCurrency(totalCost)}
                             </div>
                             <div className="text-[11px] text-muted-foreground font-mono">
-                              Paid: {formatCurrency(amountPaid)} • {po.total_items} items ({po.total_units} pcs)
+                              Paid: <span className={amountPaid >= totalCost ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : ''}>{formatCurrency(amountPaid)}</span> • {po.total_items} items ({po.total_units} pcs)
                             </div>
                           </div>
 
@@ -621,7 +787,7 @@ export default function OrderHistoryPage() {
                             variant="outline"
                             size="sm"
                             onClick={() => handleOpenRecordPayment(po)}
-                            className="text-xs gap-1 h-8 border-border"
+                            className="text-xs gap-1 h-8 border-border hover:bg-muted"
                           >
                             <Wallet className="size-3.5 text-primary" />
                             Record Payment
@@ -648,7 +814,7 @@ export default function OrderHistoryPage() {
                               href={waLink}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-8 text-xs gap-1')}
+                              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-8 text-xs gap-1 border-border')}
                             >
                               <MessageCircle className="size-3 text-emerald-500" />
                               WhatsApp
@@ -764,7 +930,7 @@ export default function OrderHistoryPage() {
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={cn(buttonVariants(), 'w-full text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white')}
+                    className={cn(buttonVariants(), 'w-full text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium')}
                   >
                     <MessageCircle className="size-3.5" />
                     Send Payment Voucher on WhatsApp
@@ -820,6 +986,7 @@ export default function OrderHistoryPage() {
                     <div className="relative mt-1">
                       <IndianRupee className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
                       <Input
+                        ref={amountInputRef}
                         type="number"
                         min="1"
                         step="0.01"
@@ -835,12 +1002,13 @@ export default function OrderHistoryPage() {
                     <Label className="text-xs">Payment Mode</Label>
                     <select
                       value={payMode}
-                      onChange={(e) => setPayMode(e.target.value as 'UPI' | 'Bank Transfer' | 'Cash' | 'Cheque')}
-                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      onChange={(e) => setPayMode(e.target.value)}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                     >
-                      <option value="UPI">UPI (GooglePay / PhonePe / Paytm)</option>
-                      <option value="Bank Transfer">Bank Transfer (IMPS / NEFT / RTGS)</option>
                       <option value="Cash">Cash in Hand</option>
+                      <option value="UPI">UPI (GooglePay / PhonePe / Paytm)</option>
+                      <option value="PhonePe">PhonePe Direct / PG</option>
+                      <option value="Bank Transfer">Bank Transfer (IMPS / NEFT / RTGS)</option>
                       <option value="Cheque">Bank Cheque</option>
                     </select>
                   </div>

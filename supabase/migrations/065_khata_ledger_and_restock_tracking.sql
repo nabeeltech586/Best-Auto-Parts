@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_parts_catalog_restocked ON parts_catalog(account_
 ALTER TABLE purchase_orders
   ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'UNPAID'
-    CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
+    CHECK (payment_status IN ('UNPAID', 'PENDING', 'PARTIAL', 'PAID')),
   ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(12, 2) NOT NULL DEFAULT 0.00
     CHECK (amount_paid >= 0);
 
@@ -51,12 +51,13 @@ CREATE INDEX IF NOT EXISTS idx_purchase_orders_payment_status ON purchase_orders
 CREATE TABLE IF NOT EXISTS supplier_payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  supplier_id UUID NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+  supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL,
+  supplier_name TEXT,
   purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL,
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
   payment_mode TEXT NOT NULL DEFAULT 'UPI'
-    CHECK (payment_mode IN ('UPI', 'Cash', 'Bank Transfer', 'Cheque')),
+    CHECK (payment_mode IN ('UPI', 'Cash', 'Bank Transfer', 'Cheque', 'PhonePe', 'Cash / Quick Settle', 'Quick Settle')),
   reference_id TEXT,
   notes TEXT,
   paid_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
