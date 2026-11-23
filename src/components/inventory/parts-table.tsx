@@ -16,6 +16,7 @@ import {
   MapPin,
   Car,
   Check,
+  Clock,
   X,
   Loader2,
   Plus,
@@ -294,7 +295,7 @@ export function PartsTable({
                         >
                           {part.part_name}
                         </Link>
-                        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
                           <span className="font-mono bg-muted/80 px-1 rounded text-[11px] text-foreground/80">
                             {part.sku}
                           </span>
@@ -308,6 +309,38 @@ export function PartsTable({
                             </span>
                           )}
                         </div>
+
+                        {/* Pending PO Delivery Badge */}
+                        {part.pending_po && (
+                          <div className="mt-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 font-medium gap-1 px-1.5 py-0"
+                            >
+                              <Clock className="size-2.5" />
+                              Ordered: {new Date(part.pending_po.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} (Pending Delivery)
+                            </Badge>
+                          </div>
+                        )}
+
+                        {/* Confirmed Restock Badge */}
+                        {part.last_restocked_at && (
+                          <div className="mt-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-medium gap-1 px-1.5 py-0"
+                            >
+                              <Check className="size-2.5" />
+                              Confirmed Restock:{' '}
+                              {new Date(part.last_restocked_at).toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}{' '}
+                              {part.last_po_number ? `(${part.last_po_number.startsWith('#') ? part.last_po_number : `#${part.last_po_number}`})` : ''}
+                            </Badge>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </TableCell>

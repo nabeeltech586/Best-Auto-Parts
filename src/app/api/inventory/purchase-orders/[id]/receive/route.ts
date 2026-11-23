@@ -34,6 +34,8 @@ export async function POST(request: Request, context: Params) {
     let updatedCount = 0;
     let totalStockAdded = 0;
 
+    const nowIso = new Date().toISOString();
+
     // 2. Process each item: update parts_catalog and log stock movement
     for (const item of items) {
       const partId = item.part_id;
@@ -56,7 +58,9 @@ export async function POST(request: Request, context: Params) {
           .from('parts_catalog')
           .update({
             quantity_in_stock: newStock,
-            updated_at: new Date().toISOString(),
+            last_restocked_at: nowIso,
+            last_po_number: po.po_number,
+            updated_at: nowIso,
           })
           .eq('id', partId)
           .eq('account_id', accountId);
@@ -84,13 +88,14 @@ export async function POST(request: Request, context: Params) {
       }
     }
 
-    // 3. Mark PO as RECEIVED
+    // 3. Mark PO as RECEIVED & CONFIRMED
     const { data: updatedPo, error: poUpdateError } = await supabase
       .from('purchase_orders')
       .update({
         status: 'RECEIVED',
-        received_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        confirmed_at: nowIso,
+        received_at: nowIso,
+        updated_at: nowIso,
       })
       .eq('id', id)
       .eq('account_id', accountId)

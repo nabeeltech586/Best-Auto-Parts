@@ -19,12 +19,16 @@ import {
   MessageCircle,
   Copy,
   PackageCheck,
-  TrendingUp,
   IndianRupee,
+  Check,
+  AlertCircle,
+  Wallet,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -46,6 +50,7 @@ import {
 import { formatCurrency } from '@/lib/currency';
 import type { PurchaseOrder } from '@/types/inventory';
 import type { PaymentLinkRecord } from '@/lib/payments/phonepe-link';
+import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 
 export default function OrderHistoryPage() {
   const [activeTab, setActiveTab] = useState<'distributor' | 'customer'>('customer');
@@ -61,6 +66,22 @@ export default function OrderHistoryPage() {
 
   // Digital Receipt Dialog State
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkRecord | null>(null);
+
+  // Record Payment Dialog State for Purchase Orders
+  const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
+  const [payAmount, setPayAmount] = useState<string>('');
+  const [payMode, setPayMode] = useState<'UPI' | 'Bank Transfer' | 'Cash' | 'Cheque'>('UPI');
+  const [payRefId, setPayRefId] = useState<string>('');
+  const [payNotes, setPayNotes] = useState<string>('');
+  const [recordingPayment, setRecordingPayment] = useState(false);
+  const [paymentSuccessData, setPaymentSuccessData] = useState<{
+    poNumber: string;
+    supplierName: string;
+    supplierPhone: string;
+    amount: number;
+    mode: string;
+    refId: string;
+  } | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -112,6 +133,85 @@ export default function OrderHistoryPage() {
     }
   };
 
+  // Open Record Payment Modal
+  const handleOpenRecordPayment = (po: PurchaseOrder) => {
+    const totalCost = Number(po.total_estimated_cost) || 0;
+    const paidSoFar = Number(po.amount_paid) || 0;
+    const remaining = Math.max(0, totalCost - paidSoFar);
+    setPayingPo(po);
+    setPayAmount(remaining > 0 ? String(remaining) : '');
+    setPayMode('UPI');
+    setPayRefId('');
+    setPayNotes('');
+    setPaymentSuccessData(null);
+  };
+
+  // Submit Supplier Payment
+  const handleSubmitPayment = async () => {
+    if (!payingPo) return;
+    const amt = Number(payAmount);
+    if (!amt || amt <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return;
+    }
+    setRecordingPayment(true);
+    try {
+      const res = await fetch('/api/inventory/suppliers/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplier_id: payingPo.supplier_id,
+          purchase_order_id: payingPo.id,
+          amount: amt,
+          payment_mode: payMode,
+          reference_id: payRefId,
+          notes: payNotes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to record payment');
+
+      toast.success(`Payment of ${formatCurrency(amt)} recorded for PO #${payingPo.po_number}!`);
+      setPaymentSuccessData({
+        poNumber: payingPo.po_number,
+        supplierName: payingPo.supplier_name,
+        supplierPhone: payingPo.supplier_phone,
+        amount: amt,
+        mode: payMode,
+        refId: payRefId,
+      });
+      fetchData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error recording payment');
+    } finally {
+      setRecordingPayment(false);
+    }
+  };
+
+  // Voucher Text Generator for Supplier
+  const getSupplierVoucherText = (data: {
+    poNumber: string;
+    supplierName: string;
+    amount: number;
+    mode: string;
+    refId: string;
+  }) => {
+    return (
+      `🧾 *PAYMENT CONFIRMATION VOUCHER — BEST AUTO PARTS* 🏍️\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `• Wholesaler / Firm: ${data.supplierName}\n` +
+      `• Purchase Order: #${data.poNumber}\n` +
+      `• Amount Paid: ${formatCurrency(data.amount)}\n` +
+      `• Payment Mode: ${data.mode}\n` +
+      `• Ref / UTR / Txn: ${data.refId || 'N/A'}\n` +
+      `• Date: ${new Date().toLocaleDateString('en-IN')}\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `We have credited ${formatCurrency(data.amount)} toward PO #${data.poNumber}. Please acknowledge receipt and share LR / dispatch details.\n\n` +
+      `📍 Store: Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
+      `📞 Saud Bhai: +91 96347 22174`
+    );
+  };
+
   // Metrics
   const paidCustomerOrders = customerOrders.filter((o) => o.status === 'PAID');
   const pendingCustomerOrders = customerOrders.filter((o) => o.status === 'PENDING');
@@ -121,32 +221,16 @@ export default function OrderHistoryPage() {
   );
   const activeDistributorPOs = purchaseOrders.filter((p) => p.status === 'SENT');
 
-  // Customer Receipt Text Formatter
-  const getReceiptText = (receipt: PaymentLinkRecord) => {
-    const formattedDate = receipt.paid_at
-      ? new Date(receipt.paid_at).toLocaleString('en-IN', {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        })
-      : new Date().toLocaleDateString('en-IN');
-
-    return (
-      `🧾 *Digital Payment Receipt — Best Auto Parts* 🏍️\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `• Order ID: #${receipt.order_id}\n` +
-      `• Customer: ${receipt.customer_name || 'Customer'}\n` +
-      `• Spare Part: ${receipt.part_details}\n` +
-      `• Amount Paid: ${formatCurrency(receipt.amount)}\n` +
-      `• Payment Status: PAID (Success) ✅\n` +
-      `• Payment Mode: ${receipt.payment_mode || 'UPI / PhonePe'}\n` +
-      `• PhonePe Ref ID: ${receipt.phonepe_transaction_id || 'VERIFIED'}\n` +
-      `• Date & Time: ${formattedDate}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `Thank you for your order! Your payment has been verified and our team is preparing your spare parts.\n\n` +
-      `📍 Store: Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
-      `📞 Helpline: Saud Bhai (+91 96347 22174)`
-    );
-  };
+  // Distributor Khata Metrics
+  const totalDistributorBilled = purchaseOrders.reduce(
+    (acc, po) => acc + (Number(po.total_estimated_cost) || 0),
+    0
+  );
+  const totalDistributorPaid = purchaseOrders.reduce(
+    (acc, po) => acc + (Number(po.amount_paid) || 0),
+    0
+  );
+  const netDistributorBalanceDue = Math.max(0, totalDistributorBilled - totalDistributorPaid);
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -156,11 +240,11 @@ export default function OrderHistoryPage() {
           <div className="flex items-center gap-2">
             <ShoppingBag className="size-6 text-primary" />
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Order History & Restock
+              Order History & Restock Khata
             </h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Track customer orders, digital payment receipts, and distributor restock purchase orders.
+            Track customer orders, digital payment receipts, and distributor restock Khata ledger.
           </p>
         </div>
 
@@ -186,7 +270,7 @@ export default function OrderHistoryPage() {
         </div>
       </div>
 
-      {/* KPI Summary Cards */}
+      {/* Global KPI Summary Cards */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
         <Card className="border-border bg-card/70">
           <CardContent className="p-4">
@@ -238,15 +322,15 @@ export default function OrderHistoryPage() {
         <Card className="border-border bg-card/70">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Total Orders Logged</span>
-              <div className="rounded-lg p-1.5 bg-primary/10 text-primary">
-                <TrendingUp className="size-4" />
+              <span className="text-xs font-medium text-muted-foreground">Distributor Due</span>
+              <div className="rounded-lg p-1.5 bg-rose-500/10 text-rose-500">
+                <Wallet className="size-4" />
               </div>
             </div>
-            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-              {customerOrders.length + purchaseOrders.length}
+            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-foreground truncate">
+              {formatCurrency(netDistributorBalanceDue)}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Combined customer & PO logs</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Pending to wholesalers</p>
           </CardContent>
         </Card>
       </div>
@@ -264,7 +348,7 @@ export default function OrderHistoryPage() {
           </TabsTrigger>
           <TabsTrigger value="distributor" className="gap-2 text-xs">
             <Truck className="size-3.5 text-blue-500" />
-            Distributor Orders / POs ({purchaseOrders.length})
+            Distributor Khata & POs ({purchaseOrders.length})
           </TabsTrigger>
         </TabsList>
 
@@ -290,7 +374,7 @@ export default function OrderHistoryPage() {
                     <TableHead className="text-xs font-semibold">Customer</TableHead>
                     <TableHead className="text-xs font-semibold">Spare Part Details</TableHead>
                     <TableHead className="text-xs font-semibold">Amount</TableHead>
-                    <TableHead className="text-xs font-semibold">Status</TableHead>
+                    <TableHead className="text-xs font-semibold">Payment Status</TableHead>
                     <TableHead className="text-xs font-semibold">PhonePe Ref</TableHead>
                     <TableHead className="text-xs font-semibold">Date</TableHead>
                     <TableHead className="text-right text-xs font-semibold">Actions</TableHead>
@@ -300,8 +384,9 @@ export default function OrderHistoryPage() {
                   {customerOrders.map((order) => {
                     const isPaid = order.status === 'PAID';
                     const isPending = order.status === 'PENDING';
-                    const formattedDate = order.created_at
-                      ? new Date(order.created_at).toLocaleDateString('en-IN', {
+                    const rawDate = order.paid_at || order.created_at;
+                    const formattedDate = rawDate
+                      ? new Date(rawDate).toLocaleDateString('en-IN', {
                           day: 'numeric',
                           month: 'short',
                           year: 'numeric',
@@ -328,24 +413,31 @@ export default function OrderHistoryPage() {
                           {formatCurrency(order.amount)}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {isPaid ? (
-                            <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
-                              <CheckCircle2 className="size-3" /> PAID
-                            </Badge>
-                          ) : isPending ? (
-                            <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
-                              <Clock className="size-3" /> PENDING
-                            </Badge>
-                          ) : (
-                            <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 text-[10px] gap-1 font-semibold">
-                              <XCircle className="size-3" /> FAILED
-                            </Badge>
-                          )}
+                          <div className="flex flex-col gap-1 items-start">
+                            {isPaid ? (
+                              <>
+                                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                                  <CheckCircle2 className="size-3" /> PAID
+                                </Badge>
+                                <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 font-mono">
+                                  <PackageCheck className="size-2.5" /> Deducted (-1)
+                                </span>
+                              </>
+                            ) : isPending ? (
+                              <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
+                                <Clock className="size-3" /> PENDING
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 text-[10px] gap-1 font-semibold">
+                                <XCircle className="size-3" /> FAILED
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-xs font-mono text-muted-foreground">
                           {order.phonepe_transaction_id || '—'}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
+                        <TableCell className="text-xs text-muted-foreground font-mono">
                           {formattedDate}
                         </TableCell>
                         <TableCell className="text-right">
@@ -356,7 +448,7 @@ export default function OrderHistoryPage() {
                             className="h-7 text-xs gap-1 border-border"
                           >
                             <Receipt className="size-3 text-primary" />
-                            {isPaid ? 'View Receipt' : 'Order Details'}
+                            {isPaid ? 'View / Print Receipt' : 'Order Details'}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -368,8 +460,53 @@ export default function OrderHistoryPage() {
           </div>
         </TabsContent>
 
-        {/* TAB 2: Distributor Restock Orders (POs) */}
+        {/* TAB 2: Distributor Restock Orders & Khata Ledger */}
         <TabsContent value="distributor" className="space-y-4 mt-0">
+          {/* Distributor Khata Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card className="border-border bg-card/60">
+              <CardContent className="p-3.5 flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Total Billed from Wholesalers</span>
+                  <div className="text-lg font-bold font-mono text-foreground mt-0.5">
+                    {formatCurrency(totalDistributorBilled)}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  <Truck className="size-4" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border bg-card/60">
+              <CardContent className="p-3.5 flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Total Paid to Wholesalers</span>
+                  <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                    {formatCurrency(totalDistributorPaid)}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="size-4" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border bg-card/60">
+              <CardContent className="p-3.5 flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-muted-foreground font-medium">Net Distributor Balance Due</span>
+                  <div className="text-lg font-bold font-mono text-rose-600 dark:text-rose-400 mt-0.5">
+                    {formatCurrency(netDistributorBalanceDue)}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                  <AlertCircle className="size-4" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="rounded-md border border-border bg-card overflow-hidden">
             {loading ? (
               <div className="p-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
@@ -401,17 +538,31 @@ export default function OrderHistoryPage() {
                       })
                     : '—';
 
+                  const confirmedDateStr = po.confirmed_at
+                    ? new Date(po.confirmed_at).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })
+                    : null;
+
                   const cleanPhone = (po.supplier_phone || '').replace(/[^0-9]/g, '');
                   const waLink = cleanPhone ? `https://wa.me/${cleanPhone}` : null;
+
+                  const amountPaid = Number(po.amount_paid) || 0;
+                  const totalCost = Number(po.total_estimated_cost) || 0;
+                  const paymentStatus = po.payment_status || (amountPaid >= totalCost && totalCost > 0 ? 'PAID' : amountPaid > 0 ? 'PARTIAL' : 'UNPAID');
 
                   return (
                     <div key={po.id} className="p-4 hover:bg-muted/20 transition-colors space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono text-sm font-bold text-foreground">
                               #{po.po_number}
                             </span>
+
+                            {/* Status Badge */}
                             {isReceived ? (
                               <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
                                 <CheckCircle2 className="size-3" /> RECEIVED & STOCKED
@@ -421,10 +572,32 @@ export default function OrderHistoryPage() {
                                 <Clock className="size-3" /> SENT (In Transit)
                               </Badge>
                             )}
+
+                            {/* Khata Payment Status Badge */}
+                            {paymentStatus === 'PAID' ? (
+                              <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                                <Check className="size-3" /> PAID
+                              </Badge>
+                            ) : paymentStatus === 'PARTIAL' ? (
+                              <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-semibold">
+                                PARTIAL PAYMENT
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
+                                UNPAID
+                              </Badge>
+                            )}
+
+                            {confirmedDateStr && (
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                                Confirmed: {confirmedDateStr}
+                              </span>
+                            )}
                           </div>
+
                           <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
                             <span className="font-medium text-foreground">
-                              To: {po.supplier_name}
+                              Wholesaler: {po.supplier_name}
                             </span>
                             {po.supplier_phone && (
                               <span>• WhatsApp: {po.supplier_phone}</span>
@@ -436,12 +609,23 @@ export default function OrderHistoryPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="text-right sm:mr-3">
                             <div className="text-sm font-bold font-mono text-foreground">
-                              {formatCurrency(po.total_estimated_cost)}
+                              {formatCurrency(totalCost)}
                             </div>
-                            <div className="text-[11px] text-muted-foreground">
-                              {po.total_items} items • {po.total_units} total units
+                            <div className="text-[11px] text-muted-foreground font-mono">
+                              Paid: {formatCurrency(amountPaid)} • {po.total_items} items ({po.total_units} pcs)
                             </div>
                           </div>
+
+                          {/* Record Payment Button */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenRecordPayment(po)}
+                            className="text-xs gap-1 h-8 border-border"
+                          >
+                            <Wallet className="size-3.5 text-primary" />
+                            Record Payment
+                          </Button>
 
                           {!isReceived && (
                             <Button
@@ -537,94 +721,178 @@ export default function OrderHistoryPage() {
       </Tabs>
 
       {/* Customer Digital Receipt Dialog */}
-      {selectedReceipt && (
-        <Dialog open={Boolean(selectedReceipt)} onOpenChange={(v) => !v && setSelectedReceipt(null)}>
-          <DialogContent className="sm:max-w-md">
+      <CustomerReceiptDialog
+        open={Boolean(selectedReceipt)}
+        onOpenChange={(v) => !v && setSelectedReceipt(null)}
+        order={selectedReceipt}
+      />
+
+      {/* Record Supplier Payment Dialog */}
+      {payingPo && (
+        <Dialog open={Boolean(payingPo)} onOpenChange={(v) => !v && setPayingPo(null)}>
+          <DialogContent className="sm:max-w-md bg-card border-border">
             <DialogHeader>
               <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <Receipt className="h-5 w-5" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Wallet className="h-5 w-5" />
                 </div>
                 <div>
-                  <DialogTitle>Customer Digital Receipt</DialogTitle>
-                  <DialogDescription className="text-xs">
-                    Verified PhonePe payment receipt for Best Auto Parts.
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    Record Wholesaler Payment
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground">
+                    Credit payment to {payingPo.supplier_name} for PO #{payingPo.po_number}.
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
 
-            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3 font-mono text-xs">
-              <div className="text-center border-b border-border pb-2 font-sans">
-                <h4 className="font-bold text-foreground text-sm">Best Auto Parts</h4>
-                <p className="text-[11px] text-muted-foreground">
-                  Kailashpur, Saharanpur, UP 247001 | +91 96347 22174
-                </p>
-              </div>
+            {paymentSuccessData ? (
+              <div className="space-y-4 py-2">
+                <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-2 text-center">
+                  <CheckCircle2 className="size-8 text-emerald-600 dark:text-emerald-400 mx-auto" />
+                  <h4 className="font-bold text-foreground text-sm">Payment Recorded Successfully</h4>
+                  <p className="text-xs text-muted-foreground">
+                    {formatCurrency(paymentSuccessData.amount)} logged via {paymentSuccessData.mode}.
+                  </p>
+                </div>
 
-              <div className="space-y-1.5">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Order ID:</span>
-                  <span className="font-bold text-foreground">#{selectedReceipt.order_id}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Customer:</span>
-                  <span className="text-foreground">{selectedReceipt.customer_name || 'Customer'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">WhatsApp:</span>
-                  <span className="text-foreground">{selectedReceipt.customer_phone}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Spare Part:</span>
-                  <span className="text-foreground font-semibold text-right max-w-[200px] truncate">
-                    {selectedReceipt.part_details}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Amount Paid:</span>
-                  <span className="font-bold text-foreground text-sm">
-                    {formatCurrency(selectedReceipt.amount)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Status:</span>
-                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px]">
-                    {selectedReceipt.status}
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">PhonePe Ref ID:</span>
-                  <span className="text-foreground">{selectedReceipt.phonepe_transaction_id || 'VERIFIED'}</span>
+                <div className="space-y-2">
+                  <a
+                    href={`https://wa.me/${paymentSuccessData.supplierPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                      getSupplierVoucherText(paymentSuccessData)
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(buttonVariants(), 'w-full text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white')}
+                  >
+                    <MessageCircle className="size-3.5" />
+                    Send Payment Voucher on WhatsApp
+                  </a>
+
+                  <Button
+                    variant="outline"
+                    className="w-full text-xs gap-1.5 border-border"
+                    onClick={() => {
+                      navigator.clipboard.writeText(getSupplierVoucherText(paymentSuccessData));
+                      toast.success('Voucher copied to clipboard!');
+                    }}
+                  >
+                    <Copy className="size-3.5" />
+                    Copy Voucher Text
+                  </Button>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-4 py-2">
+                {/* PO Balance Context */}
+                <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Wholesaler:</span>
+                    <span className="font-semibold text-foreground">{payingPo.supplier_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total PO Value:</span>
+                    <span className="font-mono font-medium text-foreground">
+                      {formatCurrency(payingPo.total_estimated_cost)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Already Paid:</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                      {formatCurrency(payingPo.amount_paid || 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-border/50 pt-1">
+                    <span className="font-semibold text-foreground">Remaining Balance:</span>
+                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                      {formatCurrency(
+                        Math.max(0, (payingPo.total_estimated_cost || 0) - (payingPo.amount_paid || 0))
+                      )}
+                    </span>
+                  </div>
+                </div>
 
-            <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+                {/* Form Fields */}
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs">Payment Amount (₹) *</Label>
+                    <div className="relative mt-1">
+                      <IndianRupee className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+                      <Input
+                        type="number"
+                        min="1"
+                        step="0.01"
+                        value={payAmount}
+                        onChange={(e) => setPayAmount(e.target.value)}
+                        placeholder="e.g. 5000"
+                        className="pl-8 text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Payment Mode</Label>
+                    <select
+                      value={payMode}
+                      onChange={(e) => setPayMode(e.target.value as 'UPI' | 'Bank Transfer' | 'Cash' | 'Cheque')}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="UPI">UPI (GooglePay / PhonePe / Paytm)</option>
+                      <option value="Bank Transfer">Bank Transfer (IMPS / NEFT / RTGS)</option>
+                      <option value="Cash">Cash in Hand</option>
+                      <option value="Cheque">Bank Cheque</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Reference ID / UTR / Txn Number</Label>
+                    <Input
+                      value={payRefId}
+                      onChange={(e) => setPayRefId(e.target.value)}
+                      placeholder="e.g. UPI Ref 4123891024 / UTR12345"
+                      className="mt-1 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Notes (Optional)</Label>
+                    <Input
+                      value={payNotes}
+                      onChange={(e) => setPayNotes(e.target.value)}
+                      placeholder="e.g. Dispatched via Jain Transport LR #481"
+                      className="mt-1 text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(getReceiptText(selectedReceipt));
-                  toast.success('Digital receipt text copied to clipboard!');
-                }}
-                className="text-xs gap-1.5"
+                onClick={() => setPayingPo(null)}
+                className="text-xs"
               >
-                <Copy className="size-3.5" />
-                Copy Receipt Text
+                {paymentSuccessData ? 'Close' : 'Cancel'}
               </Button>
 
-              <a
-                href={`https://wa.me/${(selectedReceipt.customer_phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                  getReceiptText(selectedReceipt)
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(buttonVariants({ size: 'sm' }), 'text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white')}
-              >
-                <MessageCircle className="size-3.5" />
-                Send via WhatsApp
-              </a>
+              {!paymentSuccessData && (
+                <Button
+                  size="sm"
+                  onClick={handleSubmitPayment}
+                  disabled={recordingPayment || !payAmount || Number(payAmount) <= 0}
+                  className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {recordingPayment ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Check className="size-3.5" />
+                  )}
+                  Confirm Payment
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

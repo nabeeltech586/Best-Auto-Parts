@@ -87,6 +87,17 @@ export function PurchaseOrderDrawer({
   );
 
   // Fetch saved suppliers
+  const activeSupplier = useMemo(() => {
+    if (!selectedSupplierId || selectedSupplierId === 'custom') return null;
+    return suppliers.find((s) => s.id === selectedSupplierId) || null;
+  }, [suppliers, selectedSupplierId]);
+
+  const effectiveSupplierName = useMemo(() => {
+    if (customSupplierName.trim()) return customSupplierName.trim();
+    if (activeSupplier?.firm_name) return activeSupplier.firm_name;
+    return '';
+  }, [customSupplierName, activeSupplier]);
+
   const loadSuppliers = useCallback(async () => {
     setLoadingSuppliers(true);
     try {
@@ -129,6 +140,23 @@ export function PurchaseOrderDrawer({
     }
   };
 
+  const NOTE_PRESETS = [
+    'Urgent requirement — please dispatch today',
+    'Send via local transport / courier',
+    'Strictly Genuine OEM parts only',
+    'Include GST bill & share LR/tracking',
+    'Payment via UPI upon dispatch confirmation',
+  ] as const;
+
+  const handleAddNotePreset = (preset: string) => {
+    setNotes((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) return preset;
+      if (trimmed.includes(preset)) return trimmed;
+      return `${trimmed}; ${preset}`;
+    });
+  };
+
   // Build live WhatsApp text
   const poDateString = useMemo(() => {
     return new Date().toLocaleDateString('en-IN', {
@@ -139,7 +167,7 @@ export function PurchaseOrderDrawer({
   }, []);
 
   const whatsappMessageText = useMemo(() => {
-    const distributorName = customSupplierName.trim() || '[Distributor Name]';
+    const distributorName = effectiveSupplierName.trim() || '[Distributor Name]';
     const lines = [
       `*PURCHASE ORDER - BEST AUTO PARTS*`,
       `*Date:* ${poDateString}`,
@@ -166,7 +194,7 @@ export function PurchaseOrderDrawer({
     lines.push('- Best Auto Parts, Saharanpur (+91 96347 22174)');
 
     return lines.join('\n');
-  }, [itemsList, totalUnits, totalCost, customSupplierName, notes, poDateString]);
+  }, [itemsList, totalUnits, totalCost, customSupplierName, effectiveSupplierName, notes, poDateString]);
 
   const handleCopyText = () => {
     navigator.clipboard.writeText(whatsappMessageText);
@@ -346,12 +374,18 @@ export function PurchaseOrderDrawer({
                     onValueChange={handleSelectSupplier}
                   >
                     <SelectTrigger className="text-xs bg-card">
-                      <SelectValue placeholder={loadingSuppliers ? "Loading distributors..." : "Choose distributor..."} />
+                      <SelectValue placeholder={loadingSuppliers ? "Loading distributors..." : "Choose distributor..."}>
+                        {activeSupplier
+                          ? `${activeSupplier.firm_name}${activeSupplier.brand_specialty?.length ? ` • ${activeSupplier.brand_specialty.slice(0, 2).join(', ')}` : ''} • ${activeSupplier.whatsapp_number}`
+                          : selectedSupplierId === 'custom'
+                          ? '+ Enter Other Wholesaler'
+                          : undefined}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {suppliers.map((s) => (
                         <SelectItem key={s.id} value={s.id} className="text-xs">
-                          {s.firm_name} ({s.brand_specialty?.slice(0, 2).join(', ') || 'General'})
+                          {s.firm_name} {s.brand_specialty?.length ? `• ${s.brand_specialty.slice(0, 2).join(', ')}` : ''} • {s.whatsapp_number}
                         </SelectItem>
                       ))}
                       <SelectItem value="custom" className="text-xs text-primary font-medium">
@@ -488,9 +522,9 @@ export function PurchaseOrderDrawer({
               </div>
             </div>
 
-            {/* Optional Notes */}
-            <div className="space-y-1">
-              <Label htmlFor="poNotes" className="text-xs">
+            {/* Optional Notes & Quick Presets */}
+            <div className="space-y-1.5">
+              <Label htmlFor="poNotes" className="text-xs font-semibold text-foreground">
                 Order Notes / Special Instructions
               </Label>
               <Input
@@ -500,6 +534,32 @@ export function PurchaseOrderDrawer({
                 onChange={(e) => setNotes(e.target.value)}
                 className="text-xs bg-card"
               />
+
+              {/* 1-tap Quick Presets Pills */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-medium text-muted-foreground mr-1">
+                  Quick Presets:
+                </span>
+                {NOTE_PRESETS.map((preset) => {
+                  const isSelected = notes.includes(preset);
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => handleAddNotePreset(preset)}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors border ${
+                        isSelected
+                          ? 'bg-primary/15 border-primary/40 text-primary font-semibold'
+                          : 'bg-card border-border hover:bg-muted text-foreground/80 hover:text-foreground'
+                      }`}
+                      title={isSelected ? 'Preset already included' : 'Click to append instruction'}
+                    >
+                      <span>{isSelected ? '✓' : '+'}</span>
+                      <span>{preset}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Live WhatsApp Message Preview */}

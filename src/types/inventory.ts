@@ -45,6 +45,11 @@ export interface PartCatalogItem {
   created_at: string;
   updated_at: string;
 
+  // Restock & PO confirmation tracking
+  last_restocked_at?: string | null;
+  last_po_number?: string | null;
+  pending_po?: { po_number: string; date: string } | null;
+
   // Optional populated relationships
   fitments?: VehicleFitment[];
 }
@@ -269,6 +274,7 @@ export interface SupplierFormData {
 // ============================================================
 
 export type PurchaseOrderStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'CANCELLED';
+export type PurchaseOrderPaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
 
 export interface PurchaseOrderItem {
   part_id: string;
@@ -295,6 +301,9 @@ export interface PurchaseOrder {
   total_estimated_cost: number;
   notes?: string | null;
   status: PurchaseOrderStatus;
+  payment_status?: PurchaseOrderPaymentStatus;
+  amount_paid?: number;
+  confirmed_at?: string | null;
   sent_at?: string | null;
   received_at?: string | null;
   created_at: string;
@@ -309,4 +318,70 @@ export interface CreatePurchaseOrderPayload {
   items: PurchaseOrderItem[];
   notes?: string;
   send_via_whatsapp?: boolean;
+}
+
+// ============================================================
+// SUPPLIER / DISTRIBUTOR KHATA & PAYMENTS
+// ============================================================
+
+export type SupplierPaymentMode = 'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque';
+
+export interface SupplierPayment {
+  id: string;
+  account_id: string;
+  supplier_id: string;
+  purchase_order_id?: string | null;
+  user_id?: string | null;
+  amount: number;
+  payment_mode: SupplierPaymentMode;
+  reference_id?: string | null;
+  notes?: string | null;
+  paid_at: string;
+  created_at: string;
+  supplier?: {
+    firm_name: string;
+    whatsapp_number: string;
+  };
+}
+
+// ============================================================
+// MECHANIC LOYALTY & KHATA LEDGER
+// ============================================================
+
+export type MechanicLedgerType = 'credit_udhaar' | 'debit_payment';
+export type MechanicLoyaltyTier = 'Partner' | 'Silver' | 'Gold' | 'VIP';
+export type MechanicKhataStage =
+  | 'Active Clear'
+  | 'Running Monthly Khata'
+  | 'Payment Due'
+  | 'Gold & VIP Partners'
+  | 'Settled This Month';
+
+export interface MechanicLedgerEntry {
+  id: string;
+  account_id: string;
+  contact_id: string;
+  user_id?: string | null;
+  entry_type: MechanicLedgerType;
+  amount: number;
+  description?: string | null;
+  payment_mode?: SupplierPaymentMode | null;
+  reference_id?: string | null;
+  balance_after: number;
+  created_at: string;
+}
+
+export interface MechanicContact {
+  id: string;
+  account_id: string;
+  name: string;
+  phone: string;
+  company?: string | null;
+  pending_balance: number;
+  monthly_purchases: number;
+  loyalty_tier: MechanicLoyaltyTier;
+  khata_stage: MechanicKhataStage;
+  recent_entries?: MechanicLedgerEntry[];
+  created_at?: string;
+  updated_at?: string;
 }

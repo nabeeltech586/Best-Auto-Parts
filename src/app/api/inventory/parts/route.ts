@@ -133,6 +133,38 @@ export async function GET(request: Request) {
       );
     }
 
+    // Check pending purchase orders (SENT status) to flag ordered items awaiting delivery
+    try {
+      const { data: pendingOrders } = await supabase
+        .from('purchase_orders')
+        .select('po_number, sent_at, created_at, items')
+        .eq('account_id', accountId)
+        .eq('status', 'SENT');
+
+      if (pendingOrders && pendingOrders.length > 0) {
+        const pendingMap = new Map<string, { po_number: string; date: string }>();
+        for (const po of pendingOrders) {
+          const poDate = po.sent_at || po.created_at;
+          const poItems = Array.isArray(po.items) ? po.items : [];
+          for (const it of poItems) {
+            if (it?.part_id && !pendingMap.has(it.part_id)) {
+              pendingMap.set(it.part_id, {
+                po_number: po.po_number,
+                date: poDate,
+              });
+            }
+          }
+        }
+
+        items = items.map((part) => {
+          const pending = pendingMap.get(part.id);
+          return pending ? { ...part, pending_po: pending } : part;
+        });
+      }
+    } catch {
+      // Non-fatal if purchase_orders is unavailable
+    }
+
     const total = count ?? items.length;
     const totalPages = Math.ceil(total / pageSize);
 

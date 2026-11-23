@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Check,
   Loader2,
+  Receipt,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SendPaymentLinkDialog } from '@/components/inbox/send-payment-link-dialog';
+import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 import { formatCurrency } from '@/lib/currency';
 
 interface PaymentLinkItem {
@@ -74,6 +76,7 @@ export default function PaymentsPage() {
   const [verifyingTxnId, setVerifyingTxnId] = useState<string | null>(null);
   const [copiedTxnId, setCopiedTxnId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkItem | null>(null);
 
   // Debounce search input
   useEffect(() => {
@@ -448,6 +451,19 @@ export default function PaymentsPage() {
 
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
+                      {item.status === 'PAID' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedReceipt(item)}
+                          className="h-8 px-2.5 text-xs gap-1 border-border text-foreground hover:bg-muted"
+                          title="View / Print Digital Receipt"
+                        >
+                          <Receipt className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span>Receipt</span>
+                        </Button>
+                      )}
+
                       {item.status === 'PENDING' && (
                         <Button
                           size="sm"
@@ -504,6 +520,13 @@ export default function PaymentsPage() {
         onSendPaymentMessage={() => {
           fetchLinks(true);
         }}
+      />
+
+      {/* Customer Digital Receipt Dialog */}
+      <CustomerReceiptDialog
+        open={Boolean(selectedReceipt)}
+        onOpenChange={(v) => !v && setSelectedReceipt(null)}
+        order={selectedReceipt}
       />
     </div>
   );

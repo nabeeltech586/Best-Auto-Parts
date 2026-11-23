@@ -24,12 +24,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { GitBranch, Plus, ChevronDown, Settings } from "lucide-react";
+import { GitBranch, Plus, ChevronDown, Settings, Wrench, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
 import { useAuth } from "@/hooks/use-auth";
 import { GatedButton } from "@/components/ui/gated-button";
 import { useTranslations } from "next-intl";
+import { MechanicKhataBoard } from "@/components/pipelines/mechanic-khata-board";
+import { cn } from "@/lib/utils";
 
 // Pipeline creation is admin-class (settings-tier write under
 // the new RLS); deal creation is operational and only requires
@@ -54,6 +56,9 @@ export default function PipelinesPage() {
   const canEditSettings = useCan("edit-settings");
   const canCreateDeals = useCan("send-messages");
   const { accountId } = useAuth();
+
+  // Primary board switcher: Defaults to Mechanic Khata & Loyalty Board
+  const [activeBoard, setActiveBoard] = useState<'mechanic_khata' | 'customer_deals'>('mechanic_khata');
 
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
@@ -300,7 +305,7 @@ export default function PipelinesPage() {
 
   const selectedPipeline = pipelines.find((p) => p.id === selectedPipelineId);
 
-  if (loading) {
+  if (loading && activeBoard !== 'mechanic_khata') {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -320,81 +325,163 @@ export default function PipelinesPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Board Selector Tabs / Toggle */}
+          <div className="flex items-center rounded-lg border border-border bg-muted/60 p-0.5">
+            <button
+              type="button"
+              onClick={() => setActiveBoard('mechanic_khata')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all',
+                activeBoard === 'mechanic_khata'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Wrench className="size-3.5 text-primary" />
+              Mechanic Khata & Loyalty Board
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveBoard('customer_deals')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all',
+                activeBoard === 'customer_deals'
+                  ? 'bg-card text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <ShoppingBag className="size-3.5 text-emerald-500" />
+              Customer Spare Parts Orders
+            </button>
+          </div>
+
           {/* Pipeline selector dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors data-[popup-open]:bg-muted"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors data-[popup-open]:bg-muted"
             >
-              <GitBranch className="h-4 w-4 text-primary" />
-              <span className="font-semibold">
-                {selectedPipeline?.name ?? t("selectPipeline")}
-              </span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              {activeBoard === 'mechanic_khata' ? (
+                <>
+                  <Wrench className="h-3.5 w-3.5 text-primary" />
+                  <span className="font-semibold">Mechanic Khata</span>
+                </>
+              ) : (
+                <>
+                  <GitBranch className="h-3.5 w-3.5 text-emerald-500" />
+                  <span className="font-semibold">
+                    {selectedPipeline?.name ?? t("selectPipeline")}
+                  </span>
+                </>
+              )}
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
-              className="w-64 border-border bg-popover text-popover-foreground"
+              className="w-72 border-border bg-popover text-popover-foreground"
             >
-              {pipelines.length === 0 && (
-                <DropdownMenuItem disabled className="text-muted-foreground">
-                  {t("noPipelinesYet")}
-                </DropdownMenuItem>
-              )}
-              {pipelines.map((p) => (
-                <DropdownMenuItem
-                  key={p.id}
-                  onClick={() => setSelectedPipelineId(p.id)}
-                  className={
-                    p.id === selectedPipelineId
-                      ? "text-primary"
-                      : "text-popover-foreground"
-                  }
-                >
-                  <GitBranch className="mr-2 h-3.5 w-3.5" />
-                  {p.name}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator className="bg-border" />
-              {selectedPipeline && (
-                <DropdownMenuItem
-                  onClick={() => setSettingsOpen(true)}
-                  className="text-popover-foreground"
-                >
-                  <Settings className="mr-2 h-3.5 w-3.5" />
-                  {t("managePipelines")}
-                </DropdownMenuItem>
+              <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Select Active CRM Board
+              </div>
+              <DropdownMenuItem
+                onClick={() => setActiveBoard('mechanic_khata')}
+                className={cn('flex items-center gap-2 text-xs font-medium', activeBoard === 'mechanic_khata' ? 'text-primary bg-primary/10' : '')}
+              >
+                <Wrench className="h-3.5 w-3.5 text-primary" />
+                <div>
+                  <div className="font-semibold">Mechanic Khata & Loyalty Board (Default)</div>
+                  <p className="text-[10px] text-muted-foreground font-normal">
+                    5-Stage workshop ledger, Udhaar, and settlement board
+                  </p>
+                </div>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                onClick={() => setActiveBoard('customer_deals')}
+                className={cn('flex items-center gap-2 text-xs font-medium', activeBoard === 'customer_deals' ? 'text-primary bg-primary/10' : '')}
+              >
+                <ShoppingBag className="h-3.5 w-3.5 text-emerald-500" />
+                <div>
+                  <div className="font-semibold">Customer Spare Parts Orders</div>
+                  <p className="text-[10px] text-muted-foreground font-normal">
+                    Sales deals and customer inquiry pipelines
+                  </p>
+                </div>
+              </DropdownMenuItem>
+
+              {activeBoard === 'customer_deals' && (
+                <>
+                  <DropdownMenuSeparator className="bg-border" />
+                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Customer Pipelines
+                  </div>
+                  {pipelines.length === 0 && (
+                    <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                      {t("noPipelinesYet")}
+                    </DropdownMenuItem>
+                  )}
+                  {pipelines.map((p) => (
+                    <DropdownMenuItem
+                      key={p.id}
+                      onClick={() => {
+                        setActiveBoard('customer_deals');
+                        setSelectedPipelineId(p.id);
+                      }}
+                      className={
+                        p.id === selectedPipelineId
+                          ? "text-primary text-xs font-medium"
+                          : "text-popover-foreground text-xs"
+                      }
+                    >
+                      <GitBranch className="mr-2 h-3.5 w-3.5" />
+                      {p.name}
+                    </DropdownMenuItem>
+                  ))}
+                  {selectedPipeline && (
+                    <DropdownMenuItem
+                      onClick={() => setSettingsOpen(true)}
+                      className="text-popover-foreground text-xs"
+                    >
+                      <Settings className="mr-2 h-3.5 w-3.5" />
+                      {t("managePipelines")}
+                    </DropdownMenuItem>
+                  )}
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
 
-        <div className="flex items-center gap-2">
-          <GatedButton
-            variant="outline"
-            canAct={canEditSettings}
-            gateReason={tGate("reasons.createPipelines")}
-            onClick={() => setNewPipelineOpen(true)}
-            className="border-border bg-card text-foreground hover:bg-muted"
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            {t("addPipeline")}
-          </GatedButton>
-          <GatedButton
-            canAct={canCreateDeals}
-            gateReason={tGate("reasons.createDeals")}
-            disabled={!selectedPipelineId || stages.length === 0}
-            onClick={() => handleAddDeal()}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            {t("addDeal")}
-          </GatedButton>
-        </div>
+        {activeBoard === 'customer_deals' && (
+          <div className="flex items-center gap-2">
+            <GatedButton
+              variant="outline"
+              canAct={canEditSettings}
+              gateReason={tGate("reasons.createPipelines")}
+              onClick={() => setNewPipelineOpen(true)}
+              className="border-border bg-card text-foreground hover:bg-muted text-xs h-8"
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              {t("addPipeline")}
+            </GatedButton>
+            <GatedButton
+              canAct={canCreateDeals}
+              gateReason={tGate("reasons.createDeals")}
+              disabled={!selectedPipelineId || stages.length === 0}
+              onClick={() => handleAddDeal()}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs h-8"
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" />
+              {t("addDeal")}
+            </GatedButton>
+          </div>
+        )}
       </div>
 
-      {/* Board */}
-      {pipelines.length === 0 ? (
+      {/* Main Board Rendering */}
+      {activeBoard === 'mechanic_khata' ? (
+        <MechanicKhataBoard />
+      ) : pipelines.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-20">
           <GitBranch className="h-12 w-12 text-muted-foreground" />
           <h3 className="mt-4 text-lg font-medium text-foreground">
