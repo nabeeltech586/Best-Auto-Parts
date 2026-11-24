@@ -1,21 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   ShoppingBag,
   Truck,
-  CreditCard,
   CheckCircle2,
   Clock,
-  XCircle,
   Plus,
   RefreshCw,
   Loader2,
   ChevronDown,
   ChevronUp,
-  Receipt,
   MessageCircle,
   Copy,
   PackageCheck,
@@ -23,6 +21,8 @@ import {
   Check,
   AlertCircle,
   Wallet,
+  Search,
+  Building2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -30,7 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -56,24 +56,38 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/currency';
 import type { PurchaseOrder, PurchaseOrderPaymentStatus } from '@/types/inventory';
-import type { PaymentLinkRecord } from '@/lib/payments/phonepe-link';
-import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 
 export default function OrderHistoryPage() {
-  const [activeTab, setActiveTab] = useState<'distributor' | 'customer'>('customer');
-  const [loading, setLoading] = useState(true);
+  return (
+    <Suspense
+      fallback={
+        <div className="flex-1 p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="size-4 animate-spin text-primary" />
+          Loading wholesaler purchase orders & ledger...
+        </div>
+      }
+    >
+      <OrderHistoryPageInner />
+    </Suspense>
+  );
+}
 
-  // Data states
+function OrderHistoryPageInner() {
+  const searchParams = useSearchParams();
+  const urlSearch = searchParams.get('search');
+
+  const [loading, setLoading] = useState(true);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-  const [customerOrders, setCustomerOrders] = useState<PaymentLinkRecord[]>([]);
+
+  // Filter and Search states
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'UNPAID' | 'PAID'>('ALL');
+  const [search, setSearch] = useState(() => urlSearch || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => urlSearch || '');
 
   // Expanded PO row
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [updatingStatusPoId, setUpdatingStatusPoId] = useState<string | null>(null);
-
-  // Digital Receipt Dialog State
-  const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkRecord | null>(null);
 
   // Record Payment Dialog State for Purchase Orders
   const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
@@ -94,21 +108,32 @@ export default function OrderHistoryPage() {
   // Input ref to focus on partial amount entry
   const amountInputRef = useRef<HTMLInputElement>(null);
 
+  // Sync state if URL search query changes
+  useEffect(() => {
+    if (urlSearch !== null && urlSearch !== undefined) {
+      setSearch(urlSearch);
+      setDebouncedSearch(urlSearch);
+    }
+  }, [urlSearch]);
+
+  // Debounce search input
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Fetch only Purchase Orders (Dedicated strictly to Wholesaler & Distributor Purchasing)
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [poRes, custRes] = await Promise.all([
-        fetch('/api/inventory/purchase-orders'),
-        fetch('/api/payments/links'),
-      ]);
-
+      const poRes = await fetch('/api/inventory/purchase-orders');
       if (poRes.ok) {
         const poData = await poRes.json();
         setPurchaseOrders(poData.purchase_orders || []);
-      }
-      if (custRes.ok) {
-        const custData = await custRes.json();
-        setCustomerOrders(custData.links || []);
+      } else {
+        toast.error('Failed to load purchase orders');
       }
     } catch {
       toast.error('Failed to load orders history');
@@ -185,7 +210,6 @@ export default function OrderHistoryPage() {
     po: PurchaseOrder,
     targetStatus: PurchaseOrderPaymentStatus
   ) => {
-    // If PARTIAL selected, open modal focused on amount
     if (targetStatus === 'PARTIAL') {
       handleOpenRecordPayment(po, true);
       return;
@@ -243,7 +267,7 @@ export default function OrderHistoryPage() {
       fetchData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error updating payment status');
-      fetchData(); // Rollback on failure
+      fetchData();
     } finally {
       setUpdatingStatusPoId(null);
     }
@@ -279,7 +303,6 @@ export default function OrderHistoryPage() {
         throw new Error(data.error || 'Failed to record wholesaler payment');
       }
 
-      // Immediate optimistic update of purchase order row
       const currentPaid = Number(payingPo.amount_paid) || 0;
       const totalCost = Number(payingPo.total_estimated_cost) || 0;
       const newPaid = Math.max(0, currentPaid + amt);
@@ -336,16 +359,7 @@ export default function OrderHistoryPage() {
     );
   };
 
-  // Customer Metrics
-  const paidCustomerOrders = customerOrders.filter((o) => o.status === 'PAID');
-  const pendingCustomerOrders = customerOrders.filter((o) => o.status === 'PENDING');
-  const totalCustomerRevenue = paidCustomerOrders.reduce(
-    (acc, curr) => acc + (Number(curr.amount) || 0),
-    0
-  );
-  const activeDistributorPOs = purchaseOrders.filter((p) => p.status === 'SENT');
-
-  // Distributor Ledger Metrics (instantly reflected from state)
+  // Distributor Ledger Metrics
   const totalDistributorBilled = purchaseOrders.reduce(
     (acc, po) => acc + (Number(po.total_estimated_cost) || 0),
     0
@@ -355,6 +369,58 @@ export default function OrderHistoryPage() {
     0
   );
   const netDistributorBalanceDue = Math.max(0, totalDistributorBilled - totalDistributorPaid);
+  const activeDistributorPOs = purchaseOrders.filter((p) => p.status === 'SENT');
+  const receivedPOs = purchaseOrders.filter((p) => p.status === 'RECEIVED');
+  const paidPOs = purchaseOrders.filter((p) => {
+    const paid = Number(p.amount_paid) || 0;
+    const total = Number(p.total_estimated_cost) || 0;
+    return p.payment_status === 'PAID' || (paid >= total && total > 0);
+  });
+  const unpaidPOs = purchaseOrders.filter((p) => {
+    const paid = Number(p.amount_paid) || 0;
+    const total = Number(p.total_estimated_cost) || 0;
+    return (p.payment_status === 'UNPAID' || p.payment_status === 'PENDING') && paid < total;
+  });
+
+  // Filtered PO list based on Tab and Search query
+  const filteredPurchaseOrders = useMemo(() => {
+    return purchaseOrders.filter((po) => {
+      // 1. Tab filter
+      const amountPaid = Number(po.amount_paid) || 0;
+      const totalCost = Number(po.total_estimated_cost) || 0;
+      const isPaid = po.payment_status === 'PAID' || (amountPaid >= totalCost && totalCost > 0);
+      const isUnpaid = (po.payment_status === 'UNPAID' || po.payment_status === 'PENDING') && amountPaid < totalCost;
+
+      if (activeFilter === 'IN_TRANSIT' && po.status !== 'SENT') return false;
+      if (activeFilter === 'RECEIVED' && po.status !== 'RECEIVED') return false;
+      if (activeFilter === 'PAID' && !isPaid) return false;
+      if (activeFilter === 'UNPAID' && !isUnpaid) return false;
+
+      // 2. Search query filter
+      if (debouncedSearch.trim()) {
+        const q = debouncedSearch.trim().toLowerCase();
+        const cleanQPhone = q.replace(/[^0-9]/g, '');
+
+        const matchPoNumber = po.po_number?.toLowerCase().includes(q);
+        const matchSupplier = po.supplier_name?.toLowerCase().includes(q);
+        const matchPhone = cleanQPhone ? po.supplier_phone?.replace(/[^0-9]/g, '').includes(cleanQPhone) : false;
+        const matchNotes = po.notes?.toLowerCase().includes(q);
+        const matchItems = po.items?.some(
+          (item) =>
+            item.part_name?.toLowerCase().includes(q) ||
+            item.sku?.toLowerCase().includes(q) ||
+            item.brand?.toLowerCase().includes(q) ||
+            item.oem_number?.toLowerCase().includes(q)
+        );
+
+        if (!matchPoNumber && !matchSupplier && !matchPhone && !matchNotes && !matchItems) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [purchaseOrders, activeFilter, debouncedSearch]);
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -362,13 +428,13 @@ export default function OrderHistoryPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <ShoppingBag className="size-6 text-primary" />
+            <Building2 className="size-6 text-primary" />
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Order History & Wholesaler Ledger
+              Wholesaler & Distributor Purchase Ledger
             </h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Track customer orders, digital payment receipts, and distributor restock ledger.
+            Track supplier restock purchase orders, date-wise stock inward, and wholesaler payments (Kharidari & Baaki).
           </p>
         </div>
 
@@ -386,545 +452,428 @@ export default function OrderHistoryPage() {
 
           <Link
             href="/inventory"
-            className={cn(buttonVariants({ size: 'sm' }), 'gap-1.5')}
+            className={cn(buttonVariants({ size: 'sm' }), 'gap-1.5 bg-primary text-primary-foreground')}
           >
             <Plus className="size-4" />
-            New Restock Order
+            New Restock PO
           </Link>
         </div>
       </div>
 
-      {/* Global KPI Summary Cards */}
+      {/* Top KPI Cards — Exclusively for Purchasing & Supplier Ledger */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+        {/* 1. Total Purchased (Billed) */}
         <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Total Customer Revenue</span>
-              <div className="rounded-lg p-1.5 bg-emerald-500/10 text-emerald-500">
-                <IndianRupee className="size-4" />
+              <span className="text-xs font-medium text-muted-foreground">Total Purchased (Billed)</span>
+              <div className="rounded-lg p-1.5 bg-blue-500/10 text-blue-500">
+                <ShoppingBag className="size-4" />
               </div>
             </div>
             <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-foreground truncate">
-              {formatCurrency(totalCustomerRevenue)}
+              {formatCurrency(totalDistributorBilled)}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {paidCustomerOrders.length} successful payments
+              {purchaseOrders.length} total restock POs
             </p>
           </CardContent>
         </Card>
 
+        {/* 2. Total Paid to Suppliers */}
         <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Pending Orders</span>
-              <div className="rounded-lg p-1.5 bg-amber-500/10 text-amber-500">
-                <Clock className="size-4" />
+              <span className="text-xs font-medium text-muted-foreground">Total Paid to Suppliers</span>
+              <div className="rounded-lg p-1.5 bg-emerald-500/10 text-emerald-500">
+                <CheckCircle2 className="size-4" />
               </div>
             </div>
-            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-              {pendingCustomerOrders.length}
+            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 truncate">
+              {formatCurrency(totalDistributorPaid)}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Awaiting customer payment</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Settled to wholesalers</p>
           </CardContent>
         </Card>
 
+        {/* 3. Net Payable Due (Baaki) */}
         <Card className="border-border bg-card/70 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Active Distributor POs</span>
-              <div className="rounded-lg p-1.5 bg-blue-500/10 text-blue-500">
+              <span className="text-xs font-medium text-muted-foreground">Net Payable Due (Baaki)</span>
+              <div className="rounded-lg p-1.5 bg-rose-500/10 text-rose-500">
+                <AlertCircle className="size-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-rose-600 dark:text-rose-400 truncate">
+              {formatCurrency(netDistributorBalanceDue)}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Pending to suppliers</p>
+          </CardContent>
+        </Card>
+
+        {/* 4. Active POs (In Delivery) */}
+        <Card className="border-border bg-card/70 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Active POs (In Delivery)</span>
+              <div className="rounded-lg p-1.5 bg-amber-500/10 text-amber-500">
                 <Truck className="size-4" />
               </div>
             </div>
             <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-foreground">
               {activeDistributorPOs.length}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Dispatched to wholesalers</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card/70 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Distributor Due</span>
-              <div className="rounded-lg p-1.5 bg-rose-500/10 text-rose-500">
-                <Wallet className="size-4" />
-              </div>
-            </div>
-            <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-rose-600 dark:text-rose-400 truncate">
-              {formatCurrency(netDistributorBalanceDue)}
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Pending to wholesalers</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">In transit from wholesalers</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Main Order Tabs */}
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v as 'distributor' | 'customer')}
-        className="space-y-4"
-      >
-        <TabsList className="bg-muted/70 p-1">
-          <TabsTrigger value="customer" className="gap-2 text-xs">
-            <CreditCard className="size-3.5 text-emerald-500" />
-            Customer Orders & Payments ({customerOrders.length})
-          </TabsTrigger>
-          <TabsTrigger value="distributor" className="gap-2 text-xs">
-            <Truck className="size-3.5 text-blue-500" />
-            Distributor Ledger & POs ({purchaseOrders.length})
-          </TabsTrigger>
-        </TabsList>
+      {/* Filter Tabs & Search Bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Tabs
+          value={activeFilter}
+          onValueChange={(val) => setActiveFilter(val as 'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'UNPAID' | 'PAID')}
+          className="w-full sm:w-auto"
+        >
+          <TabsList className="bg-muted/70 p-1 flex-wrap h-auto">
+            <TabsTrigger value="ALL" className="text-xs">
+              All Orders ({purchaseOrders.length})
+            </TabsTrigger>
+            <TabsTrigger value="IN_TRANSIT" className="text-xs gap-1">
+              <Clock className="size-3 text-blue-500" />
+              In Transit ({activeDistributorPOs.length})
+            </TabsTrigger>
+            <TabsTrigger value="RECEIVED" className="text-xs gap-1">
+              <CheckCircle2 className="size-3 text-emerald-500" />
+              Received ({receivedPOs.length})
+            </TabsTrigger>
+            <TabsTrigger value="UNPAID" className="text-xs gap-1">
+              <AlertCircle className="size-3 text-amber-500" />
+              Unpaid Due ({unpaidPOs.length})
+            </TabsTrigger>
+            <TabsTrigger value="PAID" className="text-xs gap-1">
+              <Check className="size-3 text-emerald-500" />
+              Paid ({paidPOs.length})
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
-        {/* TAB 1: Customer Orders & Payments */}
-        <TabsContent value="customer" className="space-y-4 mt-0">
-          <div className="rounded-md border border-border bg-card overflow-hidden">
-            {loading ? (
-              <div className="p-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
-                <Loader2 className="size-4 animate-spin text-primary" />
-                Loading customer payments...
-              </div>
-            ) : customerOrders.length === 0 ? (
-              <div className="p-12 text-center text-xs text-muted-foreground space-y-2">
-                <CreditCard className="size-8 mx-auto text-muted-foreground/50" />
-                <p className="font-semibold text-foreground">No customer orders yet</p>
-                <p>Generate payment links from the Inbox chat to see customer orders here.</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="text-xs font-semibold">Order ID</TableHead>
-                    <TableHead className="text-xs font-semibold">Customer</TableHead>
-                    <TableHead className="text-xs font-semibold">Spare Part Details</TableHead>
-                    <TableHead className="text-xs font-semibold">Amount</TableHead>
-                    <TableHead className="text-xs font-semibold">Payment Status</TableHead>
-                    <TableHead className="text-xs font-semibold">PhonePe Ref</TableHead>
-                    <TableHead className="text-xs font-semibold">Date</TableHead>
-                    <TableHead className="text-right text-xs font-semibold">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {customerOrders.map((order) => {
-                    const isPaid = order.status === 'PAID';
-                    const isPending = order.status === 'PENDING';
-                    const rawDate = order.paid_at || order.created_at;
-                    const formattedDate = rawDate
-                      ? new Date(rawDate).toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })
-                      : '—';
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+          <Input
+            placeholder="Search supplier, phone, PO #, item..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-9 text-xs"
+          />
+        </div>
+      </div>
 
-                    return (
-                      <TableRow key={order.merchant_transaction_id} className="hover:bg-muted/30">
-                        <TableCell className="text-xs font-mono font-medium text-foreground">
-                          #{order.order_id}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <div className="font-medium text-foreground">
-                            {order.customer_name || 'Customer'}
-                          </div>
-                          <div className="text-[11px] text-muted-foreground font-mono">
-                            {order.customer_phone}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs font-medium text-foreground max-w-xs truncate">
-                          {order.part_details}
-                        </TableCell>
-                        <TableCell className="text-xs font-bold font-mono text-foreground">
-                          {formatCurrency(order.amount)}
-                        </TableCell>
-                        <TableCell className="text-xs">
-                          <div className="flex flex-col gap-1 items-start">
-                            {isPaid ? (
-                              <>
-                                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
-                                  <CheckCircle2 className="size-3" /> PAID
-                                </Badge>
-                                <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 font-mono">
-                                  <PackageCheck className="size-2.5" /> Deducted (-1)
-                                </span>
-                              </>
-                            ) : isPending ? (
-                              <Badge className="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
-                                <Clock className="size-3" /> PENDING
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30 text-[10px] gap-1 font-semibold">
-                                <XCircle className="size-3" /> FAILED
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs font-mono text-muted-foreground">
-                          {order.phonepe_transaction_id || '—'}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground font-mono">
-                          {formattedDate}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedReceipt(order)}
-                            className="h-7 text-xs gap-1 border-border"
-                          >
-                            <Receipt className="size-3 text-primary" />
-                            {isPaid ? 'View / Print Receipt' : 'Order Details'}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+      {/* Purchase Orders List */}
+      <div className="rounded-md border border-border bg-card overflow-hidden">
+        {loading ? (
+          <div className="p-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            Loading distributor purchase orders...
+          </div>
+        ) : filteredPurchaseOrders.length === 0 ? (
+          <div className="p-12 text-center text-xs text-muted-foreground space-y-2">
+            <Truck className="size-8 mx-auto text-muted-foreground/50" />
+            <p className="font-semibold text-foreground">
+              {search ? 'No purchase orders match your search' : 'No purchase orders found'}
+            </p>
+            <p>
+              {search
+                ? 'Try clearing the search box or selecting a different status tab.'
+                : 'Select parts from the Auto Parts Inventory and create a restock PO to track it here.'}
+            </p>
+            {!search && (
+              <Link
+                href="/inventory"
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-2 text-xs')}
+              >
+                Go to Auto Parts Inventory
+              </Link>
             )}
           </div>
-        </TabsContent>
+        ) : (
+          <div className="divide-y divide-border">
+            {filteredPurchaseOrders.map((po) => {
+              const isReceived = po.status === 'RECEIVED';
+              const isExpanded = expandedPoId === po.id;
+              const formattedDate = po.created_at
+                ? new Date(po.created_at).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })
+                : '—';
 
-        {/* TAB 2: Distributor Restock Orders & Wholesaler Ledger */}
-        <TabsContent value="distributor" className="space-y-4 mt-0">
-          {/* Distributor Ledger Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Card className="border-border bg-card/60 shadow-sm">
-              <CardContent className="p-3.5 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-muted-foreground font-medium">Total Billed from Wholesalers</span>
-                  <div className="text-lg font-bold font-mono text-foreground mt-0.5">
-                    {formatCurrency(totalDistributorBilled)}
-                  </div>
-                </div>
-                <div className="p-2 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                  <Truck className="size-4" />
-                </div>
-              </CardContent>
-            </Card>
+              const confirmedDateStr = po.confirmed_at
+                ? new Date(po.confirmed_at).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })
+                : null;
 
-            <Card className="border-border bg-card/60 shadow-sm">
-              <CardContent className="p-3.5 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-muted-foreground font-medium">Total Paid to Wholesalers</span>
-                  <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
-                    {formatCurrency(totalDistributorPaid)}
-                  </div>
-                </div>
-                <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="size-4" />
-                </div>
-              </CardContent>
-            </Card>
+              const cleanPhone = (po.supplier_phone || '').replace(/[^0-9]/g, '');
+              const waLink = cleanPhone ? `https://wa.me/${cleanPhone}` : null;
 
-            <Card className="border-border bg-card/60 shadow-sm">
-              <CardContent className="p-3.5 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-muted-foreground font-medium">Net Distributor Balance Due</span>
-                  <div className="text-lg font-bold font-mono text-rose-600 dark:text-rose-400 mt-0.5">
-                    {formatCurrency(netDistributorBalanceDue)}
-                  </div>
-                </div>
-                <div className="p-2 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
-                  <AlertCircle className="size-4" />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              const amountPaid = Number(po.amount_paid) || 0;
+              const totalCost = Number(po.total_estimated_cost) || 0;
+              const paymentStatus: PurchaseOrderPaymentStatus =
+                po.payment_status ||
+                (amountPaid >= totalCost && totalCost > 0
+                  ? 'PAID'
+                  : amountPaid > 0
+                  ? 'PARTIAL'
+                  : 'UNPAID');
 
-          <div className="rounded-md border border-border bg-card overflow-hidden">
-            {loading ? (
-              <div className="p-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
-                <Loader2 className="size-4 animate-spin text-primary" />
-                Loading distributor purchase orders...
-              </div>
-            ) : purchaseOrders.length === 0 ? (
-              <div className="p-12 text-center text-xs text-muted-foreground space-y-2">
-                <Truck className="size-8 mx-auto text-muted-foreground/50" />
-                <p className="font-semibold text-foreground">No purchase orders created yet</p>
-                <p>Select parts from the Inventory table and create a restock PO to track it here.</p>
-                <Link
-                  href="/inventory"
-                  className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'mt-2 text-xs')}
-                >
-                  Go to Auto Parts Inventory
-                </Link>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {purchaseOrders.map((po) => {
-                  const isReceived = po.status === 'RECEIVED';
-                  const isExpanded = expandedPoId === po.id;
-                  const formattedDate = po.created_at
-                    ? new Date(po.created_at).toLocaleDateString('en-IN', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })
-                    : '—';
+              return (
+                <div key={po.id} className="p-4 hover:bg-muted/20 transition-colors space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm font-bold text-foreground">
+                          #{po.po_number}
+                        </span>
 
-                  const confirmedDateStr = po.confirmed_at
-                    ? new Date(po.confirmed_at).toLocaleDateString('en-IN', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })
-                    : null;
+                        {/* Status Badge */}
+                        {isReceived ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                            <CheckCircle2 className="size-3" /> RECEIVED & STOCKED
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-semibold">
+                            <Clock className="size-3" /> SENT (In Transit)
+                          </Badge>
+                        )}
 
-                  const cleanPhone = (po.supplier_phone || '').replace(/[^0-9]/g, '');
-                  const waLink = cleanPhone ? `https://wa.me/${cleanPhone}` : null;
-
-                  const amountPaid = Number(po.amount_paid) || 0;
-                  const totalCost = Number(po.total_estimated_cost) || 0;
-                  const paymentStatus: PurchaseOrderPaymentStatus =
-                    po.payment_status ||
-                    (amountPaid >= totalCost && totalCost > 0
-                      ? 'PAID'
-                      : amountPaid > 0
-                      ? 'PARTIAL'
-                      : 'UNPAID');
-
-                  return (
-                    <div key={po.id} className="p-4 hover:bg-muted/20 transition-colors space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono text-sm font-bold text-foreground">
-                              #{po.po_number}
-                            </span>
-
-                            {/* Status Badge */}
-                            {isReceived ? (
-                              <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
-                                <CheckCircle2 className="size-3" /> RECEIVED & STOCKED
-                              </Badge>
+                        {/* Interactive Payment Status Dropdown */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            disabled={updatingStatusPoId === po.id}
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition-all hover:opacity-85 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer select-none',
+                              paymentStatus === 'PAID'
+                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                : paymentStatus === 'PARTIAL'
+                                ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                            )}
+                            title="Click to change payment status"
+                          >
+                            {updatingStatusPoId === po.id ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : paymentStatus === 'PAID' ? (
+                              <Check className="size-3" />
+                            ) : paymentStatus === 'PARTIAL' ? (
+                              <Wallet className="size-3" />
                             ) : (
-                              <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-semibold">
-                                <Clock className="size-3" /> SENT (In Transit)
-                              </Badge>
+                              <Clock className="size-3" />
                             )}
+                            <span>{paymentStatus === 'PARTIAL' ? 'PARTIAL PAYMENT' : paymentStatus}</span>
+                            <ChevronDown className="size-2.5 opacity-70 ml-0.5" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-60 bg-popover border-border text-popover-foreground shadow-md">
+                            <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                              Quick Payment Status
+                            </div>
+                            <DropdownMenuItem
+                              onClick={() => handleQuickUpdateStatus(po, 'PAID')}
+                              className="text-xs flex items-center justify-between cursor-pointer text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10"
+                            >
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="size-3.5" />
+                                <span>Mark as PAID (Full Settle)</span>
+                              </div>
+                              {paymentStatus === 'PAID' && <Check className="size-3" />}
+                            </DropdownMenuItem>
 
-                            {/* Interactive Payment Status Dropdown */}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger
-                                disabled={updatingStatusPoId === po.id}
-                                className={cn(
-                                  'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition-all hover:opacity-85 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer select-none',
-                                  paymentStatus === 'PAID'
-                                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                                    : paymentStatus === 'PARTIAL'
-                                    ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
-                                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                                )}
-                                title="Click to change payment status"
-                              >
-                                {updatingStatusPoId === po.id ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : paymentStatus === 'PAID' ? (
-                                  <Check className="size-3" />
-                                ) : paymentStatus === 'PARTIAL' ? (
-                                  <Wallet className="size-3" />
-                                ) : (
-                                  <Clock className="size-3" />
-                                )}
-                                <span>{paymentStatus === 'PARTIAL' ? 'PARTIAL PAYMENT' : paymentStatus}</span>
-                                <ChevronDown className="size-2.5 opacity-70 ml-0.5" />
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start" className="w-60 bg-popover border-border text-popover-foreground shadow-md">
-                                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                  Quick Payment Status
-                                </div>
-                                <DropdownMenuItem
-                                  onClick={() => handleQuickUpdateStatus(po, 'PAID')}
-                                  className="text-xs flex items-center justify-between cursor-pointer text-emerald-600 dark:text-emerald-400 focus:text-emerald-600 focus:bg-emerald-500/10"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="size-3.5" />
-                                    <span>Mark as PAID (Full Settle)</span>
-                                  </div>
-                                  {paymentStatus === 'PAID' && <Check className="size-3" />}
-                                </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleQuickUpdateStatus(po, 'PARTIAL')}
+                              className="text-xs flex items-center justify-between cursor-pointer text-blue-600 dark:text-blue-400 focus:text-blue-600 focus:bg-blue-500/10"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Wallet className="size-3.5" />
+                                <span>Record PARTIAL Payment...</span>
+                              </div>
+                              {paymentStatus === 'PARTIAL' && <Check className="size-3" />}
+                            </DropdownMenuItem>
 
-                                <DropdownMenuItem
-                                  onClick={() => handleQuickUpdateStatus(po, 'PARTIAL')}
-                                  className="text-xs flex items-center justify-between cursor-pointer text-blue-600 dark:text-blue-400 focus:text-blue-600 focus:bg-blue-500/10"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Wallet className="size-3.5" />
-                                    <span>Record PARTIAL Payment...</span>
-                                  </div>
-                                  {paymentStatus === 'PARTIAL' && <Check className="size-3" />}
-                                </DropdownMenuItem>
+                            <DropdownMenuSeparator className="bg-border" />
 
-                                <DropdownMenuSeparator className="bg-border" />
+                            <DropdownMenuItem
+                              onClick={() => handleQuickUpdateStatus(po, 'UNPAID')}
+                              className="text-xs flex items-center justify-between cursor-pointer text-amber-600 dark:text-amber-400 focus:text-amber-600 focus:bg-amber-500/10"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Clock className="size-3.5" />
+                                <span>Reset to UNPAID</span>
+                              </div>
+                              {(paymentStatus === 'UNPAID' || paymentStatus === 'PENDING') && <Check className="size-3" />}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
 
-                                <DropdownMenuItem
-                                  onClick={() => handleQuickUpdateStatus(po, 'UNPAID')}
-                                  className="text-xs flex items-center justify-between cursor-pointer text-amber-600 dark:text-amber-400 focus:text-amber-600 focus:bg-amber-500/10"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Clock className="size-3.5" />
-                                    <span>Reset to UNPAID</span>
-                                  </div>
-                                  {(paymentStatus === 'UNPAID' || paymentStatus === 'PENDING') && <Check className="size-3" />}
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                        {confirmedDateStr && (
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                            Confirmed: {confirmedDateStr}
+                          </span>
+                        )}
+                      </div>
 
-                            {confirmedDateStr && (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
-                                Confirmed: {confirmedDateStr}
-                              </span>
-                            )}
-                          </div>
+                      <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-foreground">
+                          Wholesaler: {po.supplier_name}
+                        </span>
+                        {po.supplier_phone && (
+                          <span>• WhatsApp: {po.supplier_phone}</span>
+                        )}
+                        <span>• Created: {formattedDate}</span>
+                      </div>
+                    </div>
 
-                          <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-foreground">
-                              Wholesaler: {po.supplier_name}
-                            </span>
-                            {po.supplier_phone && (
-                              <span>• WhatsApp: {po.supplier_phone}</span>
-                            )}
-                            <span>• Created: {formattedDate}</span>
-                          </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-right sm:mr-3">
+                        <div className="text-sm font-bold font-mono text-foreground">
+                          {formatCurrency(totalCost)}
                         </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-right sm:mr-3">
-                            <div className="text-sm font-bold font-mono text-foreground">
-                              {formatCurrency(totalCost)}
-                            </div>
-                            <div className="text-[11px] text-muted-foreground font-mono">
-                              Paid: <span className={amountPaid >= totalCost ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : ''}>{formatCurrency(amountPaid)}</span> • {po.total_items} items ({po.total_units} pcs)
-                            </div>
-                          </div>
-
-                          {/* Record Payment Button */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleOpenRecordPayment(po)}
-                            className="text-xs gap-1 h-8 border-border hover:bg-muted"
+                        <div className="text-[11px] text-muted-foreground font-mono">
+                          Paid:{' '}
+                          <span
+                            className={
+                              amountPaid >= totalCost && totalCost > 0
+                                ? 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                                : ''
+                            }
                           >
-                            <Wallet className="size-3.5 text-primary" />
-                            Record Payment
-                          </Button>
-
-                          {!isReceived && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleMarkReceived(po)}
-                              disabled={receivingPoId === po.id}
-                              className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium h-8"
-                              title="Mark Received / Mark Resolved — Add ordered quantities to live stock"
-                            >
-                              {receivingPoId === po.id ? (
-                                <Loader2 className="size-3.5 animate-spin" />
-                              ) : (
-                                <PackageCheck className="size-3.5" />
-                              )}
-                              Mark Received
-                            </Button>
-                          )}
-
-                          {waLink && (
-                            <a
-                              href={waLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-8 text-xs gap-1 border-border')}
-                            >
-                              <MessageCircle className="size-3 text-emerald-500" />
-                              WhatsApp
-                            </a>
-                          )}
-
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setExpandedPoId(isExpanded ? null : po.id)}
-                            className="h-8 text-xs gap-1"
-                          >
-                            {isExpanded ? (
-                              <ChevronUp className="size-3.5" />
-                            ) : (
-                              <ChevronDown className="size-3.5" />
-                            )}
-                            {isExpanded ? 'Hide Items' : 'View Items'}
-                          </Button>
+                            {formatCurrency(amountPaid)}
+                          </span>{' '}
+                          • {po.total_items} items ({po.total_units} pcs)
                         </div>
                       </div>
 
-                      {/* Expandable Line Items Table */}
-                      {isExpanded && (
-                        <div className="mt-3 rounded-lg border border-border bg-card/80 p-3">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="hover:bg-transparent">
-                                <TableHead className="text-[11px] h-7">Part Name</TableHead>
-                                <TableHead className="text-[11px] h-7">OEM / Brand</TableHead>
-                                <TableHead className="text-[11px] h-7 text-right">Order Qty</TableHead>
-                                {isReceived && (
-                                  <TableHead className="text-[11px] h-7 text-center">Stock Inward Transition</TableHead>
-                                )}
-                                <TableHead className="text-[11px] h-7 text-right">Est. Unit Cost</TableHead>
-                                <TableHead className="text-[11px] h-7 text-right">Line Total</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {po.items.map((item, idx) => (
-                                <TableRow key={idx} className="hover:bg-muted/30">
-                                  <TableCell className="text-xs font-medium text-foreground py-1.5">
-                                    {item.part_name}
-                                  </TableCell>
-                                  <TableCell className="text-xs text-muted-foreground py-1.5">
-                                    {[item.oem_number, item.brand].filter(Boolean).join(' • ') || '—'}
-                                  </TableCell>
-                                  <TableCell className="text-xs text-right font-bold py-1.5">
-                                    +{item.quantity} pcs
-                                  </TableCell>
-                                  {isReceived && (
-                                    <TableCell className="text-xs text-center py-1.5">
-                                      {item.prev_stock !== undefined && item.new_stock !== undefined ? (
-                                        <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
-                                          {item.prev_stock} → {item.new_stock}
-                                        </Badge>
-                                      ) : (
-                                        <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
-                                          +{item.quantity} Inward
-                                        </Badge>
-                                      )}
-                                    </TableCell>
-                                  )}
-                                  <TableCell className="text-xs text-right font-mono py-1.5">
-                                    {formatCurrency(item.cost_price || item.unit_cost || 0)}
-                                  </TableCell>
-                                  <TableCell className="text-xs text-right font-mono font-semibold py-1.5">
-                                    {formatCurrency(
-                                      item.total_cost ||
-                                        (item.quantity || 0) * (item.cost_price || item.unit_cost || 0)
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+                      {/* Record Payment Button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenRecordPayment(po)}
+                        className="text-xs gap-1 h-8 border-border hover:bg-muted"
+                      >
+                        <Wallet className="size-3.5 text-primary" />
+                        Record Payment
+                      </Button>
 
-      {/* Customer Digital Receipt Dialog */}
-      <CustomerReceiptDialog
-        open={Boolean(selectedReceipt)}
-        onOpenChange={(v) => !v && setSelectedReceipt(null)}
-        order={selectedReceipt}
-      />
+                      {!isReceived && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleMarkReceived(po)}
+                          disabled={receivingPoId === po.id}
+                          className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium h-8"
+                          title="Mark Received / Mark Resolved — Add ordered quantities to live stock"
+                        >
+                          {receivingPoId === po.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <PackageCheck className="size-3.5" />
+                          )}
+                          Mark Received
+                        </Button>
+                      )}
+
+                      {waLink && (
+                        <a
+                          href={waLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-8 text-xs gap-1 border-border')}
+                        >
+                          <MessageCircle className="size-3 text-emerald-500" />
+                          WhatsApp
+                        </a>
+                      )}
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setExpandedPoId(isExpanded ? null : po.id)}
+                        className="h-8 text-xs gap-1"
+                      >
+                        {isExpanded ? (
+                          <ChevronUp className="size-3.5" />
+                        ) : (
+                          <ChevronDown className="size-3.5" />
+                        )}
+                        {isExpanded ? 'Hide Items' : 'View Items'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Expandable Line Items Table */}
+                  {isExpanded && (
+                    <div className="mt-3 rounded-lg border border-border bg-card/80 p-3">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="text-[11px] h-7">Part Name</TableHead>
+                            <TableHead className="text-[11px] h-7">OEM / Brand</TableHead>
+                            <TableHead className="text-[11px] h-7 text-right">Order Qty</TableHead>
+                            {isReceived && (
+                              <TableHead className="text-[11px] h-7 text-center">Stock Inward Transition</TableHead>
+                            )}
+                            <TableHead className="text-[11px] h-7 text-right">Est. Unit Cost</TableHead>
+                            <TableHead className="text-[11px] h-7 text-right">Line Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {po.items.map((item, idx) => (
+                            <TableRow key={idx} className="hover:bg-muted/30">
+                              <TableCell className="text-xs font-medium text-foreground py-1.5">
+                                {item.part_name}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground py-1.5">
+                                {[item.oem_number, item.brand].filter(Boolean).join(' • ') || '—'}
+                              </TableCell>
+                              <TableCell className="text-xs text-right font-bold py-1.5">
+                                +{item.quantity} pcs
+                              </TableCell>
+                              {isReceived && (
+                                <TableCell className="text-xs text-center py-1.5">
+                                  {item.prev_stock !== undefined && item.new_stock !== undefined ? (
+                                    <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                      {item.prev_stock} → {item.new_stock}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                      +{item.quantity} Inward
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                              )}
+                              <TableCell className="text-xs text-right font-mono py-1.5">
+                                {formatCurrency(item.cost_price || item.unit_cost || 0)}
+                              </TableCell>
+                              <TableCell className="text-xs text-right font-mono font-semibold py-1.5">
+                                {formatCurrency(
+                                  item.total_cost ||
+                                    (item.quantity || 0) * (item.cost_price || item.unit_cost || 0)
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Record Supplier Payment Dialog */}
       {payingPo && (

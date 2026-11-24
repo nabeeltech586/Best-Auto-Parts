@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -17,6 +17,10 @@ import {
   Check,
   Loader2,
   Receipt,
+  Wrench,
+  User,
+  AlertCircle,
+  Wallet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,7 +40,7 @@ import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-di
 import { formatCurrency } from '@/lib/currency';
 import { cn } from '@/lib/utils';
 
-interface PaymentLinkItem {
+export interface PaymentLinkItem {
   id?: string;
   order_id: string;
   merchant_transaction_id: string;
@@ -50,19 +54,31 @@ interface PaymentLinkItem {
   payment_mode?: string;
   paid_at?: string;
   created_at: string;
+  contact_category?: 'Mechanic' | 'Customer';
 }
 
-interface PaymentMetrics {
+export interface PaymentMetrics {
   totalCollected: number;
   pendingAmount: number;
   paidCount: number;
   pendingCount: number;
   totalCount: number;
+  mechanicCount?: number;
+  customerCount?: number;
 }
+
+export type PaymentFilterTab = 'ALL' | 'PAID' | 'PENDING' | 'MECHANIC' | 'CUSTOMER' | 'FAILED';
 
 export default function PaymentsPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="flex-1 p-8 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="size-4 animate-spin text-primary" />
+          Loading collections & customer ledger...
+        </div>
+      }
+    >
       <PaymentsPageInner />
     </Suspense>
   );
@@ -80,15 +96,21 @@ function PaymentsPageInner() {
     paidCount: 0,
     pendingCount: 0,
     totalCount: 0,
+    mechanicCount: 0,
+    customerCount: 0,
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'ALL' | 'PAID' | 'PENDING' | 'FAILED'>(() => {
+
+  const [activeTab, setActiveTab] = useState<PaymentFilterTab>(() => {
     if (urlTab === 'udhaar' || urlTab === 'pending') return 'PENDING';
     if (urlTab === 'paid') return 'PAID';
+    if (urlTab === 'mechanic') return 'MECHANIC';
+    if (urlTab === 'customer') return 'CUSTOMER';
     if (urlTab === 'failed') return 'FAILED';
     return 'ALL';
   });
+
   const [search, setSearch] = useState(() => urlSearch || '');
   const [debouncedSearch, setDebouncedSearch] = useState(() => urlSearch || '');
   const [verifyingTxnId, setVerifyingTxnId] = useState<string | null>(null);
@@ -108,6 +130,10 @@ function PaymentsPageInner() {
         setActiveTab('PENDING');
       } else if (urlTab === 'paid') {
         setActiveTab('PAID');
+      } else if (urlTab === 'mechanic') {
+        setActiveTab('MECHANIC');
+      } else if (urlTab === 'customer') {
+        setActiveTab('CUSTOMER');
       } else if (urlTab === 'failed') {
         setActiveTab('FAILED');
       } else if (urlTab === 'all') {
@@ -120,7 +146,7 @@ function PaymentsPageInner() {
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
-    }, 300);
+    }, 250);
     return () => clearTimeout(handler);
   }, [search]);
 
@@ -131,7 +157,12 @@ function PaymentsPageInner() {
       else setLoading(true);
 
       const params = new URLSearchParams();
-      if (activeTab !== 'ALL') params.set('status', activeTab);
+      if (activeTab === 'PAID') params.set('status', 'PAID');
+      else if (activeTab === 'PENDING') params.set('status', 'PENDING');
+      else if (activeTab === 'FAILED') params.set('status', 'FAILED');
+      else if (activeTab === 'MECHANIC') params.set('category', 'Mechanic');
+      else if (activeTab === 'CUSTOMER') params.set('category', 'Customer');
+
       if (debouncedSearch) params.set('search', debouncedSearch);
 
       const res = await fetch(`/api/payments/links?${params.toString()}`);
@@ -174,7 +205,6 @@ function PaymentsPageInner() {
         toast.error(`Payment marked as ${data.status || 'FAILED'}`);
       }
 
-      // Refresh list to update UI
       fetchLinks(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to verify status';
@@ -291,6 +321,18 @@ function PaymentsPageInner() {
       .replace(/Khata/gi, 'Partner Ledger');
   };
 
+  // Client-side quick filter safety check
+  const filteredLinks = useMemo(() => {
+    return links.filter((item) => {
+      if (activeTab === 'PAID' && item.status !== 'PAID') return false;
+      if (activeTab === 'PENDING' && item.status !== 'PENDING') return false;
+      if (activeTab === 'FAILED' && item.status !== 'FAILED') return false;
+      if (activeTab === 'MECHANIC' && item.contact_category !== 'Mechanic') return false;
+      if (activeTab === 'CUSTOMER' && item.contact_category !== 'Customer') return false;
+      return true;
+    });
+  }, [links, activeTab]);
+
   return (
     <div className="flex-1 space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Header */}
@@ -298,7 +340,7 @@ function PaymentsPageInner() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              BestPay Collections & Ledger
+              BestPay Collections & Customer Ledger
             </h1>
             <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <ShieldCheck className="mr-1 h-3.5 w-3.5" />
@@ -306,7 +348,7 @@ function PaymentsPageInner() {
             </Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage all UPI, QR code, and cash collections with real-time ledger sync and instant receipts.
+            Manage customer and mechanic UPI, QR code, and cash collections with real-time ledger sync and instant receipts (Bikri).
           </p>
         </div>
 
@@ -333,8 +375,9 @@ function PaymentsPageInner() {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — Strictly Customer & Mechanic Collections */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {/* Total Collected */}
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
@@ -358,10 +401,11 @@ function PaymentsPageInner() {
           </CardContent>
         </Card>
 
+        {/* Pending Amount */}
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              Pending Amount
+              Pending Amount (Udhaar)
             </CardTitle>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
               <Clock className="h-4 w-4" />
@@ -376,11 +420,12 @@ function PaymentsPageInner() {
               )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {metrics.pendingCount} awaiting customer payment
+              {metrics.pendingCount} awaiting customer / partner settlement
             </p>
           </CardContent>
         </Card>
 
+        {/* Success Rate */}
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
@@ -406,10 +451,11 @@ function PaymentsPageInner() {
           </CardContent>
         </Card>
 
+        {/* Total Collections Active */}
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-xs font-medium text-muted-foreground">
-              Total Links Created
+              Total Customer Orders
             </CardTitle>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
               <CreditCard className="h-4 w-4" />
@@ -424,34 +470,49 @@ function PaymentsPageInner() {
               )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Active ledger entries
+              Active collection records
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter Pills and Search Bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           value={activeTab}
-          onValueChange={(val) => setActiveTab(val as 'ALL' | 'PAID' | 'PENDING' | 'FAILED')}
+          onValueChange={(val) => setActiveTab(val as PaymentFilterTab)}
           className="w-full sm:w-auto"
         >
-          <TabsList className="bg-muted">
-            <TabsTrigger value="ALL">All ({metrics.totalCount})</TabsTrigger>
-            <TabsTrigger value="PAID">Paid ({metrics.paidCount})</TabsTrigger>
-            <TabsTrigger value="PENDING">Pending ({metrics.pendingCount})</TabsTrigger>
-            <TabsTrigger value="FAILED">Failed</TabsTrigger>
+          <TabsList className="bg-muted flex-wrap h-auto p-1">
+            <TabsTrigger value="ALL" className="text-xs">
+              All ({metrics.totalCount})
+            </TabsTrigger>
+            <TabsTrigger value="PAID" className="text-xs gap-1">
+              <CheckCircle2 className="size-3 text-emerald-500" />
+              Paid ({metrics.paidCount})
+            </TabsTrigger>
+            <TabsTrigger value="PENDING" className="text-xs gap-1">
+              <Clock className="size-3 text-amber-500" />
+              Pending / Udhaar ({metrics.pendingCount})
+            </TabsTrigger>
+            <TabsTrigger value="MECHANIC" className="text-xs gap-1">
+              <Wrench className="size-3 text-amber-500" />
+              Mechanic ({metrics.mechanicCount !== undefined ? metrics.mechanicCount : links.filter(l => l.contact_category === 'Mechanic').length})
+            </TabsTrigger>
+            <TabsTrigger value="CUSTOMER" className="text-xs gap-1">
+              <User className="size-3 text-emerald-500" />
+              Customer ({metrics.customerCount !== undefined ? metrics.customerCount : links.filter(l => l.contact_category === 'Customer').length})
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
-        <div className="relative w-full sm:w-72">
+        <div className="relative w-full sm:w-80">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search customer, phone, order..."
+            placeholder="Search customer, phone, order, code..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9"
+            className="pl-9 h-9 text-xs"
           />
         </div>
       </div>
@@ -461,13 +522,13 @@ function PaymentsPageInner() {
         <Table>
           <TableHeader>
             <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
-              <TableHead className="font-semibold">Customer & Contact</TableHead>
-              <TableHead className="font-semibold">Order / Item</TableHead>
-              <TableHead className="font-semibold">Amount</TableHead>
-              <TableHead className="font-semibold">Status</TableHead>
-              <TableHead className="font-semibold">Payment Details</TableHead>
-              <TableHead className="font-semibold">Created Date</TableHead>
-              <TableHead className="text-right font-semibold">Actions</TableHead>
+              <TableHead className="font-semibold text-xs">Customer & Role</TableHead>
+              <TableHead className="font-semibold text-xs">Order / Part Details</TableHead>
+              <TableHead className="font-semibold text-xs">Amount</TableHead>
+              <TableHead className="font-semibold text-xs">Status</TableHead>
+              <TableHead className="font-semibold text-xs">Payment Details</TableHead>
+              <TableHead className="font-semibold text-xs">Created Date</TableHead>
+              <TableHead className="text-right font-semibold text-xs">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -500,21 +561,25 @@ function PaymentsPageInner() {
                   </TableCell>
                 </TableRow>
               ))
-            ) : links.length === 0 ? (
+            ) : filteredLinks.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <CreditCard className="h-8 w-8 text-muted-foreground/40" />
-                    <p className="text-sm font-medium">No payment links found</p>
+                    <p className="text-sm font-medium">
+                      {search ? 'No collection records match your search' : 'No payment records found'}
+                    </p>
                     <p className="text-xs text-muted-foreground">
-                      {search ? 'Try clearing your search query.' : 'Create a payment link to get started.'}
+                      {search
+                        ? 'Try clearing your search query or selecting another filter pill.'
+                        : 'Create a payment link from the Inbox or BestPay Instant Checkout to get started.'}
                     </p>
                     {!search && (
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => setIsCreateOpen(true)}
-                        className="mt-2"
+                        className="mt-2 text-xs"
                       >
                         <Plus className="mr-2 h-3.5 w-3.5" />
                         Create First Link
@@ -524,13 +589,30 @@ function PaymentsPageInner() {
                 </TableCell>
               </TableRow>
             ) : (
-              links.map((item) => (
+              filteredLinks.map((item) => (
                 <TableRow key={item.merchant_transaction_id} className="border-b border-border hover:bg-muted/30">
                   <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-foreground">
-                        {item.customer_name || 'Customer'}
-                      </span>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium text-foreground text-xs sm:text-sm">
+                          {item.customer_name || 'Customer'}
+                        </span>
+                        {item.contact_category === 'Mechanic' ? (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 gap-1 px-1.5 py-0 font-medium"
+                          >
+                            <Wrench className="size-2.5" /> Mechanic
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 gap-1 px-1.5 py-0 font-medium"
+                          >
+                            <User className="size-2.5" /> Customer
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-xs text-muted-foreground font-mono">
                         {item.customer_phone}
                       </span>
@@ -551,7 +633,7 @@ function PaymentsPageInner() {
                   </TableCell>
 
                   <TableCell>
-                    <span className="font-semibold text-foreground">
+                    <span className="font-semibold text-foreground text-xs sm:text-sm">
                       {formatCurrency(item.amount)}
                     </span>
                   </TableCell>

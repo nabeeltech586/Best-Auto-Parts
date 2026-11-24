@@ -1,24 +1,74 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 
+/**
+ * Helper to fetch all supplier (Distributor & Wholesaler) phone numbers and contact IDs
+ * so buying / supplier restock dues never mix with customer / mechanic sales collections.
+ */
+async function getSupplierIdentifiers(db: ReturnType<typeof supabaseAdmin>) {
+  try {
+    const [{ data: supplierContacts }, { data: distributorsData }] = await Promise.all([
+      db.from('contacts').select('id, phone, category').in('category', ['Distributor', 'Wholesaler']),
+      db.from('distributors').select('whatsapp_number, phone'),
+    ]);
+
+    const supplierIds = new Set<string>((supplierContacts || []).map((c: { id: string }) => c.id));
+    const supplierPhones = new Set<string>();
+
+    for (const c of supplierContacts || []) {
+      if (c.phone) {
+        const digits = c.phone.replace(/[^0-9]/g, '').slice(-10);
+        if (digits) supplierPhones.add(digits);
+      }
+    }
+
+    for (const d of distributorsData || []) {
+      const p = d.whatsapp_number || d.phone;
+      if (p) {
+        const digits = p.replace(/[^0-9]/g, '').slice(-10);
+        if (digits) supplierPhones.add(digits);
+      }
+    }
+
+    return { supplierIds, supplierPhones };
+  } catch (err) {
+    console.warn('[getSupplierIdentifiers] Warning fetching suppliers:', err);
+    return { supplierIds: new Set<string>(), supplierPhones: new Set<string>() };
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
     const search = searchParams.get('search')?.trim();
+    const categoryParam = searchParams.get('category')?.trim();
 
     const db = supabaseAdmin();
 
-    // 1. Initial / On-Load Sync: Auto-sync any Pipeline partner with balance_due > 0 (Mohd ali ₹250, etc.)
+    const { supplierIds, supplierPhones } = await getSupplierIdentifiers(db);
+
+    // 1. Initial / On-Load Sync: Auto-sync any Pipeline Customer or Mechanic with balance_due > 0 (Mohd ali ₹250, etc.)
+    // Explicitly exclude all Distributors and Wholesalers
     try {
       const { data: debtContacts } = await db
         .from('contacts')
-        .select('id, name, phone, company, pending_balance')
+        .select('id, name, phone, company, pending_balance, category')
         .gt('pending_balance', 0);
 
-      if (debtContacts && debtContacts.length > 0) {
+      const customerMechanicDebts = (debtContacts || []).filter((c: { id: string; phone?: string | null; category?: string | null }) => {
+        if (c.category === 'Distributor' || c.category === 'Wholesaler') return false;
+        if (supplierIds.has(c.id)) return false;
+        if (c.phone) {
+          const digits = c.phone.replace(/[^0-9]/g, '').slice(-10);
+          if (supplierPhones.has(digits)) return false;
+        }
+        return true;
+      });
+
+      if (customerMechanicDebts.length > 0) {
         const nowIso = new Date().toISOString();
-        const ledgerTxnIds = debtContacts.map((c: { id: string }) => `LEDGER_${c.id}`);
+        const ledgerTxnIds = customerMechanicDebts.map((c: { id: string }) => `LEDGER_${c.id}`);
 
         const { data: existingLinks } = await db
           .from('payment_links')
@@ -29,7 +79,7 @@ export async function GET(request: Request) {
         const toInsert: Record<string, unknown>[] = [];
         const toUpdate: PromiseLike<unknown>[] = [];
 
-        for (const contact of debtContacts) {
+        for (const contact of customerMechanicDebts) {
           const txnId = `LEDGER_${contact.id}`;
           const balance = Number(contact.pending_balance) || 0;
           const partnerName = contact.name || contact.company || 'Workshop Partner';
@@ -73,7 +123,7 @@ export async function GET(request: Request) {
         }
       }
 
-      // Also ensure contacts with 0 balance have any pending ledger link marked PAID
+      // Also ensure customer/mechanic contacts with 0 balance have any pending ledger link marked PAID
       const { data: clearedContacts } = await db
         .from('contacts')
         .select('id')
@@ -88,10 +138,27 @@ export async function GET(request: Request) {
           .eq('status', 'PENDING');
       }
     } catch (syncErr) {
-      console.warn('[API /api/payments/links] Auto-sync pipeline partners warning:', syncErr);
+      console.warn('[API /api/payments/links] Auto-sync customer/mechanic partners warning:', syncErr);
     }
 
-    // 2. Query payment links and metrics in parallel
+    // 2. Query payment links and all contacts to attach role (Mechanic vs Customer) and exclude any supplier entries
+    const { data: contactsData } = await db
+      .from('contacts')
+      .select('id, name, phone, company, category, unique_code');
+
+    const categoryByPhone = new Map<string, 'Mechanic' | 'Customer'>();
+    const categoryById = new Map<string, 'Mechanic' | 'Customer'>();
+
+    for (const c of contactsData || []) {
+      if (c.category === 'Distributor' || c.category === 'Wholesaler') continue;
+      const cat = c.category === 'Mechanic' ? 'Mechanic' : 'Customer';
+      if (c.id) categoryById.set(c.id, cat);
+      if (c.phone) {
+        const digits = c.phone.replace(/[^0-9]/g, '').slice(-10);
+        if (digits) categoryByPhone.set(digits, cat);
+      }
+    }
+
     let query = db
       .from('payment_links')
       .select('id, order_id, merchant_transaction_id, customer_name, customer_phone, part_details, amount, status, phonepe_redirect_url, phonepe_transaction_id, payment_mode, paid_at, created_at')
@@ -110,7 +177,7 @@ export async function GET(request: Request) {
         `merchant_transaction_id.ilike.%${search}%`,
       ];
 
-      // If search is a unique contact code (e.g. BAP-MEC-001), resolve partner details
+      // If search is a unique contact code (e.g. BAP-MEC-001 or BAP-CUS-001), resolve partner details
       if (/^BAP-/i.test(search)) {
         try {
           const { data: matchedContact } = await db
@@ -132,21 +199,79 @@ export async function GET(request: Request) {
       query = query.or(searchConditions.join(','));
     }
 
-    const [linksRes, metricsRes] = await Promise.all([
-      query.limit(100),
-      db.from('payment_links').select('amount, status'),
+    const [linksRes, allRowsRes] = await Promise.all([
+      query.limit(200),
+      db.from('payment_links').select('id, merchant_transaction_id, customer_phone, customer_name, part_details, amount, status'),
     ]);
 
-    const links = linksRes.data || [];
-    const allRows = metricsRes.data || [];
+    const rawLinks = linksRes.data || [];
+    const allRows = allRowsRes.data || [];
 
+    // Filter out supplier entries and tag contact_category
+    const enrichAndFilter = (item: {
+      merchant_transaction_id?: string | null;
+      customer_phone?: string | null;
+      customer_name?: string | null;
+      part_details?: string | null;
+    }) => {
+      // Exclude if merchant_transaction_id belongs to a distributor/wholesaler
+      if (item.merchant_transaction_id?.startsWith('LEDGER_')) {
+        const contactId = item.merchant_transaction_id.replace('LEDGER_', '');
+        if (supplierIds.has(contactId)) return null;
+      }
+
+      // Exclude if customer_phone belongs to a distributor/wholesaler
+      const cleanDigits = (item.customer_phone || '').replace(/[^0-9]/g, '').slice(-10);
+      if (cleanDigits && supplierPhones.has(cleanDigits)) {
+        return null;
+      }
+
+      // Determine category (Mechanic vs Customer)
+      let contactCategory: 'Mechanic' | 'Customer' = 'Customer';
+      if (item.merchant_transaction_id?.startsWith('LEDGER_')) {
+        const contactId = item.merchant_transaction_id.replace('LEDGER_', '');
+        if (categoryById.has(contactId)) {
+          contactCategory = categoryById.get(contactId)!;
+        }
+      }
+
+      if (contactCategory === 'Customer' && cleanDigits && categoryByPhone.has(cleanDigits)) {
+        contactCategory = categoryByPhone.get(cleanDigits)!;
+      }
+
+      // Heuristic fallback for partner ledger / workshop names
+      if (contactCategory === 'Customer') {
+        const details = (item.part_details || '').toLowerCase();
+        const name = (item.customer_name || '').toLowerCase();
+        if (
+          details.includes('partner ledger') ||
+          details.includes('khata') ||
+          details.includes('mechanic') ||
+          name.includes('moters') ||
+          name.includes('motors') ||
+          name.includes('auto')
+        ) {
+          contactCategory = 'Mechanic';
+        }
+      }
+
+      return contactCategory;
+    };
+
+    // Calculate metrics strictly across Customer and Mechanic links (excluding suppliers)
     let totalCollected = 0;
     let pendingAmount = 0;
     let paidCount = 0;
     let pendingCount = 0;
-    const totalCount = allRows.length;
+    let mechanicCount = 0;
+    let customerCount = 0;
+    let totalCount = 0;
 
     for (const row of allRows) {
+      const cat = enrichAndFilter(row);
+      if (!cat) continue; // Excluded supplier
+
+      totalCount++;
       const amt = Number(row.amount) || 0;
       if (row.status === 'PAID') {
         totalCollected += amt;
@@ -155,16 +280,41 @@ export async function GET(request: Request) {
         pendingAmount += amt;
         pendingCount++;
       }
+
+      if (cat === 'Mechanic') {
+        mechanicCount++;
+      } else {
+        customerCount++;
+      }
+    }
+
+    // Process returned links
+    const filteredLinks: Record<string, unknown>[] = [];
+    for (const link of rawLinks) {
+      const cat = enrichAndFilter(link);
+      if (!cat) continue; // Excluded supplier
+
+      if (categoryParam) {
+        if (categoryParam.toLowerCase() === 'mechanic' && cat !== 'Mechanic') continue;
+        if (categoryParam.toLowerCase() === 'customer' && cat !== 'Customer') continue;
+      }
+
+      filteredLinks.push({
+        ...link,
+        contact_category: cat,
+      });
     }
 
     return NextResponse.json({
-      links,
+      links: filteredLinks,
       metrics: {
         totalCollected,
         pendingAmount,
         paidCount,
         pendingCount,
         totalCount,
+        mechanicCount,
+        customerCount,
       },
     });
   } catch (err: unknown) {
@@ -271,17 +421,26 @@ export async function PATCH(request: Request) {
       }
     }
 
-    // 4. Recalculate metrics
-    const { data: allRows } = await db.from('payment_links').select('amount, status');
+    // 4. Recalculate metrics strictly across customer/mechanic rows
+    const { supplierIds, supplierPhones } = await getSupplierIdentifiers(db);
+    const { data: allRows } = await db.from('payment_links').select('merchant_transaction_id, customer_phone, amount, status');
 
     let totalCollected = 0;
     let pendingAmount = 0;
     let paidCount = 0;
     let pendingCount = 0;
-    const totalCount = allRows?.length || 0;
+    let totalCount = 0;
 
     if (allRows) {
       for (const row of allRows) {
+        if (row.merchant_transaction_id?.startsWith('LEDGER_')) {
+          const contactId = row.merchant_transaction_id.replace('LEDGER_', '');
+          if (supplierIds.has(contactId)) continue;
+        }
+        const cleanDigits = (row.customer_phone || '').replace(/[^0-9]/g, '').slice(-10);
+        if (cleanDigits && supplierPhones.has(cleanDigits)) continue;
+
+        totalCount++;
         const amt = Number(row.amount) || 0;
         if (row.status === 'PAID') {
           totalCollected += amt;

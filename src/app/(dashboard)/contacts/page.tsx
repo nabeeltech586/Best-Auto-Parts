@@ -1197,14 +1197,27 @@ export default function ContactsPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            router.push(
-                              `/payments?tab=udhaar&search=${encodeURIComponent(
-                                contact.phone || contact.name || uniqueCode || ''
-                              )}`
-                            );
+                            const isSupplier = contactCategory === 'Distributor' || contactCategory === 'Wholesaler';
+                            if (isSupplier) {
+                              router.push(
+                                `/orders?search=${encodeURIComponent(
+                                  contact.company || contact.phone || contact.name || uniqueCode || ''
+                                )}`
+                              );
+                            } else {
+                              router.push(
+                                `/payments?tab=udhaar&search=${encodeURIComponent(
+                                  contact.phone || contact.name || uniqueCode || ''
+                                )}`
+                              );
+                            }
                           }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/40 hover:bg-rose-500/25 transition-colors shadow-2xs"
-                          title="Open BestPay Udhaar Ledger"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/40 hover:bg-rose-500/25 transition-colors shadow-2xs cursor-pointer"
+                          title={
+                            contactCategory === 'Distributor' || contactCategory === 'Wholesaler'
+                              ? 'Open Supplier Restock Orders & Wholesaler Ledger'
+                              : 'Open BestPay Udhaar Ledger'
+                          }
                         >
                           <AlertCircle className="size-3.5 shrink-0" />
                           <span>⚠️ ₹{dueAmount.toLocaleString('en-IN')} Due</span>
@@ -1285,35 +1298,68 @@ export default function ContactsPage() {
                             <span>💬 Inbox (WhatsApp Chat)</span>
                           </DropdownMenuItem>
 
-                          {/* 2. Payments Ledger */}
-                          <DropdownMenuItem
-                            onClick={() => {
-                              router.push(
-                                `/payments?search=${encodeURIComponent(
-                                  contact.phone || contact.name || uniqueCode || ''
-                                )}`
-                              );
-                            }}
-                            className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
-                          >
-                            <CreditCard className="mr-2 size-4 text-blue-500" />
-                            <span>💳 Payments Ledger</span>
-                          </DropdownMenuItem>
+                          {/* 2 & 3. Role-Based Quick Links: Wholesaler/Distributor -> Orders Ledger | Customer/Mechanic -> Payments */}
+                          {contactCategory === 'Distributor' || contactCategory === 'Wholesaler' ? (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  router.push(
+                                    `/orders?search=${encodeURIComponent(
+                                      contact.company || contact.phone || contact.name || uniqueCode || ''
+                                    )}`
+                                  );
+                                }}
+                                className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                              >
+                                <Building2 className="mr-2 size-4 text-blue-500" />
+                                <span>🏢 Supplier Purchase Ledger</span>
+                              </DropdownMenuItem>
 
-                          {/* 3. Udhaar / Khata */}
-                          <DropdownMenuItem
-                            onClick={() => {
-                              router.push(
-                                `/payments?tab=udhaar&search=${encodeURIComponent(
-                                  contact.phone || contact.name || uniqueCode || ''
-                                )}`
-                              );
-                            }}
-                            className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
-                          >
-                            <BookOpen className="mr-2 size-4 text-amber-500" />
-                            <span>📒 Udhaar / Khata</span>
-                          </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  router.push(
+                                    `/orders?search=${encodeURIComponent(
+                                      contact.company || contact.phone || contact.name || uniqueCode || ''
+                                    )}`
+                                  );
+                                }}
+                                className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                              >
+                                <AlertCircle className="mr-2 size-4 text-rose-500" />
+                                <span>📒 Wholesaler Due / POs</span>
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  router.push(
+                                    `/payments?search=${encodeURIComponent(
+                                      contact.phone || contact.name || uniqueCode || ''
+                                    )}`
+                                  );
+                                }}
+                                className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                              >
+                                <CreditCard className="mr-2 size-4 text-blue-500" />
+                                <span>💳 Payments Ledger</span>
+                              </DropdownMenuItem>
+
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  router.push(
+                                    `/payments?tab=udhaar&search=${encodeURIComponent(
+                                      contact.phone || contact.name || uniqueCode || ''
+                                    )}`
+                                  );
+                                }}
+                                className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                              >
+                                <BookOpen className="mr-2 size-4 text-amber-500" />
+                                <span>📒 Udhaar / Khata</span>
+                              </DropdownMenuItem>
+                            </>
+                          )}
 
                           <DropdownMenuSeparator className="bg-border my-1" />
 
