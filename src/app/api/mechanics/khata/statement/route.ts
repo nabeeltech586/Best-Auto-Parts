@@ -1,6 +1,71 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
-import { createPhonePePaymentLink } from '@/lib/payments/phonepe-link';
+
+export function formatAccountTier(tier?: string | null): string {
+  if (!tier || tier === 'Partner') return '⭐ Pro Partner';
+  const clean = tier.trim();
+  if (clean.toLowerCase().endsWith('partner')) return `⭐ ${clean}`;
+  return `⭐ ${clean} Partner`;
+}
+
+export function generatePartnerStatementText({
+  name,
+  phone,
+  tier,
+  monthlyVolume,
+  balanceDue,
+  formattedDate,
+}: {
+  name: string;
+  phone: string;
+  tier?: string | null;
+  monthlyVolume: number;
+  balanceDue: number;
+  formattedDate: string;
+}): string {
+  const accountTier = formatAccountTier(tier);
+  const formattedMonthly = monthlyVolume.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const formattedBalance = balanceDue.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const upiAmount =
+    balanceDue > 0
+      ? Number.isInteger(balanceDue)
+        ? String(balanceDue)
+        : balanceDue.toFixed(2)
+      : '0';
+  const directUpiUri = `upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=${upiAmount}&cu=INR`;
+
+  let text =
+    `🏍️ *BEST AUTO PARTS — PARTNER LEDGER STATEMENT* 🔧\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `• *Partner / Workshop:* ${name}\n` +
+    `• *Mobile:* ${phone}\n` +
+    `• *Account Tier:* ${accountTier}\n` +
+    `• *Monthly Billing:* ₹${formattedMonthly}\n` +
+    `• *Net Balance Due:* ₹${formattedBalance}\n` +
+    `• *Statement Date:* ${formattedDate}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n`;
+
+  if (balanceDue > 0) {
+    text +=
+      `Kindly clear your outstanding ledger balance at your earliest convenience.\n\n` +
+      `👉 *Pay Online via PhonePe / UPI:*\n` +
+      `${directUpiUri}\n` +
+      `(UPI ID: 9761224004-2@ybl)\n\n` +
+      `📍 *Store:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001 | +91 96347 22174`;
+  } else {
+    text +=
+      `Your running ledger account is 100% CLEAR! Thank you for being a valued trade partner with Best Auto Parts.\n\n` +
+      `📍 *Store:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001 | +91 96347 22174`;
+  }
+
+  return text;
+}
 
 export async function POST(request: Request) {
   try {
@@ -26,64 +91,36 @@ export async function POST(request: Request) {
     const mechanicName = contact.name || contact.company || 'Valued Workshop Partner';
     const pendingBalance = Number(contact.pending_balance) || 0;
     const monthlyVolume = Number(contact.monthly_purchases) || 0;
-    const tier = contact.loyalty_tier || 'Partner';
 
-    let paymentLink = '';
-    let merchantTxnId = '';
-
-    if (pendingBalance > 0) {
-      try {
-        const linkRes = await createPhonePePaymentLink({
-          orderId: `KHATA_${Date.now().toString().slice(-6)}`,
-          customerName: mechanicName,
-          customerPhone: contact.phone,
-          partDetails: `Monthly Khata Ledger Clearance (${mechanicName})`,
-          amount: pendingBalance,
-          accountId,
-        });
-
-        if (linkRes.success) {
-          paymentLink = linkRes.paymentLink;
-          merchantTxnId = linkRes.merchantTransactionId;
-        }
-      } catch (linkErr) {
-        console.warn('[mechanics/khata/statement] PhonePe link creation failed:', linkErr);
-      }
-    }
-
-    const todayStr = new Date().toLocaleDateString('en-IN', {
+    const formattedDate = new Date().toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
     });
 
-    const paymentLinkSection = paymentLink
-      ? `\n👉 *Pay Khata Online via PhonePe / UPI:*\n${paymentLink}\n`
-      : pendingBalance > 0
-      ? `\n👉 *Pay via UPI to:* 9634722174@ybl\n`
-      : '';
+    const upiAmount =
+      pendingBalance > 0
+        ? Number.isInteger(pendingBalance)
+          ? String(pendingBalance)
+          : pendingBalance.toFixed(2)
+        : '0';
+    const directUpiUri = `upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=${upiAmount}&cu=INR`;
 
-    const statementText =
-      `🏍️ *BEST AUTO PARTS — MECHANIC KHATA STATEMENT* 🔧\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `• *Workshop / Mechanic:* ${mechanicName}\n` +
-      `• *Mobile:* ${contact.phone}\n` +
-      `• *Loyalty Tier:* ⭐ ${tier} Partner\n` +
-      `• *Monthly Volume:* ₹${monthlyVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n` +
-      `• *Current Balance Due:* ₹${pendingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n` +
-      `• *Date:* ${todayStr}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      (pendingBalance > 0
-        ? `Kindly clear your running Khata balance at your earliest convenience.\n${paymentLinkSection}`
-        : `Your running ledger account is 100% CLEAR! Thank you for being a valued trade partner with Best Auto Parts.\n`) +
-      `\n📍 *Store Address:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
-      `📞 *Direct Contact / Saud Bhai:* +91 96347 22174`;
+    const statementText = generatePartnerStatementText({
+      name: mechanicName,
+      phone: contact.phone,
+      tier: contact.loyalty_tier,
+      monthlyVolume,
+      balanceDue: pendingBalance,
+      formattedDate,
+    });
 
     return NextResponse.json({
       success: true,
       statementText,
-      paymentLink,
-      merchantTransactionId: merchantTxnId,
+      paymentLink: pendingBalance > 0 ? directUpiUri : '',
+      upiUri: pendingBalance > 0 ? directUpiUri : '',
+      upiId: '9761224004-2@ybl',
       contact,
     });
   } catch (err) {

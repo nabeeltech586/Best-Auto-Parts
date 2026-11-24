@@ -339,7 +339,7 @@ export default function PipelinesPage() {
               )}
             >
               <Wrench className="size-3.5 text-primary" />
-              Mechanic Khata & Loyalty Board
+              Partner Ledger & Loyalty Board
             </button>
             <button
               type="button"
@@ -364,7 +364,7 @@ export default function PipelinesPage() {
               {activeBoard === 'mechanic_khata' ? (
                 <>
                   <Wrench className="h-3.5 w-3.5 text-primary" />
-                  <span className="font-semibold">Mechanic Khata</span>
+                  <span className="font-semibold">Partner Ledger</span>
                 </>
               ) : (
                 <>
@@ -389,7 +389,7 @@ export default function PipelinesPage() {
               >
                 <Wrench className="h-3.5 w-3.5 text-primary" />
                 <div>
-                  <div className="font-semibold">Mechanic Khata & Loyalty Board (Default)</div>
+                  <div className="font-semibold">Partner Ledger & Loyalty Board (Default)</div>
                   <p className="text-[10px] text-muted-foreground font-normal">
                     5-Stage workshop ledger, Udhaar, and settlement board
                   </p>

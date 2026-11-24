@@ -61,7 +61,7 @@ const KHATA_STAGES: {
   },
   {
     key: 'Running Monthly Khata',
-    name: 'Running Monthly Khata',
+    name: 'Running Monthly Ledger',
     badgeClass: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',
     headerBorder: 'border-blue-500',
   },
@@ -136,7 +136,7 @@ export function MechanicKhataBoard() {
       setMechanics(data.mechanics || []);
       if (data.metrics) setMetrics(data.metrics);
     } catch {
-      toast.error('Failed to load Mechanic Khata records');
+      toast.error('Failed to load Partner Ledger records');
     } finally {
       setLoading(false);
     }
@@ -203,7 +203,7 @@ export function MechanicKhataBoard() {
           amount: amt,
           payment_mode: settleMode,
           reference_id: settleRef.trim() || null,
-          description: `Khata Settlement via ${settleMode}`,
+          description: `Ledger Settlement via ${settleMode}`,
         }),
       });
 
@@ -222,8 +222,8 @@ export function MechanicKhataBoard() {
     }
   };
 
-  // Handle WhatsApp Hisab Statement
-  const handleWhatsAppHisab = async (mechanic: MechanicContact) => {
+  // Handle WhatsApp Partner Statement
+  const handleWhatsAppStatement = async (mechanic: MechanicContact) => {
     setGeneratingStatement(true);
     try {
       const res = await fetch('/api/mechanics/khata/statement', {
@@ -241,7 +241,7 @@ export function MechanicKhataBoard() {
         paymentLink: data.paymentLink,
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error generating Hisab statement');
+      toast.error(err instanceof Error ? err.message : 'Error generating Partner Statement');
     } finally {
       setGeneratingStatement(false);
     }
@@ -272,7 +272,7 @@ export function MechanicKhataBoard() {
         throw new Error(data.error || 'Failed to create mechanic contact');
       }
 
-      toast.success(`Workshop partner ${newMechName} added to Mechanic Khata board!`);
+      toast.success(`Workshop partner ${newMechName} added to Partner Ledger!`);
       setNewMechanicOpen(false);
       setNewMechName('');
       setNewMechPhone('');
@@ -308,7 +308,7 @@ export function MechanicKhataBoard() {
       default:
         return (
           <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-medium">
-            Trade Partner
+            ⭐ Pro Partner
           </Badge>
         );
     }
@@ -347,7 +347,7 @@ export function MechanicKhataBoard() {
               {formatCurrency(metrics.totalPendingBalance)}
             </div>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              {metrics.activeKhataCount} mechanics with balance
+              {metrics.activeKhataCount} partners with balance
             </p>
           </CardContent>
         </Card>
@@ -380,7 +380,7 @@ export function MechanicKhataBoard() {
             <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight text-teal-600 dark:text-teal-400">
               {metrics.settledCount}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Zero balance / clear Khata</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Zero balance / clear ledger</p>
           </CardContent>
         </Card>
       </div>
@@ -424,7 +424,7 @@ export function MechanicKhataBoard() {
       {loading ? (
         <div className="flex items-center justify-center py-20 text-xs text-muted-foreground gap-2">
           <Loader2 className="size-4 animate-spin text-primary" />
-          Loading Mechanic Khata & Loyalty Board...
+          Loading Partner Ledger & Loyalty Board...
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 items-start overflow-x-auto pb-4">
@@ -550,17 +550,17 @@ export function MechanicKhataBoard() {
                                 Settle
                               </Button>
 
-                              {/* 3. WhatsApp Hisab */}
+                              {/* 3. WhatsApp Partner Statement */}
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => handleWhatsAppHisab(mechanic)}
+                                onClick={() => handleWhatsAppStatement(mechanic)}
                                 disabled={generatingStatement}
                                 className="h-7 text-[11px] px-1 border-border text-foreground hover:bg-muted font-medium"
-                                title="Send English statement + PhonePe link"
+                                title="Send Partner Ledger Statement & UPI link"
                               >
                                 <MessageCircle className="size-3 mr-0.5 text-emerald-500" />
-                                Hisab
+                                Statement
                               </Button>
                             </div>
                           </CardContent>
@@ -656,14 +656,14 @@ export function MechanicKhataBoard() {
                 className="text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 {submittingUdhaar ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-                Add to Khata
+                Record in Ledger
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
 
-      {/* MODAL 2: Settle Khata (Record Payment) */}
+      {/* MODAL 2: Settle Partner Ledger (Record Payment) */}
       {settleMechanic && (
         <Dialog open={Boolean(settleMechanic)} onOpenChange={(v) => !v && setSettleMechanic(null)}>
           <DialogContent className="sm:max-w-md bg-card border-border">
@@ -674,7 +674,7 @@ export function MechanicKhataBoard() {
                 </div>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
-                    Settle Mechanic Khata
+                    Settle Partner Ledger
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground">
                     Record payment received from {settleMechanic.name}.
@@ -761,7 +761,7 @@ export function MechanicKhataBoard() {
         </Dialog>
       )}
 
-      {/* MODAL 3: WhatsApp Hisab & Statement */}
+      {/* MODAL 3: WhatsApp Partner Ledger Statement */}
       {statementData && (
         <Dialog open={Boolean(statementData)} onOpenChange={(v) => !v && setStatementData(null)}>
           <DialogContent className="sm:max-w-md bg-card border-border">
@@ -772,10 +772,10 @@ export function MechanicKhataBoard() {
                 </div>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
-                    Mechanic Khata Hisab Statement
+                    Partner Ledger Statement
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground">
-                    English Khata statement + PhonePe payment link for {statementData.mechanic.name}.
+                    Official Ledger Statement & UPI Payment Link for {statementData.mechanic.name}.
                   </DialogDescription>
                 </div>
               </div>
@@ -788,8 +788,15 @@ export function MechanicKhataBoard() {
 
               {statementData.paymentLink && (
                 <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 flex items-center justify-between">
-                  <span className="font-medium">PhonePe UPI Payment Link Created</span>
-                  <Badge className="bg-emerald-600 text-white text-[10px]">READY</Badge>
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-emerald-800 dark:text-emerald-200">
+                      Direct UPI Payment Link (9761224004-2@ybl)
+                    </span>
+                    <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[280px]">
+                      {statementData.paymentLink}
+                    </span>
+                  </div>
+                  <Badge className="bg-emerald-600 text-white text-[10px]">UPI READY</Badge>
                 </div>
               )}
             </div>
@@ -800,7 +807,7 @@ export function MechanicKhataBoard() {
                 size="sm"
                 onClick={() => {
                   navigator.clipboard.writeText(statementData.statementText);
-                  toast.success('Khata statement copied to clipboard!');
+                  toast.success('Partner Ledger statement copied to clipboard!');
                 }}
                 className="text-xs gap-1.5 border-border"
               >
@@ -840,7 +847,7 @@ export function MechanicKhataBoard() {
                   New Workshop Partner
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground">
-                  Add a mechanic or workshop to Best Auto Parts Khata ledger.
+                  Add a mechanic or workshop to Best Auto Parts Partner Ledger.
                 </DialogDescription>
               </div>
             </div>

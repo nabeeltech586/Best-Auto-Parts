@@ -329,7 +329,7 @@ export default function OrderHistoryPage() {
   );
   const activeDistributorPOs = purchaseOrders.filter((p) => p.status === 'SENT');
 
-  // Distributor Khata Metrics (instantly reflected from state)
+  // Distributor Ledger Metrics (instantly reflected from state)
   const totalDistributorBilled = purchaseOrders.reduce(
     (acc, po) => acc + (Number(po.total_estimated_cost) || 0),
     0
@@ -348,11 +348,11 @@ export default function OrderHistoryPage() {
           <div className="flex items-center gap-2">
             <ShoppingBag className="size-6 text-primary" />
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Order History & Restock Khata
+              Order History & Wholesaler Ledger
             </h1>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Track customer orders, digital payment receipts, and distributor restock Khata ledger.
+            Track customer orders, digital payment receipts, and distributor restock ledger.
           </p>
         </div>
 
@@ -456,7 +456,7 @@ export default function OrderHistoryPage() {
           </TabsTrigger>
           <TabsTrigger value="distributor" className="gap-2 text-xs">
             <Truck className="size-3.5 text-blue-500" />
-            Distributor Khata & POs ({purchaseOrders.length})
+            Distributor Ledger & POs ({purchaseOrders.length})
           </TabsTrigger>
         </TabsList>
 
@@ -568,9 +568,9 @@ export default function OrderHistoryPage() {
           </div>
         </TabsContent>
 
-        {/* TAB 2: Distributor Restock Orders & Khata Ledger */}
+        {/* TAB 2: Distributor Restock Orders & Wholesaler Ledger */}
         <TabsContent value="distributor" className="space-y-4 mt-0">
-          {/* Distributor Khata Summary Cards */}
+          {/* Distributor Ledger Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Card className="border-border bg-card/60 shadow-sm">
               <CardContent className="p-3.5 flex items-center justify-between">
