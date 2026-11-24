@@ -42,56 +42,55 @@ describe('validateFitmentYearRange', () => {
 describe('formatVehicleFitment', () => {
   it('formats full fitment with variant, engine, and fuel type', () => {
     const text = formatVehicleFitment({
-      manufacturer: 'Toyota',
-      model: 'Camry',
-      variant: 'XLE',
+      manufacturer: 'Hero',
+      model: 'Splendor Plus',
+      variant: 'XTEC',
       year_from: 2018,
-      year_to: 2023,
-      engine: '2.5L 4-Cyl',
-      fuel_type: 'Hybrid',
+      year_to: 2024,
+      engine: '97.2cc Single-Cyl',
+      fuel_type: 'Petrol',
     });
 
-    expect(text).toBe('Toyota Camry XLE (2018 - 2023) • 2.5L 4-Cyl Hybrid');
+    expect(text).toBe('Hero Splendor Plus XTEC (2018 - 2024) • 97.2cc Single-Cyl Petrol');
   });
 
   it('formats open-ended year range with plus symbol', () => {
     const text = formatVehicleFitment({
-      manufacturer: 'Ford',
-      model: 'F-150',
+      manufacturer: 'Bajaj',
+      model: 'Pulsar 150',
       variant: null,
-      year_from: 2021,
+      year_from: 2020,
       year_to: null,
-      engine: '3.5L EcoBoost',
+      engine: '149.5cc DTS-i',
       fuel_type: null,
     });
 
-    expect(text).toBe('Ford F-150 (2021+) • 3.5L EcoBoost');
+    expect(text).toBe('Bajaj Pulsar 150 (2020+) • 149.5cc DTS-i');
   });
 
   it('formats base vehicle without optional engine or fuel', () => {
     const text = formatVehicleFitment({
       manufacturer: 'Honda',
-      model: 'Civic',
+      model: 'Activa 6G',
       variant: null,
-      year_from: 2016,
-      year_to: 2021,
+      year_from: 2020,
+      year_to: 2025,
       engine: null,
       fuel_type: null,
     });
 
-    expect(text).toBe('Honda Civic (2016 - 2021)');
+    expect(text).toBe('Honda Activa 6G (2020 - 2025)');
   });
 });
 
 describe('vehicle constants', () => {
-  it('exports common automotive vehicle makes', () => {
-    expect(COMMON_VEHICLE_MAKES).toContain('Toyota');
-    expect(COMMON_VEHICLE_MAKES).toContain('BMW');
-    expect(COMMON_VEHICLE_MAKES).toContain('Ford');
+  it('exports strictly Bajaj, Hero, and Honda two-wheeler makes', () => {
+    expect(COMMON_VEHICLE_MAKES).toEqual(['Bajaj', 'Hero', 'Honda']);
   });
 
-  it('exports automotive fuel types', () => {
-    expect(FUEL_TYPES).toContain('Diesel');
-    expect(FUEL_TYPES).toContain('Hybrid');
+  it('exports two-wheeler fuel types', () => {
+    expect(FUEL_TYPES).toContain('Petrol');
+    expect(FUEL_TYPES).toContain('Electric (EV)');
+    expect(FUEL_TYPES).toContain('CNG');
   });
 });

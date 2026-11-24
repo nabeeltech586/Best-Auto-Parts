@@ -1,39 +1,57 @@
 import type { VehicleFitment } from '@/types/inventory';
 
+/**
+ * Two-Wheeler Makes Exclusively for Best Auto Parts
+ * Kailashpur, Saharanpur, UP
+ */
 export const COMMON_VEHICLE_MAKES = [
-  'Acura',
-  'Alfa Romeo',
-  'Audi',
-  'BMW',
-  'Buick',
-  'Cadillac',
-  'Chevrolet',
-  'Chrysler',
-  'Dodge',
-  'Ford',
-  'GMC',
+  'Bajaj',
+  'Hero',
   'Honda',
-  'Hyundai',
-  'Infiniti',
-  'Jaguar',
-  'Jeep',
-  'Kia',
-  'Land Rover',
-  'Lexus',
-  'Lincoln',
-  'Mazda',
-  'Mercedes-Benz',
-  'Mini',
-  'Mitsubishi',
-  'Nissan',
-  'Porsche',
-  'Ram',
-  'Subaru',
-  'Tesla',
-  'Toyota',
-  'Volkswagen',
-  'Volvo',
 ] as const;
+
+export type BikeMake = (typeof COMMON_VEHICLE_MAKES)[number];
+
+export const BIKE_MODELS_BY_MAKE: Record<BikeMake, readonly string[]> = {
+  Bajaj: [
+    'Pulsar 150',
+    'Pulsar 180',
+    'Pulsar 220',
+    'Platina 100/110',
+    'CT 100',
+    'Discover 125',
+    'Avenger 160/220',
+    'Dominar 400',
+    'Chetak EV',
+  ],
+  Hero: [
+    'Splendor Plus',
+    'Super Splendor',
+    'HF Deluxe',
+    'Passion Pro',
+    'Glamour 125',
+    'Xtreme 160R/200S',
+    'Xpulse 200',
+    'Maestro Edge',
+    'Pleasure Plus',
+  ],
+  Honda: [
+    'Activa 3G/4G/5G/6G',
+    'CB Shine 125',
+    'SP 125',
+    'Unicorn 150/160',
+    'Hornet 2.0',
+    'Dio 110/125',
+    'CD 110 Dream',
+    'Livo',
+  ],
+} as const;
+
+export const ALL_POPULAR_BIKE_MODELS: readonly string[] = [
+  ...BIKE_MODELS_BY_MAKE.Bajaj,
+  ...BIKE_MODELS_BY_MAKE.Hero,
+  ...BIKE_MODELS_BY_MAKE.Honda,
+];
 
 export const COMMON_PART_CATEGORIES = [
   'Braking System',
@@ -51,13 +69,9 @@ export const COMMON_PART_CATEGORIES = [
 ] as const;
 
 export const FUEL_TYPES = [
-  'Petrol / Gasoline',
-  'Diesel',
-  'Hybrid',
-  'Plug-in Hybrid (PHEV)',
+  'Petrol',
   'Electric (EV)',
-  'Flex Fuel / Ethanol',
-  'CNG / LPG',
+  'CNG',
 ] as const;
 
 /**
@@ -97,7 +111,7 @@ export function validateFitmentYearRange(
 
 /**
  * Format a vehicle fitment entry into a human-readable string.
- * e.g. "Toyota Camry (2018 - 2023) • 2.5L 4-Cyl Petrol"
+ * e.g. "Hero Splendor Plus (2018 - 2024) • 97.2cc Single-Cyl Petrol"
  */
 export function formatVehicleFitment(
   fitment: Pick<

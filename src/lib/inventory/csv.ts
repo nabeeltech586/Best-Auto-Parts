@@ -470,8 +470,8 @@ export function generatePartsCsv(parts: PartCatalogItem[]): string {
 export function generateSampleCsv(): string {
   return [
     'part_name,sku,oem_number,alternate_oem_numbers,brand,category,subcategory,condition,cost_price,selling_price,quantity_in_stock,low_stock_threshold,location,description,quality_review_notes',
-    '"Ceramic Front Brake Pads",BP-TY-001,04465-02220,"04465-02240; 04465-12610",Brembo,Braking System,Brake Pads,OEM,25.00,49.99,18,5,"Shelf A-12","High performance ceramic front brake pads for Toyota / Lexus models.","Factory certified QA pass"',
-    '"Engine Oil Filter",OF-TOY-01,04152-YZZA6,"04152-37010",Denso,Filtration,Oil Filters,Genuine,4.50,12.00,45,10,"Bin B-04","Genuine factory oil filter with O-rings included.","Batch inspection complete"',
-    '"Alternator 130A",ALT-HON-130,31100-R40-A01,,Bosch,Electrical & Lighting,Alternators,Aftermarket,110.00,195.00,3,2,"Rack C-01","130-Amp direct fit replacement alternator.","Bench tested 14.2V output"',
+    '"Front Disc Brake Pad Set (Pulsar / Platina)",SKU-BAJ-001,DJ151074,,Bajaj Genuine,Braking System,Brake Pads,OEM,140.00,220.00,25,5,"Rack A-01","Genuine Front Disc Brake Pad Set for Bajaj Pulsar 150/180/220 and Platina 110.","Factory QC Passed"',
+    '"Hero 4T Plus 10W-30 Engine Oil (900ml)",SKU-HER-018,AA0910E0900,,Hero Genuine,Maintenance,Engine Oil,Genuine,260.00,340.00,40,10,"Shelf B-02","Original Hero 4T Plus Premium 10W-30 4-Stroke Motorcycle Engine Oil.","Sealed Batch Verified"',
+    '"Activa 3G/4G/5G/6G Drive CVT Belt",SKU-HON-013,23100-GGC-901,,Bando / Honda,Transmission & Drivetrain,Drive Belts,OEM,280.00,420.00,15,4,"Rack C-05","Heavy-duty Kevlar CVT transmission drive belt for Honda Activa scooters.","Tested to OEM specs"',
   ].join('\n');
 }

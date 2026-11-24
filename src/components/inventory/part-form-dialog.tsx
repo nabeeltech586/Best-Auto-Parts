@@ -21,7 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { COMMON_PART_CATEGORIES } from '@/lib/inventory/fitment';
+import {
+  COMMON_PART_CATEGORIES,
+  COMMON_VEHICLE_MAKES,
+  BIKE_MODELS_BY_MAKE,
+  type BikeMake,
+} from '@/lib/inventory/fitment';
 import { PART_CONDITIONS, type PartCatalogItem, type PartCondition, type PartFormData } from '@/types/inventory';
 import { Loader2, Image as ImageIcon, Sparkles } from 'lucide-react';
 import { PART_IMAGE_PRESETS, getMatchingPartImage, DEFAULT_PART_IMAGE } from '@/lib/partImages';
@@ -56,6 +61,7 @@ export function PartFormDialog({
   const [location, setLocation] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [description, setDescription] = useState('');
+  const [selectedBikeMake, setSelectedBikeMake] = useState<BikeMake | ''>('');
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -76,6 +82,18 @@ export function PartFormDialog({
       setLocation(initialData.location || '');
       setImageUrl(initialData.image_url || (initialData.image_urls && initialData.image_urls[0]) || '');
       setDescription(initialData.description || '');
+
+      const currentSku = (initialData.sku || '').toUpperCase();
+      const currentBrand = (initialData.brand || '').toLowerCase();
+      if (currentSku.includes('BAJ') || currentBrand.includes('bajaj')) {
+        setSelectedBikeMake('Bajaj');
+      } else if (currentSku.includes('HER') || currentBrand.includes('hero')) {
+        setSelectedBikeMake('Hero');
+      } else if (currentSku.includes('HON') || currentBrand.includes('honda')) {
+        setSelectedBikeMake('Honda');
+      } else {
+        setSelectedBikeMake('');
+      }
     } else {
       setPartName('');
       setSku('');
@@ -92,9 +110,39 @@ export function PartFormDialog({
       setLocation('');
       setImageUrl('');
       setDescription('');
+      setSelectedBikeMake('');
     }
     setErrors({});
   }, [initialData, open]);
+
+  const handleSelectBikeMake = (make: BikeMake) => {
+    const isTogglingOff = selectedBikeMake === make;
+    setSelectedBikeMake(isTogglingOff ? '' : make);
+
+    if (!isEditing && !isTogglingOff) {
+      if (
+        !brand ||
+        brand === 'Bajaj Genuine' ||
+        brand === 'Hero Genuine' ||
+        brand === 'Honda Genuine'
+      ) {
+        setBrand(`${make} Genuine`);
+      }
+      if (!sku || sku.startsWith('SKU-')) {
+        const prefix =
+          make === 'Bajaj' ? 'SKU-BAJ-' : make === 'Hero' ? 'SKU-HER-' : 'SKU-HON-';
+        setSku(prefix);
+      }
+    }
+  };
+
+  const handleAddModelToDescription = (modelName: string) => {
+    setDescription((prev) => {
+      if (prev.includes(modelName)) return prev;
+      return prev ? `${prev} • Compatible with ${modelName}` : `Compatible with ${modelName}`;
+    });
+    toast.info(`Added "${modelName}" to part compatibility description`);
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -253,11 +301,35 @@ export function PartFormDialog({
                 </Label>
                 <Input
                   id="brand"
-                  placeholder="e.g. Brembo, Bosch, Denso, OEM"
+                  placeholder="e.g. Hero Genuine, Bajaj, Honda, NGK, Exide, MRF"
                   value={brand}
                   onChange={(e) => setBrand(e.target.value)}
                   className="bg-muted/60 border-border"
                 />
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {[
+                    'Hero Genuine',
+                    'Bajaj Genuine',
+                    'Honda Genuine',
+                    'NGK',
+                    'Exide',
+                    'MRF',
+                    'Endurance',
+                  ].map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setBrand(b)}
+                      className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                        brand === b
+                          ? 'bg-primary/15 text-primary border-primary font-medium'
+                          : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -305,6 +377,61 @@ export function PartFormDialog({
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Target Bike Make & Popular Models */}
+            <div className="rounded-lg border border-border/80 bg-muted/30 p-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-foreground">
+                  Target Two-Wheeler Make &amp; Compatible Models
+                </Label>
+                <span className="text-[11px] text-muted-foreground">
+                  Bajaj • Hero • Honda
+                </span>
+              </div>
+
+              {/* Make Selector Buttons */}
+              <div className="flex flex-wrap gap-1.5">
+                {COMMON_VEHICLE_MAKES.map((make) => {
+                  const isSelected = selectedBikeMake === make;
+                  return (
+                    <button
+                      key={make}
+                      type="button"
+                      onClick={() => handleSelectBikeMake(make)}
+                      className={`text-xs px-3 py-1 rounded-md border font-medium transition-all ${
+                        isSelected
+                          ? 'bg-primary text-primary-foreground border-primary shadow-xs'
+                          : 'bg-background text-foreground border-border hover:border-primary/50'
+                      }`}
+                    >
+                      🏍️ {make}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Models List for Selected Make */}
+              {selectedBikeMake && (
+                <div className="space-y-1 pt-1 border-t border-border/50">
+                  <div className="text-[11px] text-muted-foreground">
+                    Click a model to add to part compatibility description:
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {BIKE_MODELS_BY_MAKE[selectedBikeMake].map((model) => (
+                      <button
+                        key={model}
+                        type="button"
+                        onClick={() => handleAddModelToDescription(model)}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-background border border-border text-foreground hover:border-primary hover:text-primary transition-colors"
+                        title={`Click to add ${model} to description`}
+                      >
+                        + {model}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

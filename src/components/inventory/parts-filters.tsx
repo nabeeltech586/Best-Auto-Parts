@@ -10,7 +10,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { COMMON_PART_CATEGORIES, COMMON_VEHICLE_MAKES } from '@/lib/inventory/fitment';
+import {
+  COMMON_PART_CATEGORIES,
+  COMMON_VEHICLE_MAKES,
+  BIKE_MODELS_BY_MAKE,
+  ALL_POPULAR_BIKE_MODELS,
+  type BikeMake,
+} from '@/lib/inventory/fitment';
 import { PART_CONDITIONS, type PartCondition, type InventoryFilterParams } from '@/types/inventory';
 
 export interface PartsFiltersProps {
@@ -29,15 +35,22 @@ export function PartsFilters({
   const condition = filters.condition || 'all';
   const stockStatus = filters.stockStatus || 'all';
   const vehicleMake = filters.vehicleManufacturer || '';
+  const vehicleModel = filters.vehicleModel || '';
   const sortBy = filters.sortBy || 'updated_at';
   const sortOrder = filters.sortOrder || 'desc';
+
+  const availableModels =
+    vehicleMake && vehicleMake in BIKE_MODELS_BY_MAKE
+      ? BIKE_MODELS_BY_MAKE[vehicleMake as BikeMake]
+      : ALL_POPULAR_BIKE_MODELS;
 
   const hasActiveFilters =
     Boolean(search) ||
     Boolean(category && category !== 'all') ||
     Boolean(condition && condition !== 'all') ||
     Boolean(stockStatus && stockStatus !== 'all') ||
-    Boolean(vehicleMake && vehicleMake !== 'all');
+    Boolean(vehicleMake && vehicleMake !== 'all') ||
+    Boolean(vehicleModel && vehicleModel !== 'all');
 
   const update = (patch: Partial<InventoryFilterParams>) => {
     onChange({
@@ -139,23 +152,56 @@ export function PartsFilters({
             </SelectContent>
           </Select>
 
-          {/* Vehicle Make Filter */}
+          {/* Bike Make Filter (Bajaj • Hero • Honda) */}
           <Select
             value={vehicleMake || 'all'}
             onValueChange={(val) => {
               if (val !== null) {
-                update({ vehicleManufacturer: val === 'all' ? '' : val });
+                const nextMake = val === 'all' ? '' : val;
+                // If switching make and model is no longer in make's list, reset model
+                const modelValid =
+                  nextMake && nextMake in BIKE_MODELS_BY_MAKE
+                    ? (BIKE_MODELS_BY_MAKE[nextMake as BikeMake] as readonly string[]).includes(vehicleModel)
+                    : true;
+                update({
+                  vehicleManufacturer: nextMake,
+                  vehicleModel: modelValid ? vehicleModel : '',
+                });
               }
             }}
           >
-            <SelectTrigger className="h-9 w-[140px] bg-muted/60 border-border text-xs text-foreground">
-              <SelectValue placeholder="Vehicle Make" />
+            <SelectTrigger className="h-9 w-[145px] bg-muted/60 border-border text-xs text-foreground">
+              <SelectValue placeholder="All Bike Makes" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Vehicle Makes</SelectItem>
+              <SelectItem value="all">All Bike Makes</SelectItem>
               {COMMON_VEHICLE_MAKES.map((make) => (
                 <SelectItem key={make} value={make}>
                   {make}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Optional Bike Model Filter */}
+          <Select
+            value={vehicleModel || 'all'}
+            onValueChange={(val) => {
+              if (val !== null) {
+                update({ vehicleModel: val === 'all' ? '' : val });
+              }
+            }}
+          >
+            <SelectTrigger className="h-9 w-[145px] bg-muted/60 border-border text-xs text-foreground">
+              <SelectValue placeholder="All Bike Models" />
+            </SelectTrigger>
+            <SelectContent className="max-h-56">
+              <SelectItem value="all">
+                {vehicleMake ? `All ${vehicleMake} Models` : 'All Bike Models'}
+              </SelectItem>
+              {availableModels.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
                 </SelectItem>
               ))}
             </SelectContent>

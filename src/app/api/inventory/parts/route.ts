@@ -46,8 +46,9 @@ export async function GET(request: Request) {
       query = query.gt('quantity_in_stock', 0);
     }
 
-    // Vehicle Fitment subquery filtering
+    // Vehicle Make & Bike Model filtering (Bajaj • Hero • Honda)
     if (vehicleManufacturer || vehicleModel) {
+      // Check explicit vehicle_fitment entries if any
       let fitmentQuery = supabase
         .from('vehicle_fitment')
         .select('part_id')
@@ -57,21 +58,80 @@ export async function GET(request: Request) {
         fitmentQuery = fitmentQuery.ilike('manufacturer', `%${vehicleManufacturer}%`);
       }
       if (vehicleModel) {
-        fitmentQuery = fitmentQuery.ilike('model', `%${vehicleModel}%`);
+        const modelWord = vehicleModel.split(/[\s/]+/)[0];
+        fitmentQuery = fitmentQuery.ilike('model', `%${modelWord}%`);
       }
 
       const { data: matchedFitments } = await fitmentQuery;
       const matchedPartIds = (matchedFitments || []).map((f) => f.part_id);
-      if (matchedPartIds.length === 0) {
-        return NextResponse.json({
-          items: [],
-          total: 0,
-          page,
-          pageSize,
-          totalPages: 0,
-        });
+
+      if (vehicleManufacturer) {
+        const makeLower = vehicleManufacturer.toLowerCase();
+        const makeOrFilters: string[] = [];
+
+        if (makeLower.includes('baj')) {
+          makeOrFilters.push(
+            'sku.ilike.SKU-BAJ%',
+            'sku.ilike.%BAJ%',
+            'brand.ilike.%Bajaj%',
+            'part_name.ilike.%Bajaj%',
+            'part_name.ilike.%Pulsar%',
+            'part_name.ilike.%Platina%',
+            'part_name.ilike.%Discover%',
+            'part_name.ilike.%Avenger%',
+            'part_name.ilike.%CT 100%',
+            'part_name.ilike.%Chetak%'
+          );
+        } else if (makeLower.includes('her')) {
+          makeOrFilters.push(
+            'sku.ilike.SKU-HER%',
+            'sku.ilike.%HER%',
+            'brand.ilike.%Hero%',
+            'part_name.ilike.%Hero%',
+            'part_name.ilike.%Splendor%',
+            'part_name.ilike.%Deluxe%',
+            'part_name.ilike.%Passion%',
+            'part_name.ilike.%Glamour%',
+            'part_name.ilike.%Xtreme%',
+            'part_name.ilike.%Maestro%',
+            'part_name.ilike.%Pleasure%'
+          );
+        } else if (makeLower.includes('hon')) {
+          makeOrFilters.push(
+            'sku.ilike.SKU-HON%',
+            'sku.ilike.%HON%',
+            'brand.ilike.%Honda%',
+            'part_name.ilike.%Honda%',
+            'part_name.ilike.%Activa%',
+            'part_name.ilike.%Shine%',
+            'part_name.ilike.%Unicorn%',
+            'part_name.ilike.%Dio%',
+            'part_name.ilike.%Hornet%',
+            'part_name.ilike.%Dream%'
+          );
+        } else {
+          makeOrFilters.push(
+            `brand.ilike.%${vehicleManufacturer}%`,
+            `part_name.ilike.%${vehicleManufacturer}%`,
+            `sku.ilike.%${vehicleManufacturer}%`
+          );
+        }
+
+        if (matchedPartIds.length > 0) {
+          makeOrFilters.push(`id.in.(${matchedPartIds.join(',')})`);
+        }
+
+        query = query.or(makeOrFilters.join(','));
+      } else if (matchedPartIds.length > 0) {
+        query = query.in('id', matchedPartIds);
       }
-      query = query.in('id', matchedPartIds);
+
+      if (vehicleModel) {
+        const cleanModel = vehicleModel.split(/[\s/]+/)[0];
+        query = query.or(
+          `part_name.ilike.%${cleanModel}%,description.ilike.%${cleanModel}%,sku.ilike.%${cleanModel}%`
+        );
+      }
     }
 
     // Keyword Search

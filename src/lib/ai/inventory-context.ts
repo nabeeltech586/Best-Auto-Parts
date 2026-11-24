@@ -32,21 +32,16 @@ export interface InventoryContextResult {
   hasMatches: boolean;
 }
 
-// Known Indian & Global vehicle brands and popular models in auto parts catalogs
+// Known motorcycle & scooter brands and popular two-wheeler models in Best Auto Parts catalog
 const KNOWN_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] }> = [
   { make: 'Bajaj', models: ['Pulsar', 'Pulsar 150', 'Pulsar 180', 'Pulsar 220', 'Platina', 'Avenger', 'Discover', 'CT 100', 'Dominar', 'Chetak', 'Pulsr', 'Pulser', 'Plsr', 'Pulsur', 'Pulsr 150', 'Pulser 150', 'Platna'], aliases: ['बजाज', 'पल्सर', 'pulsr', 'pulser'] },
   { make: 'Hero', models: ['Splendor', 'Super Splendor', 'Splendor Plus', 'HF Deluxe', 'Glamour', 'Passion', 'Passion Pro', 'Xtreme', 'Xpulse', 'Pleasure', 'Maestro', 'Splendr', 'Slendor', 'Splender', 'Splendr Plus', 'Passn'], aliases: ['हीरो', 'स्प्लेंडर', 'ग्लैमर', 'splendr', 'slendor'] },
-  { make: 'Honda', models: ['Activa', 'Activa 6G', 'Shine', 'CB Shine', 'Unicorn', 'Dio', 'Hornet', 'City', 'Civic', 'Amaze', 'Elevate', 'Actva', 'Aktiva', 'Acteva'], aliases: ['होंडा', 'एक्टिवा', 'actva', 'aktiva'] },
+  { make: 'Honda', models: ['Activa', 'Activa 3G', 'Activa 4G', 'Activa 5G', 'Activa 6G', 'Shine', 'CB Shine', 'Unicorn', 'SP 125', 'Dio', 'Hornet', 'CD 110 Dream', 'Livo', 'Actva', 'Aktiva', 'Acteva'], aliases: ['होंडा', 'एक्टिवा', 'actva', 'aktiva'] },
   { make: 'TVS', models: ['Apache', 'RTR 160', 'RTR 200', 'Jupiter', 'XL100', 'Raider', 'Ntorq', 'Sport', 'Star City'], aliases: ['टीवीएस', 'अपाचे', 'जुपिटर'] },
   { make: 'Royal Enfield', models: ['Bullet', 'Bullet 350', 'Classic 350', 'Meteor', 'Hunter', 'Himalayan', 'Continental GT'], aliases: ['रॉयल एनफील्ड', 'बुलेट', 'क्लासिक'] },
   { make: 'Yamaha', models: ['R15', 'MT 15', 'FZ', 'FZ-S', 'Fascino', 'RayZR', 'Aerox'], aliases: ['यामाहा'] },
   { make: 'Suzuki', models: ['Access', 'Access 125', 'Burgman', 'Gixxer', 'Hayate'], aliases: ['सुजुकी', 'एक्सेस'] },
   { make: 'KTM', models: ['Duke', 'Duke 200', 'Duke 250', 'Duke 390', 'RC 200', 'RC 390', 'Adventure'], aliases: ['ड्यूक'] },
-  { make: 'Maruti Suzuki', models: ['Swift', 'Dzire', 'Baleno', 'Brezza', 'WagonR', 'Alto', 'Ertiga'], aliases: ['मारुति', 'स्विफ्ट'] },
-  { make: 'Toyota', models: ['Innova', 'Innova Crysta', 'Fortuner', 'Corolla', 'Camry', 'Urban Cruiser', 'Glanza'], aliases: ['टोयोटा', 'इनोवा'] },
-  { make: 'Hyundai', models: ['Creta', 'i20', 'i10', 'Venue', 'Verna', 'Tucson'], aliases: ['हुंडई', 'क्रेटा'] },
-  { make: 'Tata', models: ['Nexon', 'Punch', 'Harrier', 'Safari', 'Tiago', 'Altroz'], aliases: ['टाटा', 'नेक्सॉन'] },
-  { make: 'Mahindra', models: ['Scorpio', 'Scorpio-N', 'Thar', 'Bolero', 'XUV700', 'XUV300'], aliases: ['महिंद्रा', 'स्कॉर्पियो', 'थार'] },
 ];
 
 // Common automotive parts and spare components in English, Hindi, and Hinglish

@@ -41,8 +41,10 @@ import {
 } from '@/components/ui/table';
 import {
   COMMON_VEHICLE_MAKES,
+  BIKE_MODELS_BY_MAKE,
   FUEL_TYPES,
   validateFitmentYearRange,
+  type BikeMake,
 } from '@/lib/inventory/fitment';
 import type { VehicleFitment } from '@/types/inventory';
 
@@ -74,7 +76,7 @@ export function VehicleFitmentSection({
   const [yearTo, setYearTo] = useState('');
   const [engine, setEngine] = useState('');
   const [fuelType, setFuelType] = useState('');
-  const [vehicleType, setVehicleType] = useState('Passenger Car');
+  const [vehicleType, setVehicleType] = useState('Motorcycle / Bike');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -87,7 +89,7 @@ export function VehicleFitmentSection({
     setYearTo('');
     setEngine('');
     setFuelType('');
-    setVehicleType('Passenger Car');
+    setVehicleType('Motorcycle / Bike');
     setNotes('');
     setError(null);
   };
@@ -386,7 +388,7 @@ export function VehicleFitmentSection({
                   </Label>
                   <Input
                     id="custom_make"
-                    placeholder="e.g. Scion, Genesis"
+                    placeholder="e.g. TVS, Royal Enfield, Yamaha"
                     value={customMake}
                     onChange={(e) => setCustomMake(e.target.value)}
                     required
@@ -407,12 +409,10 @@ export function VehicleFitmentSection({
                       <SelectValue placeholder="Type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Passenger Car">Passenger Car</SelectItem>
-                      <SelectItem value="SUV / Crossover">SUV / Crossover</SelectItem>
-                      <SelectItem value="Pickup Truck">Pickup Truck</SelectItem>
-                      <SelectItem value="Van / Minivan">Van / Minivan</SelectItem>
-                      <SelectItem value="Motorcycle">Motorcycle</SelectItem>
-                      <SelectItem value="Commercial">Commercial / Heavy Duty</SelectItem>
+                      <SelectItem value="Motorcycle / Bike">Motorcycle / Bike</SelectItem>
+                      <SelectItem value="Scooter">Scooter</SelectItem>
+                      <SelectItem value="Moped">Moped</SelectItem>
+                      <SelectItem value="Three-Wheeler / Auto">Three-Wheeler / Auto</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -427,7 +427,7 @@ export function VehicleFitmentSection({
                 </Label>
                 <Input
                   id="fit_model"
-                  placeholder="e.g. Camry, F-150, Civic"
+                  placeholder="e.g. Pulsar 150, Splendor Plus, Activa 6G"
                   value={model}
                   onChange={(e) => {
                     setModel(e.target.value);
@@ -435,6 +435,27 @@ export function VehicleFitmentSection({
                   }}
                   required
                 />
+                {manufacturer && manufacturer in BIKE_MODELS_BY_MAKE && (
+                  <div className="flex flex-wrap gap-1 pt-1 max-h-20 overflow-y-auto">
+                    {BIKE_MODELS_BY_MAKE[manufacturer as BikeMake].map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => {
+                          setModel(m);
+                          setError(null);
+                        }}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                          model === m
+                            ? 'bg-primary/15 text-primary border-primary font-medium'
+                            : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="fit_variant" className="text-xs font-semibold">
@@ -442,7 +463,7 @@ export function VehicleFitmentSection({
                 </Label>
                 <Input
                   id="fit_variant"
-                  placeholder="e.g. LE, GT-Line, AWD"
+                  placeholder="e.g. Drum, Disc, Self-Start, Alloy, BS6"
                   value={variant}
                   onChange={(e) => setVariant(e.target.value)}
                 />
@@ -496,7 +517,7 @@ export function VehicleFitmentSection({
                 </Label>
                 <Input
                   id="fit_engine"
-                  placeholder="e.g. 2.5L I4, 3.5L V6"
+                  placeholder="e.g. 97.2cc, 109.5cc, 124.7cc, 149.5cc DTS-i"
                   value={engine}
                   onChange={(e) => setEngine(e.target.value)}
                 />
