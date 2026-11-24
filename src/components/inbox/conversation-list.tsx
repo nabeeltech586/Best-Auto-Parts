@@ -185,8 +185,16 @@ export function ConversationList({
       result = result.filter((c) => {
         const name = c.contact?.name?.toLowerCase() ?? "";
         const phone = c.contact?.phone?.toLowerCase() ?? "";
+        const uniqueCode = c.contact?.unique_code?.toLowerCase() ?? "";
+        const company = c.contact?.company?.toLowerCase() ?? "";
         const lastMsg = c.last_message_text?.toLowerCase() ?? "";
-        return name.includes(q) || phone.includes(q) || lastMsg.includes(q);
+        return (
+          name.includes(q) ||
+          phone.includes(q) ||
+          uniqueCode.includes(q) ||
+          company.includes(q) ||
+          lastMsg.includes(q)
+        );
       });
     }
 

@@ -36,11 +36,13 @@ import {
   Save,
   IndianRupee,
   LayoutTemplate,
+  Lock,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { planCustomValueWrites } from '@/lib/contacts/custom-value-writes';
 import { contactHandle } from '@/lib/whatsapp/wa-identity';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
+import { OwnerPinModal } from '@/components/auth/owner-pin-modal';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -80,6 +82,18 @@ export function ContactDetailView({
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [contactTagIds, setContactTagIds] = useState<string[]>([]);
   const [savingTags, setSavingTags] = useState(false);
+
+  // Owner PIN Protection
+  const [ownerPinOpen, setOwnerPinOpen] = useState(false);
+  const [ownerPinConfig, setOwnerPinConfig] = useState<{
+    title: string;
+    description: string;
+    action: () => void;
+  }>({
+    title: 'Owner PIN Required',
+    description: 'Enter your 4-digit Owner PIN to proceed.',
+    action: () => {},
+  });
 
   // Notes tab
   const [notes, setNotes] = useState<ContactNote[]>([]);
@@ -237,23 +251,42 @@ export function ContactDetailView({
 
   async function toggleTag(tagId: string) {
     if (!contactId) return;
-    setSavingTags(true);
-
     const isSelected = contactTagIds.includes(tagId);
 
+    if (isSelected) {
+      // Removing tag is protected by Owner PIN
+      const tag = allTags.find((t) => t.id === tagId);
+      setOwnerPinConfig({
+        title: 'Remove Contact Tag',
+        description: `Enter 4-digit Owner PIN to remove tag "${tag?.name || 'Tag'}" from ${contact?.name || 'this contact'}.`,
+        action: () => executeToggleTag(tagId, true),
+      });
+      setOwnerPinOpen(true);
+      return;
+    }
+
+    await executeToggleTag(tagId, false);
+  }
+
+  async function executeToggleTag(tagId: string, isRemoval: boolean) {
+    if (!contactId) return;
+    setSavingTags(true);
     try {
-      if (isSelected) {
+      if (isRemoval) {
         await deleteContactTag(contactId, tagId);
         setContactTagIds((prev) => prev.filter((id) => id !== tagId));
+        toast.success('Tag removed');
       } else {
         await addContactTag(contactId, tagId);
         setContactTagIds((prev) => [...prev, tagId]);
+        toast.success('Tag added');
       }
       onUpdated();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('toastUpdateFailed'));
+    } finally {
+      setSavingTags(false);
     }
-    setSavingTags(false);
   }
 
   async function addNote() {
@@ -287,18 +320,25 @@ export function ContactDetailView({
     setSavingNote(false);
   }
 
-  async function deleteNote(noteId: string) {
-    const { error } = await supabase
-      .from('contact_notes')
-      .delete()
-      .eq('id', noteId);
+  function handleDeleteNote(noteId: string) {
+    setOwnerPinConfig({
+      title: 'Delete Note',
+      description: 'Enter 4-digit Owner PIN to delete this contact note.',
+      action: async () => {
+        const { error } = await supabase
+          .from('contact_notes')
+          .delete()
+          .eq('id', noteId);
 
-    if (error) {
-      toast.error(t('toastNoteDeleteFailed'));
-    } else {
-      setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      toast.success(t('toastNoteDeleted'));
-    }
+        if (error) {
+          toast.error(t('toastNoteDeleteFailed'));
+        } else {
+          setNotes((prev) => prev.filter((n) => n.id !== noteId));
+          toast.success(t('toastNoteDeleted'));
+        }
+      },
+    });
+    setOwnerPinOpen(true);
   }
 
   async function saveCustomFields() {
@@ -470,9 +510,10 @@ export function ContactDetailView({
                 </TabsTrigger>
                 <TabsTrigger
                   value="tags"
-                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                  className="data-active:bg-muted data-active:text-primary text-muted-foreground inline-flex items-center gap-1.5"
                 >
-                  {t('tabs.tags')}
+                  <span>{t('tabs.tags')}</span>
+                  <Lock className="size-3 text-muted-foreground/70" />
                 </TabsTrigger>
                 <TabsTrigger
                   value="notes"
@@ -577,7 +618,8 @@ export function ContactDetailView({
                             }}
                           >
                             {selected && <Check className="size-3 mr-1" />}
-                            {tag.name}
+                            <span>{tag.name}</span>
+                            {selected && <Lock className="size-2.5 ml-1 opacity-70" />}
                           </button>
                         );
                       })}
@@ -630,8 +672,9 @@ export function ContactDetailView({
                             {note.note_text}
                           </p>
                           <button
-                            onClick={() => deleteNote(note.id)}
+                            onClick={() => handleDeleteNote(note.id)}
                             className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all cursor-pointer shrink-0"
+                            title="Delete note (Owner PIN Protected)"
                           >
                             <Trash2 className="size-3.5" />
                           </button>
@@ -763,6 +806,13 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+    />
+    <OwnerPinModal
+      open={ownerPinOpen}
+      onOpenChange={setOwnerPinOpen}
+      title={ownerPinConfig.title}
+      description={ownerPinConfig.description}
+      onSuccess={ownerPinConfig.action}
     />
     </>
   );

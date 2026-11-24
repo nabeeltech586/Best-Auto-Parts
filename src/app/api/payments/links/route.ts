@@ -102,9 +102,34 @@ export async function GET(request: Request) {
     }
 
     if (search) {
-      query = query.or(
-        `order_id.ilike.%${search}%,customer_name.ilike.%${search}%,customer_phone.ilike.%${search}%,part_details.ilike.%${search}%,merchant_transaction_id.ilike.%${search}%`
-      );
+      const searchConditions = [
+        `order_id.ilike.%${search}%`,
+        `customer_name.ilike.%${search}%`,
+        `customer_phone.ilike.%${search}%`,
+        `part_details.ilike.%${search}%`,
+        `merchant_transaction_id.ilike.%${search}%`,
+      ];
+
+      // If search is a unique contact code (e.g. BAP-MEC-001), resolve partner details
+      if (/^BAP-/i.test(search)) {
+        try {
+          const { data: matchedContact } = await db
+            .from('contacts')
+            .select('name, phone, company')
+            .ilike('unique_code', `%${search}%`)
+            .maybeSingle();
+
+          if (matchedContact) {
+            if (matchedContact.phone) searchConditions.push(`customer_phone.ilike.%${matchedContact.phone}%`);
+            if (matchedContact.name) searchConditions.push(`customer_name.ilike.%${matchedContact.name}%`);
+            if (matchedContact.company) searchConditions.push(`customer_name.ilike.%${matchedContact.company}%`);
+          }
+        } catch {
+          // Non-critical optimization
+        }
+      }
+
+      query = query.or(searchConditions.join(','));
     }
 
     const [linksRes, metricsRes] = await Promise.all([

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { generateNextUniqueCode } from './unique-code';
 
 /**
  * Normalizes phone numbers to standard 10-digit Indian mobile format
@@ -162,12 +163,14 @@ export async function syncDistributorsAndWholesalers(
         // Determine user_id to use if available from an existing contact row in account
         const fallbackUserId = contactsList[0]?.user_id || null;
 
+        const uniqueCode = await generateNextUniqueCode(supabase, targetAccountId, target.category);
         const insertPayload: Record<string, unknown> = {
           account_id: targetAccountId,
           name: target.contactPerson || target.firmName,
           company: target.firmName,
           phone: target.phone,
           category: target.category,
+          unique_code: uniqueCode,
         };
         if (fallbackUserId) {
           insertPayload.user_id = fallbackUserId;
@@ -236,6 +239,7 @@ export async function syncSupplierToContact(
       .limit(1)
       .maybeSingle();
 
+    const uniqueCode = await generateNextUniqueCode(supabase, supplier.account_id, category);
     await supabase.from('contacts').insert({
       account_id: supplier.account_id,
       user_id: sample?.user_id,
@@ -243,6 +247,7 @@ export async function syncSupplierToContact(
       company: supplier.firm_name,
       phone: supplier.whatsapp_number,
       category,
+      unique_code: uniqueCode,
     });
   }
 }

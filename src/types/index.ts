@@ -119,6 +119,7 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  unique_code?: string;
   category?: 'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer' | string;
   pending_balance?: number;
   monthly_purchases?: number;

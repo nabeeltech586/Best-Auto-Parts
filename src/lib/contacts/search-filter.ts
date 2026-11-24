@@ -25,16 +25,24 @@ export function contactSearchPattern(rawSearch: string): string | null {
 
 export interface ContactSearchOptions {
   includeEmail?: boolean;
+  includeCompany?: boolean;
+  includeUniqueCode?: boolean;
 }
 
 export function contactSearchFilter(
   rawSearch: string,
-  { includeEmail = false }: ContactSearchOptions = {}
+  {
+    includeEmail = false,
+    includeCompany = false,
+    includeUniqueCode = false,
+  }: ContactSearchOptions = {}
 ): string | null {
   const search = sanitizeContactSearch(rawSearch);
   if (!search) return null;
   const textPattern = escapeLikeUnderscore(search);
   const conditions = [`name.ilike.*${textPattern}*`];
+  if (includeCompany) conditions.push(`company.ilike.*${textPattern}*`);
+  if (includeUniqueCode) conditions.push(`unique_code.ilike.*${textPattern}*`);
   const digits = phoneSearchDigits(rawSearch);
   if (digits) conditions.push(`phone.ilike.*${digits}*`);
   else if (/\d/.test(search)) conditions.push(`phone.ilike.*${textPattern}*`);

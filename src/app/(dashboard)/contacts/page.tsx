@@ -62,6 +62,8 @@ import {
   Store,
   User,
   MoreVertical,
+  Lock,
+  ShieldAlert,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -79,11 +81,13 @@ import {
   syncDistributorsAndWholesalers,
   syncContactToSupplier,
 } from '@/lib/contacts/distributor-sync';
+import { OwnerPinModal } from '@/components/auth/owner-pin-modal';
+import { getContactUniqueCode } from '@/lib/contacts/unique-code';
 
 const PAGE_SIZE = 25;
 
 export type ContactCategory = 'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer';
-export type CategoryTab = 'All' | ContactCategory;
+export type CategoryTab = 'All' | 'UdhaarDue' | ContactCategory;
 
 interface ContactWithTags extends Contact {
   tags?: Tag[];
@@ -107,6 +111,7 @@ export default function ContactsPage() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryTab>('All');
   const [categoryCounts, setCategoryCounts] = useState<Record<CategoryTab, number>>({
     All: 0,
+    UdhaarDue: 0,
     Distributor: 0,
     Wholesaler: 0,
     Mechanic: 0,
@@ -115,6 +120,27 @@ export default function ContactsPage() {
 
   // Dues / Udhaar map by phone (digits)
   const [duesByPhone, setDuesByPhone] = useState<Record<string, number>>({});
+
+  // Owner PIN protection modal state
+  const [ownerPinOpen, setOwnerPinOpen] = useState(false);
+  const [ownerPinConfig, setOwnerPinConfig] = useState<{
+    title: string;
+    description: string;
+    action: () => void;
+  }>({
+    title: 'Owner Security PIN Required',
+    description: 'Enter your 4-digit Owner PIN to proceed.',
+    action: () => {},
+  });
+
+  function requestOwnerPin(config: {
+    title: string;
+    description: string;
+    action: () => void;
+  }) {
+    setOwnerPinConfig(config);
+    setOwnerPinOpen(true);
+  }
 
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -143,35 +169,56 @@ export default function ContactsPage() {
 
   const fetchSeq = useRef(0);
 
+  // Calculate live Udhaar / Due amount for a contact
+  const getContactDue = useCallback(
+    (contact: Contact | ContactWithTags): number => {
+      const directBalance = Number(contact.pending_balance || 0);
+      const rawPhone = (contact.phone || '').replace(/\D/g, '').slice(-10);
+      const mappedDue = rawPhone ? duesByPhone[rawPhone] || 0 : 0;
+      return Math.max(directBalance, mappedDue);
+    },
+    [duesByPhone]
+  );
+
   // Fetch Category Counts across all contacts
-  const fetchCategoryCounts = useCallback(async () => {
-    try {
-      const { data } = await supabase.from('contacts').select('category');
-      if (data) {
-        const counts: Record<CategoryTab, number> = {
-          All: data.length,
-          Distributor: 0,
-          Wholesaler: 0,
-          Mechanic: 0,
-          Customer: 0,
-        };
-        data.forEach((c) => {
-          const cat = c.category as ContactCategory;
-          if (cat && counts[cat] !== undefined) {
-            counts[cat]++;
-          } else {
-            counts.Customer++;
-          }
-        });
-        setCategoryCounts(counts);
+  const fetchCategoryCounts = useCallback(
+    async (currentDuesMap?: Record<string, number>) => {
+      try {
+        const activeDues = currentDuesMap || duesByPhone;
+        const { data } = await supabase.from('contacts').select('category, phone, pending_balance');
+        if (data) {
+          const counts: Record<CategoryTab, number> = {
+            All: data.length,
+            UdhaarDue: 0,
+            Distributor: 0,
+            Wholesaler: 0,
+            Mechanic: 0,
+            Customer: 0,
+          };
+          data.forEach((c) => {
+            const cat = c.category as ContactCategory;
+            if (cat && counts[cat] !== undefined) {
+              counts[cat]++;
+            } else {
+              counts.Customer++;
+            }
+            const rawPhone = (c.phone || '').replace(/\D/g, '').slice(-10);
+            const due = Math.max(Number(c.pending_balance || 0), rawPhone ? activeDues[rawPhone] || 0 : 0);
+            if (due > 0) {
+              counts.UdhaarDue++;
+            }
+          });
+          setCategoryCounts(counts);
+        }
+      } catch (err) {
+        console.error('Failed to fetch category counts:', err);
       }
-    } catch (err) {
-      console.error('Failed to fetch category counts:', err);
-    }
-  }, [supabase]);
+    },
+    [supabase, duesByPhone]
+  );
 
   // Fetch Live Udhaar / Balance dues from purchase_orders and payment_links
-  const fetchLiveDues = useCallback(async () => {
+  const fetchLiveDues = useCallback(async (): Promise<Record<string, number>> => {
     try {
       const duesMap: Record<string, number> = {};
 
@@ -204,8 +251,10 @@ export default function ContactsPage() {
       });
 
       setDuesByPhone(duesMap);
+      return duesMap;
     } catch (err) {
       console.error('Failed to load live dues map:', err);
+      return {};
     }
   }, [supabase]);
 
@@ -252,7 +301,9 @@ export default function ContactsPage() {
       let rawContacts = rows.map((r) => r.contact);
 
       // Filter by selected category if specified
-      if (selectedCategory !== 'All') {
+      if (selectedCategory === 'UdhaarDue') {
+        rawContacts = rawContacts.filter((c) => getContactDue(c) > 0);
+      } else if (selectedCategory !== 'All') {
         if (selectedCategory === 'Customer') {
           rawContacts = rawContacts.filter((c) => !c.category || c.category === 'Customer');
         } else {
@@ -263,6 +314,31 @@ export default function ContactsPage() {
       contactRows = rawContacts;
       count = rows.length > 0 ? Number(rows[0].total_count) : 0;
       countIsExact = rows.length > 0;
+    } else if (selectedCategory === 'UdhaarDue') {
+      let query = supabase
+        .from('contacts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      const searchFilter = contactSearchFilter(term, {
+        includeEmail: true,
+        includeCompany: true,
+        includeUniqueCode: true,
+      });
+      if (searchFilter) query = query.or(searchFilter);
+
+      const { data, error } = await query;
+      if (seq !== fetchSeq.current) return;
+      if (error) {
+        toast.error(t('toastFailedLoad'));
+        setLoading(false);
+        return;
+      }
+
+      const dueFiltered = (data ?? []).filter((c) => getContactDue(c) > 0);
+      count = dueFiltered.length;
+      contactRows = dueFiltered.slice(from, to + 1);
+      countIsExact = true;
     } else {
       let query = supabase
         .from('contacts')
@@ -278,7 +354,11 @@ export default function ContactsPage() {
         }
       }
 
-      const searchFilter = contactSearchFilter(term, { includeEmail: true });
+      const searchFilter = contactSearchFilter(term, {
+        includeEmail: true,
+        includeCompany: true,
+        includeUniqueCode: true,
+      });
       if (searchFilter) query = query.or(searchFilter);
 
       const { data, count: exactCount, error } = await query;
@@ -332,12 +412,13 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedCategory, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedCategory, selectedTagIds, tagsMap, getContactDue, t]);
 
   useEffect(() => {
     fetchTags();
-    fetchCategoryCounts();
-    fetchLiveDues();
+    fetchLiveDues().then((dues) => {
+      fetchCategoryCounts(dues);
+    });
 
     // Auto-sync existing and future distributors & wholesalers into contacts
     syncDistributorsAndWholesalers(supabase).then((res) => {
@@ -351,6 +432,21 @@ export default function ContactsPage() {
   useEffect(() => {
     fetchContacts();
   }, [fetchContacts]);
+
+  // Request PIN to change category
+  function onSelectNewCategory(
+    contactId: string,
+    contactName: string,
+    newCategory: ContactCategory,
+    currentCategory: ContactCategory
+  ) {
+    if (newCategory === currentCategory) return;
+    requestOwnerPin({
+      title: 'Change Contact Role',
+      description: `Enter 4-digit Owner PIN to change role for "${contactName || 'this contact'}" to ${newCategory}.`,
+      action: () => handleUpdateCategory(contactId, contactName, newCategory),
+    });
+  }
 
   // Inline Category Update
   async function handleUpdateCategory(
@@ -399,14 +495,6 @@ export default function ContactsPage() {
     setTimeout(() => setCopiedPhone(null), 2000);
   }
 
-  // Calculate live Udhaar / Due amount for a contact
-  function getContactDue(contact: ContactWithTags): number {
-    const directBalance = Number(contact.pending_balance || 0);
-    const rawPhone = (contact.phone || '').replace(/\D/g, '').slice(-10);
-    const mappedDue = rawPhone ? duesByPhone[rawPhone] || 0 : 0;
-    return Math.max(directBalance, mappedDue);
-  }
-
   function openAddForm() {
     setEditContact(null);
     setEditContactTags([]);
@@ -429,8 +517,14 @@ export default function ContactsPage() {
   }
 
   function confirmDelete(contact: Contact) {
-    setDeleteTarget(contact);
-    setDeleteConfirmOpen(true);
+    requestOwnerPin({
+      title: 'Delete Contact',
+      description: `Enter 4-digit Owner PIN to permanently delete "${contact.name || contact.phone}".`,
+      action: () => {
+        setDeleteTarget(contact);
+        setDeleteConfirmOpen(true);
+      },
+    });
   }
 
   async function handleDelete() {
@@ -474,6 +568,16 @@ export default function ContactsPage() {
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
+    });
+  }
+
+  function handleBulkDeleteClick() {
+    requestOwnerPin({
+      title: 'Bulk Delete Contacts',
+      description: `Enter 4-digit Owner PIN to permanently delete ${selected.size} selected contacts.`,
+      action: () => {
+        setBulkDeleteOpen(true);
+      },
     });
   }
 
@@ -578,7 +682,7 @@ export default function ContactsPage() {
       {/* Category Filter Tabs with Live Counts */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-border bg-card/60 p-2 shadow-sm">
         <div className="flex flex-wrap items-center gap-1.5">
-          {(['All', 'Distributor', 'Wholesaler', 'Mechanic', 'Customer'] as const).map((cat) => {
+          {(['All', 'UdhaarDue', 'Distributor', 'Wholesaler', 'Mechanic', 'Customer'] as const).map((cat) => {
             const isSelected = selectedCategory === cat;
             const count = categoryCounts[cat] ?? 0;
             return (
@@ -591,7 +695,9 @@ export default function ContactsPage() {
                 }}
                 className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                   isSelected
-                    ? cat === 'Distributor'
+                    ? cat === 'UdhaarDue'
+                      ? 'border-rose-500 bg-rose-600 text-white shadow-sm'
+                      : cat === 'Distributor'
                       ? 'border-blue-500 bg-blue-600 text-white shadow-sm'
                       : cat === 'Wholesaler'
                       ? 'border-purple-500 bg-purple-600 text-white shadow-sm'
@@ -600,20 +706,25 @@ export default function ContactsPage() {
                       : cat === 'Customer'
                       ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
                       : 'border-primary bg-primary text-primary-foreground shadow-sm'
+                    : cat === 'UdhaarDue'
+                    ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20'
                     : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
                 <span>
+                  {cat === 'UdhaarDue' && '⚠️ '}
                   {cat === 'Distributor' && '🏢 '}
                   {cat === 'Wholesaler' && '🏬 '}
                   {cat === 'Mechanic' && '🔧 '}
                   {cat === 'Customer' && '👤 '}
-                  {cat}
+                  {cat === 'UdhaarDue' ? 'Udhaar Due' : cat}
                 </span>
                 <span
                   className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
                     isSelected
                       ? 'bg-black/20 text-white'
+                      : cat === 'UdhaarDue'
+                      ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
                       : 'bg-muted text-muted-foreground'
                   }`}
                 >
@@ -647,7 +758,7 @@ export default function ContactsPage() {
                 setSearch(e.target.value);
                 setPage(0);
               }}
-              placeholder="Search name, phone number, company..."
+              placeholder="Search name, phone, company, or Unique ID (BAP-...)..."
               className="pl-9 h-9 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
@@ -770,7 +881,7 @@ export default function ContactsPage() {
               size="sm"
               canAct={canEdit}
               gateReason={tGate('reasons.deleteContacts')}
-              onClick={() => setBulkDeleteOpen(true)}
+              onClick={handleBulkDeleteClick}
             >
               <Trash2 className="size-4 mr-1.5" />
               {t('deleteSelected')}
@@ -794,9 +905,19 @@ export default function ContactsPage() {
                 />
               </TableHead>
               <TableHead className="font-semibold text-foreground">Contact & Mobile</TableHead>
-              <TableHead className="font-semibold text-foreground">Role / Category</TableHead>
+              <TableHead className="font-semibold text-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <span>Role / Category</span>
+                  <Lock className="size-3 text-muted-foreground/70" />
+                </span>
+              </TableHead>
               <TableHead className="font-semibold text-foreground">Udhaar / Balance</TableHead>
-              <TableHead className="font-semibold text-foreground hidden md:table-cell">Tags</TableHead>
+              <TableHead className="font-semibold text-foreground hidden md:table-cell">
+                <span className="inline-flex items-center gap-1">
+                  <span>Tags</span>
+                  <Lock className="size-3 text-muted-foreground/70" />
+                </span>
+              </TableHead>
               <TableHead className="font-semibold text-foreground hidden lg:table-cell">Created</TableHead>
               <TableHead className="w-12 text-right font-semibold text-foreground">Actions</TableHead>
             </TableRow>
@@ -842,15 +963,21 @@ export default function ContactsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              contacts.map((contact) => {
+              contacts.map((contact, idx) => {
                 const dueAmount = getContactDue(contact);
+                const hasUdhaar = dueAmount > 0;
+                const uniqueCode = getContactUniqueCode(contact, page * PAGE_SIZE + idx + 1);
                 const isPhoneCopied = copiedPhone === contact.phone;
                 const contactCategory = (contact.category as ContactCategory) || 'Customer';
 
                 return (
                   <TableRow
                     key={contact.id}
-                    className="border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-colors"
+                    className={`border-b cursor-pointer transition-colors ${
+                      hasUdhaar
+                        ? 'bg-amber-50/80 dark:bg-amber-950/20 border-l-4 border-l-rose-500 hover:bg-amber-100/70 dark:hover:bg-amber-950/30 border-border/60'
+                        : 'border-border/60 hover:bg-muted/40'
+                    }`}
                     onClick={() => openDetail(contact.id)}
                   >
                     {/* Checkbox */}
@@ -862,16 +989,41 @@ export default function ContactsPage() {
                       />
                     </TableCell>
 
-                    {/* Name & Phone (with 1-click copy) */}
+                    {/* Name, Unique ID Pill, & Phone (with 1-click copy) */}
                     <TableCell>
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-foreground text-sm">
-                            {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* Permanent Unique ID Pill */}
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono font-bold tracking-tight bg-muted/80 text-foreground border border-border shadow-2xs">
+                            {uniqueCode}
                           </span>
+
+                          {/* Contact Name */}
+                          <span
+                            className={`text-sm ${
+                              hasUdhaar
+                                ? 'font-bold text-rose-950 dark:text-rose-200'
+                                : 'font-semibold text-foreground'
+                            }`}
+                          >
+                            {contact.name || (
+                              <span className="text-muted-foreground italic font-normal">
+                                {t('unnamed')}
+                              </span>
+                            )}
+                          </span>
+
+                          {/* Company / Shop Badge */}
                           {contact.company && (
                             <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground border border-border/40">
                               {contact.company}
+                            </span>
+                          )}
+
+                          {/* ⚠️ UDHAR Badge if balance due */}
+                          {hasUdhaar && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 animate-pulse">
+                              <span>⚠️ UDHAR ₹{dueAmount.toLocaleString('en-IN')}</span>
                             </span>
                           )}
                         </div>
@@ -895,7 +1047,7 @@ export default function ContactsPage() {
                       </div>
                     </TableCell>
 
-                    {/* Category Dropdown (1-click inline changer) */}
+                    {/* Category Dropdown (Owner PIN Protected) */}
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger
@@ -911,7 +1063,7 @@ export default function ContactsPage() {
                                   ? 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25'
                                   : 'border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25'
                               }`}
-                              title="Click to change contact role"
+                              title="Click to change contact role (Owner PIN Protected)"
                             />
                           }
                         >
@@ -925,14 +1077,26 @@ export default function ContactsPage() {
                             <User className="size-3" />
                           )}
                           <span>{contactCategory}</span>
+                          <Lock className="size-2.5 text-muted-foreground/80 opacity-70 ml-0.5" />
                           <ChevronDown className="size-3 opacity-60" />
                         </DropdownMenuTrigger>
 
-                        <DropdownMenuContent align="start" className="w-44 bg-popover border-border shadow-lg">
+                        <DropdownMenuContent align="start" className="w-48 bg-popover border-border shadow-lg">
+                          <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1 border-b border-border/50">
+                            <Lock className="size-3 text-amber-500" />
+                            <span>Owner PIN Protected</span>
+                          </div>
                           {(['Customer', 'Mechanic', 'Wholesaler', 'Distributor'] as const).map((cat) => (
                             <DropdownMenuItem
                               key={cat}
-                              onClick={() => handleUpdateCategory(contact.id, contact.name || contact.phone, cat)}
+                              onClick={() =>
+                                onSelectNewCategory(
+                                  contact.id,
+                                  contact.name || contact.phone,
+                                  cat,
+                                  contactCategory
+                                )
+                              }
                               className={`cursor-pointer text-xs font-medium flex items-center justify-between ${
                                 contactCategory === cat ? 'bg-muted font-bold' : ''
                               }`}
@@ -959,15 +1123,15 @@ export default function ContactsPage() {
                           onClick={() => {
                             router.push(
                               `/payments?tab=udhaar&search=${encodeURIComponent(
-                                contact.phone || contact.name || ''
+                                contact.phone || contact.name || uniqueCode || ''
                               )}`
                             );
                           }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors"
-                          title="Open Udhaar Ledger"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/40 hover:bg-rose-500/25 transition-colors shadow-2xs"
+                          title="Open BestPay Udhaar Ledger"
                         >
                           <AlertCircle className="size-3.5 shrink-0" />
-                          <span>₹{dueAmount.toLocaleString('en-IN')} Due</span>
+                          <span>⚠️ ₹{dueAmount.toLocaleString('en-IN')} Due</span>
                         </button>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
@@ -1050,7 +1214,7 @@ export default function ContactsPage() {
                             onClick={() => {
                               router.push(
                                 `/payments?search=${encodeURIComponent(
-                                  contact.phone || contact.name || ''
+                                  contact.phone || contact.name || uniqueCode || ''
                                 )}`
                               );
                             }}
@@ -1065,7 +1229,7 @@ export default function ContactsPage() {
                             onClick={() => {
                               router.push(
                                 `/payments?tab=udhaar&search=${encodeURIComponent(
-                                  contact.phone || contact.name || ''
+                                  contact.phone || contact.name || uniqueCode || ''
                                 )}`
                               );
                             }}
@@ -1086,14 +1250,17 @@ export default function ContactsPage() {
                             <span>{t('editAction')}</span>
                           </DropdownMenuItem>
 
-                          {/* Delete Contact */}
+                          {/* Delete Contact (Owner PIN Protected) */}
                           <DropdownMenuItem
                             variant="destructive"
                             onClick={() => confirmDelete(contact)}
-                            className="cursor-pointer text-red-500 hover:bg-red-500/10"
+                            className="cursor-pointer text-red-500 hover:bg-red-500/10 flex items-center justify-between"
                           >
-                            <Trash2 className="mr-2 size-4" />
-                            <span>{t('deleteAction')}</span>
+                            <span className="flex items-center">
+                              <Trash2 className="mr-2 size-4" />
+                              <span>{t('deleteAction')}</span>
+                            </span>
+                            <Lock className="size-3 text-red-400 opacity-80" />
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1237,6 +1404,15 @@ export default function ContactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Owner PIN Protection Modal */}
+      <OwnerPinModal
+        open={ownerPinOpen}
+        onOpenChange={setOwnerPinOpen}
+        title={ownerPinConfig.title}
+        description={ownerPinConfig.description}
+        onSuccess={ownerPinConfig.action}
+      />
     </div>
   );
 }

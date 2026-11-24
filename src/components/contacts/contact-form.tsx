@@ -14,6 +14,7 @@ import {
 } from '@/lib/contacts/dedupe';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
 import { syncContactToSupplier } from '@/lib/contacts/distributor-sync';
+import { generateNextUniqueCode } from '@/lib/contacts/unique-code';
 import {
   Dialog,
   DialogContent,
@@ -25,8 +26,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2, AlertTriangle, Lock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { OwnerPinModal } from '@/components/auth/owner-pin-modal';
 
 interface ContactFormProps {
   open: boolean;
@@ -71,6 +73,12 @@ export function ContactForm({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [loadingTags, setLoadingTags] = useState(false);
+
+  // Owner PIN Protection
+  const [ownerPinOpen, setOwnerPinOpen] = useState(false);
+  const [ownerPinTitle, setOwnerPinTitle] = useState('Owner PIN Required');
+  const [ownerPinDesc, setOwnerPinDesc] = useState('');
+  const [pendingSaveAction, setPendingSaveAction] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -133,25 +141,48 @@ export function ContactForm({
       return;
     }
 
-    // A number typed here must carry its country code (leading `+`):
-    // "4155551212" reads as a US number to the person typing it but is
-    // delivered to +41 (Switzerland) by Meta (issue #586). Only checked
-    // when the number actually changed — contacts created by the inbound
-    // webhook store Meta's digits-only form, and editing their name must
-    // not be blocked by a phone the user never touched.
     const phoneChanged = !isEdit || phone.trim() !== (contact?.phone ?? '');
     if (phoneChanged && !parseInternationalPhone(phone)) {
       toast.error(t('phoneNeedsCountryCode'));
       return;
     }
 
-    // Hard-block an exact duplicate on create (the DB unique index is
-    // the real backstop; this avoids a round-trip + a raw error toast).
     if (!isEdit && dupMatch?.exact) {
       toast.error(t('toastConflict'));
       return;
     }
 
+    // Owner PIN Security Gate on Role/Category changes and Tag removals
+    const categoryChanged = isEdit && category !== ((contact?.category as 'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer') || 'Customer');
+    const existingTagIds = contactTags.map((ct) => ct.tag_id);
+    const tagsRemoved = isEdit && existingTagIds.some((id) => !selectedTagIds.includes(id));
+
+    if (categoryChanged || tagsRemoved) {
+      setOwnerPinTitle(
+        categoryChanged && tagsRemoved
+          ? 'Authorize Role & Tag Changes'
+          : categoryChanged
+          ? 'Authorize Role Change'
+          : 'Authorize Tag Removal'
+      );
+      setOwnerPinDesc(
+        `Enter 4-digit Owner PIN to approve ${
+          categoryChanged && tagsRemoved
+            ? `changing role to ${category} and removing tags`
+            : categoryChanged
+            ? `changing role to ${category}`
+            : 'removing assigned tags'
+        } for "${name.trim() || phone.trim()}".`
+      );
+      setPendingSaveAction(() => () => executeSave(phoneChanged));
+      setOwnerPinOpen(true);
+      return;
+    }
+
+    await executeSave(phoneChanged);
+  }
+
+  async function executeSave(phoneChanged: boolean) {
     setSaving(true);
 
     try {
@@ -178,6 +209,7 @@ export function ContactForm({
           .eq('id', contactId);
         if (error) throw error;
       } else {
+        const uniqueCode = await generateNextUniqueCode(supabase, accountId, category || 'Customer');
         const { data, error } = await supabase
           .from('contacts')
           .insert({
@@ -188,6 +220,7 @@ export function ContactForm({
             email: email.trim() || null,
             company: company.trim() || null,
             category: category || 'Customer',
+            unique_code: uniqueCode,
           })
           .select('id')
           .single();
@@ -229,10 +262,6 @@ export function ContactForm({
       onOpenChange(false);
       onSaved();
     } catch (err: unknown) {
-      // The unique index (migration 022) rejects a duplicate phone that
-      // slipped past the on-blur check (race, or a format that
-      // normalizes equal). Surface it as the friendly duplicate notice
-      // and, for new contacts, point the user at the existing record.
       if (isUniqueViolation(err)) {
         toast.error(t('toastConflict'));
         if (!isEdit && accountId) {
@@ -356,7 +385,10 @@ export function ContactForm({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-muted-foreground">Category / Role</Label>
+            <Label className="text-muted-foreground flex items-center gap-1.5">
+              <span>Category / Role</span>
+              {isEdit && <Lock className="size-3 text-muted-foreground/70" />}
+            </Label>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(['Customer', 'Mechanic', 'Wholesaler', 'Distributor'] as const).map((cat) => {
                 const isSelected = category === cat;
@@ -385,7 +417,10 @@ export function ContactForm({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-muted-foreground">{t('tagsLabel')}</Label>
+            <Label className="text-muted-foreground flex items-center gap-1.5">
+              <span>{t('tagsLabel')}</span>
+              {isEdit && <Lock className="size-3 text-muted-foreground/70" />}
+            </Label>
             {loadingTags ? (
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Loader2 className="size-3 animate-spin" />
@@ -443,6 +478,21 @@ export function ContactForm({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* Owner PIN Verification Modal */}
+      <OwnerPinModal
+        open={ownerPinOpen}
+        onOpenChange={setOwnerPinOpen}
+        title={ownerPinTitle}
+        description={ownerPinDesc}
+        onSuccess={() => {
+          if (pendingSaveAction) {
+            const action = pendingSaveAction;
+            setPendingSaveAction(null);
+            action();
+          }
+        }}
+      />
     </Dialog>
   );
 }
