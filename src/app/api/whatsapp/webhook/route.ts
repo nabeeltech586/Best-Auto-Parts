@@ -23,6 +23,7 @@ import { resumeAwaitingReply, runAutomationsForTrigger } from '@/lib/automations
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
 import { matchIcebreaker, executeIcebreaker } from '@/lib/whatsapp/icebreakers'
+import { isScratchOfferTrigger, handleScratchOfferFlow } from '@/lib/whatsapp/scratch-offer'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -785,15 +786,14 @@ async function processMessage(
   const inboundText = contentText ?? message.text?.body ?? ''
 
   // ============================================================
-  // Meta WhatsApp Icebreakers Dispatch (Top Priority)
-  // Ensures all 4 Meta Icebreaker buttons immediately reply in clean English
-  // and trigger their respective CRM actions (AI enable, Wholesale tag, Saud Bhai handoff, Location)
-  // bypassing Out-of-Office and language gating.
+  // Meta WhatsApp Scratch & Win Offer & BestAI Desk Dispatch (Top Priority)
+  // Ensures Monthly Lucky Scratch Card (and button replies) immediately
+  // reply, award motorcycle prizes or open BestAI Desk, bypassing
+  // Out-of-Office and language gating.
   // ============================================================
-  let icebreakerConsumed = false
-  const matchedIcebreaker = matchIcebreaker(inboundText, interactiveReplyId)
-  if (matchedIcebreaker) {
-    const icebreakerRes = await executeIcebreaker({
+  let scratchConsumed = false
+  if (isScratchOfferTrigger(inboundText, interactiveReplyId)) {
+    const scratchRes = await handleScratchOfferFlow({
       db: supabaseAdmin(),
       accountId,
       userId: configOwnerUserId,
@@ -802,10 +802,36 @@ async function processMessage(
       inboundText,
       interactiveReplyId,
     }).catch((err) => {
-      console.error('[icebreaker] dispatch error:', err)
+      console.error('[scratch-offer] dispatch error:', err)
       return { handled: false }
     })
-    icebreakerConsumed = Boolean(icebreakerRes.handled)
+    scratchConsumed = Boolean(scratchRes.handled)
+  }
+
+  // ============================================================
+  // Meta WhatsApp Icebreakers Dispatch (Top Priority)
+  // Ensures all 4 Meta Icebreaker buttons immediately reply in clean English
+  // and trigger their respective CRM actions (AI enable, Wholesale tag, Saud Bhai handoff, Location)
+  // bypassing Out-of-Office and language gating.
+  // ============================================================
+  let icebreakerConsumed = scratchConsumed
+  if (!scratchConsumed) {
+    const matchedIcebreaker = matchIcebreaker(inboundText, interactiveReplyId)
+    if (matchedIcebreaker) {
+      const icebreakerRes = await executeIcebreaker({
+        db: supabaseAdmin(),
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        inboundText,
+        interactiveReplyId,
+      }).catch((err) => {
+        console.error('[icebreaker] dispatch error:', err)
+        return { handled: false }
+      })
+      icebreakerConsumed = Boolean(icebreakerRes.handled)
+    }
   }
 
   // ============================================================
@@ -819,7 +845,7 @@ async function processMessage(
   //
   // If consumed: takes precedence over generic flows, automations, and AI.
   // ============================================================
-  const welcomeResult = icebreakerConsumed
+  const welcomeResult = (scratchConsumed || icebreakerConsumed)
     ? { consumed: true }
     : await handleWelcomeFlowInbound({
         db: supabaseAdmin(),
@@ -834,7 +860,7 @@ async function processMessage(
         console.error('[welcome-flow] dispatch error:', err)
         return { consumed: false }
       })
-  const welcomeConsumed = icebreakerConsumed || welcomeResult.consumed
+  const welcomeConsumed = scratchConsumed || icebreakerConsumed || welcomeResult.consumed
 
   // ============================================================
   // Flow runner dispatch.

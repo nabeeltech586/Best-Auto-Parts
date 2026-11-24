@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { engineSendText } from '@/lib/flows/meta-send';
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write';
+import { handleScratchOfferFlow } from '@/lib/whatsapp/scratch-offer';
 
 export interface IcebreakerDef {
   id: string;
@@ -94,6 +95,22 @@ export const META_ICEBREAKERS: Record<string, IcebreakerDef> = {
     responseTemplate:
       'Certainly! You are now being connected to *Saud Bhai* (+91 96347 22174) for a direct chat or call. ' +
       'Please share your query, motorcycle model, or part details right here in the chat so he can assist you immediately, or call +91 96347 22174 directly for urgent help.',
+  },
+  scratch_offer: {
+    id: 'icebreaker_5_scratch_offer',
+    name: '🎁 Scratch & Win Offer — Best Auto Parts',
+    buttonTitle: '🎁 Scratch & Win Offer — Best Auto Parts',
+    keywords: [
+      'scratch & win offer',
+      'scratch & win',
+      'scratch and win',
+      'scratch offer',
+      'lucky scratch card',
+      'lucky card',
+      'offer',
+      'scratch',
+    ],
+    responseTemplate: '🎁 *Best Auto Parts — Monthly Lucky Scratch Card!*',
   },
 };
 
@@ -330,6 +347,25 @@ export async function executeIcebreaker(
       icebreakerId: matched.id,
       responseSent: matched.responseTemplate,
       whatsappMessageId: sendRes.whatsapp_message_id,
+    };
+  }
+
+  // 5. Icebreaker 5: Scratch & Win Offer — Best Auto Parts
+  if (matched.id === META_ICEBREAKERS.scratch_offer?.id) {
+    const scratchRes = await handleScratchOfferFlow({
+      db,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText,
+      interactiveReplyId,
+    });
+    return {
+      handled: Boolean(scratchRes.handled),
+      icebreakerId: matched.id,
+      responseSent: scratchRes.prize || scratchRes.couponCode,
+      whatsappMessageId: scratchRes.whatsappMessageId,
     };
   }
 
