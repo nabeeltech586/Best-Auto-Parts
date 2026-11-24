@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -16,9 +17,11 @@ import {
   Receipt,
   Printer,
   Copy,
-  MessageCircle,
   CheckCircle2,
   PackageCheck,
+  Send,
+  Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -47,6 +50,8 @@ export function CustomerReceiptDialog({
   onOpenChange,
   order,
 }: CustomerReceiptDialogProps) {
+  const [sendingApi, setSendingApi] = useState(false);
+
   if (!order) return null;
 
   const isPaid = order.status === 'PAID';
@@ -90,11 +95,54 @@ export function CustomerReceiptDialog({
     toast.success('Digital receipt copied to clipboard!');
   };
 
+  const handleSendApi = async () => {
+    if (!order || !cleanPhone) {
+      toast.error('Recipient phone number is required');
+      return;
+    }
+
+    setSendingApi(true);
+    try {
+      const res = await fetch('/api/whatsapp/send-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientName: order.customer_name || 'Customer',
+          recipientPhone: order.customer_phone,
+          receiptId: `#${order.order_id}`,
+          details: order.part_details,
+          totalAmount: Number(order.amount) || 0,
+          paymentStatus: isPaid ? 'PAID (UPI/QR)' : String(order.status || 'PENDING'),
+          date: formattedDate,
+          formattedReceiptText: receiptText,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send receipt via WhatsApp API');
+      }
+
+      toast.success('✓ Receipt Sent via WhatsApp API!', {
+        description: `Delivered to +${data.recipientPhone} via ${
+          data.method === 'template' ? 'payment_receipt_voucher template' : 'WhatsApp direct message'
+        }. Logged in Inbox.`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error sending receipt';
+      toast.error(msg);
+    } finally {
+      setSendingApi(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg bg-card border-border">
         {/* Print-specific style */}
-        <style dangerouslySetInnerHTML={{ __html: `
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
           @media print {
             body * {
               visibility: hidden;
@@ -112,7 +160,9 @@ export function CustomerReceiptDialog({
               background: #fff !important;
             }
           }
-        ` }} />
+        `,
+          }}
+        />
 
         <DialogHeader>
           <div className="flex items-center gap-2">
@@ -234,7 +284,7 @@ export function CustomerReceiptDialog({
           </div>
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
+        <DialogFooter className="flex-col sm:flex-row gap-2 pt-2 sm:items-center">
           <Button
             variant="outline"
             size="sm"
@@ -255,18 +305,36 @@ export function CustomerReceiptDialog({
             Copy Receipt Text
           </Button>
 
+          {/* Send via API WhatsApp */}
+          <Button
+            size="sm"
+            onClick={handleSendApi}
+            disabled={sendingApi || !cleanPhone}
+            className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-xs"
+            title="Send official payment receipt directly via WhatsApp Cloud API"
+          >
+            {sendingApi ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Send className="size-3.5" />
+            )}
+            <span>Send via API WhatsApp</span>
+          </Button>
+
+          {/* Secondary Web Fallback */}
           {waUrl && (
             <a
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
               className={cn(
-                buttonVariants({ size: 'sm' }),
-                'text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium'
+                buttonVariants({ variant: 'ghost', size: 'sm' }),
+                'text-xs gap-1 text-muted-foreground hover:text-foreground h-8 px-2'
               )}
+              title="Open in WhatsApp Web"
             >
-              <MessageCircle className="size-3.5" />
-              Resend via WhatsApp
+              <ExternalLink className="size-3" />
+              <span>WhatsApp Web</span>
             </a>
           )}
         </DialogFooter>

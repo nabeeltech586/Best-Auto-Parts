@@ -23,6 +23,7 @@ import {
   Wallet,
   Search,
   Building2,
+  Receipt,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -56,6 +57,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency } from '@/lib/currency';
 import type { PurchaseOrder, PurchaseOrderPaymentStatus } from '@/types/inventory';
+import { SupplierReceiptDialog } from '@/components/orders/supplier-receipt-dialog';
 
 export default function OrderHistoryPage() {
   return (
@@ -88,6 +90,7 @@ function OrderHistoryPageInner() {
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [updatingStatusPoId, setUpdatingStatusPoId] = useState<string | null>(null);
+  const [selectedPoReceipt, setSelectedPoReceipt] = useState<PurchaseOrder | null>(null);
 
   // Record Payment Dialog State for Purchase Orders
   const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
@@ -767,6 +770,18 @@ function OrderHistoryPageInner() {
                         Record Payment
                       </Button>
 
+                      {/* Wholesaler Digital Receipt Modal Trigger */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedPoReceipt(po)}
+                        className="text-xs gap-1 h-8 border-border hover:bg-muted text-foreground"
+                        title="View & Send Official Wholesaler Purchase Receipt / Voucher"
+                      >
+                        <Receipt className="size-3.5 text-blue-500" />
+                        <span>Receipt</span>
+                      </Button>
+
                       {!isReceived && (
                         <Button
                           size="sm"
@@ -1047,6 +1062,13 @@ function OrderHistoryPageInner() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Wholesaler & Distributor Digital Receipt Dialog */}
+      <SupplierReceiptDialog
+        open={Boolean(selectedPoReceipt)}
+        onOpenChange={(v) => !v && setSelectedPoReceipt(null)}
+        order={selectedPoReceipt}
+      />
     </div>
   );
 }

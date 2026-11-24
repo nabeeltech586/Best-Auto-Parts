@@ -709,18 +709,16 @@ function PaymentsPageInner() {
 
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
-                      {item.status === 'PAID' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedReceipt(item)}
-                          className="h-8 px-2.5 text-xs gap-1 border-border text-foreground hover:bg-muted"
-                          title="View / Print Digital Receipt"
-                        >
-                          <Receipt className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                          <span>Receipt</span>
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedReceipt(item)}
+                        className="h-8 px-2.5 text-xs gap-1 border-border text-foreground hover:bg-muted"
+                        title="View & Send Digital Receipt / Cash Memo"
+                      >
+                        <Receipt className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Receipt</span>
+                      </Button>
 
                       {item.status === 'PENDING' && (
                         <Button
