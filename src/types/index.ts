@@ -119,6 +119,11 @@ export interface Contact {
   email?: string;
   company?: string;
   avatar_url?: string;
+  category?: 'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer' | string;
+  pending_balance?: number;
+  monthly_purchases?: number;
+  loyalty_tier?: string;
+  khata_stage?: string;
   created_at: string;
   updated_at: string;
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the

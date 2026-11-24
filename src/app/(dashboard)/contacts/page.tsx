@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact, Tag, ContactTag } from '@/types';
@@ -39,7 +40,6 @@ import {
   Search,
   Plus,
   Upload,
-  MoreHorizontal,
   Pencil,
   Trash2,
   Loader2,
@@ -49,6 +49,19 @@ import {
   SlidersHorizontal,
   Filter,
   X,
+  Copy,
+  Check,
+  MessageSquare,
+  CreditCard,
+  BookOpen,
+  AlertCircle,
+  CheckCircle2,
+  ChevronDown,
+  Wrench,
+  Building2,
+  Store,
+  User,
+  MoreVertical,
 } from 'lucide-react';
 import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
@@ -65,6 +78,9 @@ import { pageAfterRangeError, pageAfterShrink } from '@/lib/contacts/page-bounds
 
 const PAGE_SIZE = 25;
 
+export type ContactCategory = 'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer';
+export type CategoryTab = 'All' | ContactCategory;
+
 interface ContactWithTags extends Contact {
   tags?: Tag[];
 }
@@ -72,6 +88,7 @@ interface ContactWithTags extends Contact {
 export default function ContactsPage() {
   const t = useTranslations('Contacts.page');
   const tGate = useTranslations('GatedButton');
+  const router = useRouter();
   const supabase = createClient();
   const canEdit = useCan('send-messages');
   const canEditSettings = useCan('edit-settings');
@@ -81,8 +98,25 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+
+  // Category filter tab
+  const [selectedCategory, setSelectedCategory] = useState<CategoryTab>('All');
+  const [categoryCounts, setCategoryCounts] = useState<Record<CategoryTab, number>>({
+    All: 0,
+    Distributor: 0,
+    Wholesaler: 0,
+    Mechanic: 0,
+    Customer: 0,
+  });
+
+  // Dues / Udhaar map by phone (digits)
+  const [duesByPhone, setDuesByPhone] = useState<Record<string, number>>({});
+
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+
+  // 1-click copy feedback
+  const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -103,11 +137,73 @@ export default function ContactsPage() {
   // All tags for display
   const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
 
-  // Guards against out-of-order fetch responses: each fetchContacts run
-  // claims a sequence number and only the latest is allowed to commit its
-  // results. Without this, rapidly toggling tag filters could let a slower
-  // earlier request resolve last and render stale rows.
   const fetchSeq = useRef(0);
+
+  // Fetch Category Counts across all contacts
+  const fetchCategoryCounts = useCallback(async () => {
+    try {
+      const { data } = await supabase.from('contacts').select('category');
+      if (data) {
+        const counts: Record<CategoryTab, number> = {
+          All: data.length,
+          Distributor: 0,
+          Wholesaler: 0,
+          Mechanic: 0,
+          Customer: 0,
+        };
+        data.forEach((c) => {
+          const cat = c.category as ContactCategory;
+          if (cat && counts[cat] !== undefined) {
+            counts[cat]++;
+          } else {
+            counts.Customer++;
+          }
+        });
+        setCategoryCounts(counts);
+      }
+    } catch (err) {
+      console.error('Failed to fetch category counts:', err);
+    }
+  }, [supabase]);
+
+  // Fetch Live Udhaar / Balance dues from purchase_orders and payment_links
+  const fetchLiveDues = useCallback(async () => {
+    try {
+      const duesMap: Record<string, number> = {};
+
+      // 1. Unpaid POs (for Distributors / Wholesalers)
+      const { data: unpaidPos } = await supabase
+        .from('purchase_orders')
+        .select('supplier_phone, total_estimated_cost, amount_paid')
+        .neq('payment_status', 'PAID');
+
+      unpaidPos?.forEach((po) => {
+        const rawPhone = (po.supplier_phone || '').replace(/\D/g, '').slice(-10);
+        const due = Math.max(0, Number(po.total_estimated_cost || 0) - Number(po.amount_paid || 0));
+        if (rawPhone && due > 0) {
+          duesMap[rawPhone] = (duesMap[rawPhone] || 0) + due;
+        }
+      });
+
+      // 2. Pending payment links / collections
+      const { data: pendingLinks } = await supabase
+        .from('payment_links')
+        .select('customer_phone, amount')
+        .eq('status', 'PENDING');
+
+      pendingLinks?.forEach((link) => {
+        const rawPhone = (link.customer_phone || '').replace(/\D/g, '').slice(-10);
+        const amt = Number(link.amount || 0);
+        if (rawPhone && amt > 0) {
+          duesMap[rawPhone] = (duesMap[rawPhone] || 0) + amt;
+        }
+      });
+
+      setDuesByPhone(duesMap);
+    } catch (err) {
+      console.error('Failed to load live dues map:', err);
+    }
+  }, [supabase]);
 
   const fetchTags = useCallback(async () => {
     const { data } = await supabase.from('tags').select('*');
@@ -115,8 +211,6 @@ export default function ContactsPage() {
       const map: Record<string, Tag> = {};
       data.forEach((t) => (map[t.id] = t));
       setTagsMap(map);
-      // Drop any filter selections whose tag no longer exists (e.g. a tag
-      // deleted elsewhere) so it can't linger invisibly in the query.
       setSelectedTagIds((prev) => {
         const pruned = prev.filter((id) => map[id]);
         return pruned.length === prev.length ? prev : pruned;
@@ -127,9 +221,6 @@ export default function ContactsPage() {
   const fetchContacts = useCallback(async () => {
     const seq = ++fetchSeq.current;
     setLoading(true);
-    // The visible rows are about to change — drop any selection that
-    // referred to the old page/search results so the bulk bar can't
-    // act on rows the user can no longer see.
     setSelected(new Set());
 
     const from = page * PAGE_SIZE;
@@ -141,24 +232,31 @@ export default function ContactsPage() {
     let countIsExact = true;
 
     if (selectedTagIds.length > 0) {
-      // Tag filter active — resolve it server-side (join + distinct +
-      // windowed total count + pagination) so a tag covering many
-      // contacts can't silently truncate the result or overflow an IN
-      // clause. See migration 025_filter_contacts_by_tags.
       const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
         p_tag_ids: selectedTagIds,
         p_search: contactSearchPattern(term),
         p_limit: PAGE_SIZE,
         p_offset: from,
       });
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+      if (seq !== fetchSeq.current) return;
       if (error) {
         toast.error(t('toastFailedLoad'));
         setLoading(false);
         return;
       }
       const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      contactRows = rows.map((r) => r.contact);
+      let rawContacts = rows.map((r) => r.contact);
+
+      // Filter by selected category if specified
+      if (selectedCategory !== 'All') {
+        if (selectedCategory === 'Customer') {
+          rawContacts = rawContacts.filter((c) => !c.category || c.category === 'Customer');
+        } else {
+          rawContacts = rawContacts.filter((c) => c.category === selectedCategory);
+        }
+      }
+
+      contactRows = rawContacts;
       count = rows.length > 0 ? Number(rows[0].total_count) : 0;
       countIsExact = rows.length > 0;
     } else {
@@ -168,14 +266,20 @@ export default function ContactsPage() {
         .order('created_at', { ascending: false })
         .range(from, to);
 
+      if (selectedCategory !== 'All') {
+        if (selectedCategory === 'Customer') {
+          query = query.or('category.eq.Customer,category.is.null');
+        } else {
+          query = query.eq('category', selectedCategory);
+        }
+      }
+
       const searchFilter = contactSearchFilter(term, { includeEmail: true });
       if (searchFilter) query = query.or(searchFilter);
 
       const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return; // superseded by a newer fetch
-      const pageInRange = error
-        ? pageAfterRangeError(page, PAGE_SIZE, error)
-        : null;
+      if (seq !== fetchSeq.current) return;
+      const pageInRange = error ? pageAfterRangeError(page, PAGE_SIZE, error) : null;
       if (pageInRange !== null && pageInRange !== page) {
         setPage(pageInRange);
         return;
@@ -209,7 +313,7 @@ export default function ContactsPage() {
       .from('contact_tags')
       .select('contact_id, tag_id')
       .in('contact_id', contactIds);
-    if (seq !== fetchSeq.current) return; // superseded by a newer fetch
+    if (seq !== fetchSeq.current) return;
 
     const tagsByContact: Record<string, string[]> = {};
     contactTags?.forEach((ct) => {
@@ -219,28 +323,66 @@ export default function ContactsPage() {
 
     const enriched: ContactWithTags[] = contactRows.map((c) => ({
       ...c,
-      tags: (tagsByContact[c.id] ?? [])
-        .map((tid) => tagsMap[tid])
-        .filter(Boolean),
+      tags: (tagsByContact[c.id] ?? []).map((tid) => tagsMap[tid]).filter(Boolean),
     }));
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedCategory, selectedTagIds, tagsMap, t]);
 
-  // Load-once-on-mount-ish data fetches. Each setter inside runs
-  // inside an async promise completion (Supabase await), not
-  // synchronously in the effect body, so the cascade the lint rule
-  // warns about doesn't apply here.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchTags();
-  }, [fetchTags]);
+    fetchCategoryCounts();
+    fetchLiveDues();
+  }, [fetchTags, fetchCategoryCounts, fetchLiveDues]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchContacts();
   }, [fetchContacts]);
+
+  // Inline Category Update
+  async function handleUpdateCategory(
+    contactId: string,
+    contactName: string,
+    newCategory: ContactCategory
+  ) {
+    // Optimistic local state update
+    setContacts((prev) =>
+      prev.map((c) => (c.id === contactId ? { ...c, category: newCategory } : c))
+    );
+
+    try {
+      const { error } = await supabase
+        .from('contacts')
+        .update({ category: newCategory, updated_at: new Date().toISOString() })
+        .eq('id', contactId);
+
+      if (error) throw error;
+      toast.success(`Role updated: ${contactName || 'Contact'} is now ${newCategory}`);
+      fetchCategoryCounts();
+    } catch (err) {
+      console.error('Update category error:', err);
+      toast.error('Failed to update category');
+      fetchContacts();
+    }
+  }
+
+  // 1-Click Copy Phone
+  function handleCopyPhone(e: React.MouseEvent, phone: string) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(phone);
+    setCopiedPhone(phone);
+    toast.success(`Phone copied: ${phone}`);
+    setTimeout(() => setCopiedPhone(null), 2000);
+  }
+
+  // Calculate live Udhaar / Due amount for a contact
+  function getContactDue(contact: ContactWithTags): number {
+    const directBalance = Number(contact.pending_balance || 0);
+    const rawPhone = (contact.phone || '').replace(/\D/g, '').slice(-10);
+    const mappedDue = rawPhone ? duesByPhone[rawPhone] || 0 : 0;
+    return Math.max(directBalance, mappedDue);
+  }
 
   function openAddForm() {
     setEditContact(null);
@@ -272,16 +414,14 @@ export default function ContactsPage() {
     if (!deleteTarget) return;
     setDeleting(true);
 
-    const { error } = await supabase
-      .from('contacts')
-      .delete()
-      .eq('id', deleteTarget.id);
+    const { error } = await supabase.from('contacts').delete().eq('id', deleteTarget.id);
 
     if (error) {
       toast.error(t('toastFailedDelete'));
     } else {
       toast.success(t('toastDeleted'));
       fetchContacts();
+      fetchCategoryCounts();
     }
 
     setDeleting(false);
@@ -327,6 +467,7 @@ export default function ContactsPage() {
       toast.success(t('toastBulkDeleted', { count: ids.length }));
       setSelected(new Set());
       fetchContacts();
+      fetchCategoryCounts();
     }
 
     setDeleting(false);
@@ -337,18 +478,15 @@ export default function ContactsPage() {
   const hasNext = page < totalPages - 1;
   const hasPrev = page > 0;
 
-  // Tag filter helpers. Every change resets to page 0 — the result set
-  // shrinks/grows so page N may no longer be valid (mirrors the search box).
   const allTags = Object.values(tagsMap).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
-  const hasActiveFilters = search.trim().length > 0 || selectedTagIds.length > 0;
+  const hasActiveFilters =
+    search.trim().length > 0 || selectedTagIds.length > 0 || selectedCategory !== 'All';
 
   function toggleTagFilter(tagId: string) {
     setSelectedTagIds((prev) =>
-      prev.includes(tagId)
-        ? prev.filter((id) => id !== tagId)
-        : [...prev, tagId]
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
     );
     setPage(0);
   }
@@ -359,63 +497,135 @@ export default function ContactsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-5">
+      {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              Contacts Directory
+            </h1>
+            <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+              {totalCount} Total
+            </span>
+          </div>
           <p className="text-sm text-muted-foreground mt-1">
-            {totalCount > 0 ? t('subtitle', { count: totalCount }) : t('subtitleZero')}
+            Manage customers, mechanics, wholesalers, and distributors with instant WhatsApp, payments, and ledger shortcuts.
           </p>
         </div>
+
         <div className="flex items-center gap-2">
           {canEditSettings && (
             <Button
               variant="outline"
+              size="sm"
               onClick={() => setCustomFieldsOpen(true)}
-              className="border-border text-muted-foreground hover:bg-muted"
+              className="border-border text-muted-foreground hover:bg-muted h-9"
             >
-              <SlidersHorizontal className="size-4" />
+              <SlidersHorizontal className="size-4 mr-1.5" />
               {t('customFieldsBtn')}
             </Button>
           )}
+
           <GatedButton
             variant="outline"
+            size="sm"
             canAct={canEdit}
             gateReason={tGate('reasons.addOrImportContacts')}
             onClick={() => setImportOpen(true)}
-            className="border-border text-muted-foreground hover:bg-muted"
+            className="border-border text-muted-foreground hover:bg-muted h-9"
           >
-            <Upload className="size-4" />
+            <Upload className="size-4 mr-1.5" />
             {t('importBtn')}
           </GatedButton>
+
           <GatedButton
+            size="sm"
             canAct={canEdit}
             gateReason={tGate('reasons.addOrImportContacts')}
             onClick={openAddForm}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium h-9"
           >
-            <Plus className="size-4" />
+            <Plus className="size-4 mr-1.5" />
             {t('addContactBtn')}
           </GatedButton>
         </div>
       </div>
 
-      {/* Search + tag filter */}
+      {/* Category Filter Tabs with Live Counts */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-border bg-card/60 p-2 shadow-sm">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(['All', 'Distributor', 'Wholesaler', 'Mechanic', 'Customer'] as const).map((cat) => {
+            const isSelected = selectedCategory === cat;
+            const count = categoryCounts[cat] ?? 0;
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => {
+                  setSelectedCategory(cat);
+                  setPage(0);
+                }}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  isSelected
+                    ? cat === 'Distributor'
+                      ? 'border-blue-500 bg-blue-600 text-white shadow-sm'
+                      : cat === 'Wholesaler'
+                      ? 'border-purple-500 bg-purple-600 text-white shadow-sm'
+                      : cat === 'Mechanic'
+                      ? 'border-amber-500 bg-amber-600 text-white shadow-sm'
+                      : cat === 'Customer'
+                      ? 'border-emerald-500 bg-emerald-600 text-white shadow-sm'
+                      : 'border-primary bg-primary text-primary-foreground shadow-sm'
+                    : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <span>
+                  {cat === 'Distributor' && '🏢 '}
+                  {cat === 'Wholesaler' && '🏬 '}
+                  {cat === 'Mechanic' && '🔧 '}
+                  {cat === 'Customer' && '👤 '}
+                  {cat}
+                </span>
+                <span
+                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                    isSelected
+                      ? 'bg-black/20 text-white'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Quick Add Contact in Toolbar */}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={openAddForm}
+          className="h-8 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 dark:text-emerald-400 shrink-0 text-xs font-medium"
+        >
+          <Plus className="mr-1 size-3.5" />
+          Add Contact
+        </Button>
+      </div>
+
+      {/* Search Bar & Tag Filter */}
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <div className="relative w-full max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
-                // Reset pagination when the query changes — the result
-                // set shrinks/grows, page N may no longer be valid.
                 setPage(0);
               }}
-              placeholder={t('searchPlaceholder')}
-              className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
+              placeholder="Search name, phone number, company..."
+              className="pl-9 h-9 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
 
@@ -424,11 +634,11 @@ export default function ContactsPage() {
               render={
                 <Button
                   variant="outline"
-                  className="border-border text-muted-foreground hover:bg-muted shrink-0"
+                  className="border-border text-muted-foreground hover:bg-muted shrink-0 h-9"
                 />
               }
             >
-              <Filter className="size-4" />
+              <Filter className="size-4 mr-1.5" />
               {t('filterByTags')}
               {selectedTagIds.length > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
@@ -481,7 +691,7 @@ export default function ContactsPage() {
           </Popover>
         </div>
 
-        {/* Active tag-filter chips */}
+        {/* Active tag chips */}
         {selectedTagIds.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             {selectedTagIds.map((id) => {
@@ -539,18 +749,18 @@ export default function ContactsPage() {
               gateReason={tGate('reasons.deleteContacts')}
               onClick={() => setBulkDeleteOpen(true)}
             >
-              <Trash2 className="size-4" />
+              <Trash2 className="size-4 mr-1.5" />
               {t('deleteSelected')}
             </GatedButton>
           </div>
         </div>
       )}
 
-      {/* Table */}
-      <div className="rounded-lg border border-border overflow-hidden">
+      {/* Contacts Table */}
+      <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow className="border-border hover:bg-transparent">
+            <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
               <TableHead className="w-10">
                 <Checkbox
                   checked={allOnPageSelected}
@@ -560,19 +770,19 @@ export default function ContactsPage() {
                   aria-label={t('selectAllOnPage')}
                 />
               </TableHead>
-              <TableHead className="text-muted-foreground">{t('tableColumns.name')}</TableHead>
-              <TableHead className="text-muted-foreground">{t('tableColumns.phone')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.email')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.company')}</TableHead>
-              <TableHead className="text-muted-foreground hidden md:table-cell">{t('tableColumns.tags')}</TableHead>
-              <TableHead className="text-muted-foreground hidden lg:table-cell">{t('tableColumns.createdAt')}</TableHead>
-              <TableHead className="text-muted-foreground w-12" />
+              <TableHead className="font-semibold text-foreground">Contact & Mobile</TableHead>
+              <TableHead className="font-semibold text-foreground">Role / Category</TableHead>
+              <TableHead className="font-semibold text-foreground">Udhaar / Balance</TableHead>
+              <TableHead className="font-semibold text-foreground hidden md:table-cell">Tags</TableHead>
+              <TableHead className="font-semibold text-foreground hidden lg:table-cell">Created</TableHead>
+              <TableHead className="w-12 text-right font-semibold text-foreground">Actions</TableHead>
             </TableRow>
           </TableHeader>
+
           <TableBody>
             {loading ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Loader2 className="size-6 animate-spin text-primary" />
                     <p className="text-sm text-muted-foreground">{t('loading')}</p>
@@ -581,13 +791,16 @@ export default function ContactsPage() {
               </TableRow>
             ) : contacts.length === 0 ? (
               <TableRow className="border-border">
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <div className="flex flex-col items-center gap-2">
                     <Users className="size-8 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm font-medium text-foreground">
+                      {hasActiveFilters ? 'No contacts match your filter' : 'No contacts added yet'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
                       {hasActiveFilters
-                        ? t('noContactsMatch')
-                        : t('noContactsYet')}
+                        ? 'Try clearing category, search, or tag filters to see all contacts.'
+                        : 'Create your first customer, mechanic, or distributor contact.'}
                     </p>
                     {!hasActiveFilters && (
                       <GatedButton
@@ -598,7 +811,7 @@ export default function ContactsPage() {
                         onClick={openAddForm}
                         className="mt-2 border-border text-muted-foreground hover:bg-muted"
                       >
-                        <Plus className="size-3.5" />
+                        <Plus className="size-3.5 mr-1" />
                         {t('addFirstContact')}
                       </GatedButton>
                     )}
@@ -606,107 +819,265 @@ export default function ContactsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              contacts.map((contact) => (
-                <TableRow
-                  key={contact.id}
-                  className="border-border hover:bg-muted/50 cursor-pointer"
-                  onClick={() => openDetail(contact.id)}
-                >
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selected.has(contact.id)}
-                      onCheckedChange={() => toggleSelect(contact.id)}
-                      aria-label={t('selectContact', { name: contact.name || contact.phone })}
-                    />
-                  </TableCell>
-                  <TableCell className="text-foreground font-medium">
-                    {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
-                    {contact.phone}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden md:table-cell text-sm">
-                    {contact.email || <span className="text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground hidden lg:table-cell text-sm">
-                    {contact.company || <span className="text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <div className="flex flex-wrap gap-1">
-                      {contact.tags && contact.tags.length > 0 ? (
-                        contact.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag.id}
-                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                            style={{
-                              backgroundColor: tag.color + '20',
-                              color: tag.color,
-                            }}
-                          >
-                            {tag.name}
+              contacts.map((contact) => {
+                const dueAmount = getContactDue(contact);
+                const isPhoneCopied = copiedPhone === contact.phone;
+                const contactCategory = (contact.category as ContactCategory) || 'Customer';
+
+                return (
+                  <TableRow
+                    key={contact.id}
+                    className="border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-colors"
+                    onClick={() => openDetail(contact.id)}
+                  >
+                    {/* Checkbox */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selected.has(contact.id)}
+                        onCheckedChange={() => toggleSelect(contact.id)}
+                        aria-label={t('selectContact', { name: contact.name || contact.phone })}
+                      />
+                    </TableCell>
+
+                    {/* Name & Phone (with 1-click copy) */}
+                    <TableCell>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-foreground text-sm">
+                            {contact.name || <span className="text-muted-foreground italic">{t('unnamed')}</span>}
                           </span>
-                        ))
+                          {contact.company && (
+                            <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground border border-border/40">
+                              {contact.company}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Phone with 1-click copy button */}
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
+                          <span>{contact.phone}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopyPhone(e, contact.phone)}
+                            className="inline-flex items-center justify-center size-5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            title="Copy phone number"
+                          >
+                            {isPhoneCopied ? (
+                              <Check className="size-3 text-emerald-500" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* Category Dropdown (1-click inline changer) */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <button
+                              type="button"
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
+                                contactCategory === 'Distributor'
+                                  ? 'border-blue-500/40 bg-blue-500/15 text-blue-600 dark:text-blue-400 hover:bg-blue-500/25'
+                                  : contactCategory === 'Wholesaler'
+                                  ? 'border-purple-500/40 bg-purple-500/15 text-purple-600 dark:text-purple-400 hover:bg-purple-500/25'
+                                  : contactCategory === 'Mechanic'
+                                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25'
+                                  : 'border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25'
+                              }`}
+                              title="Click to change contact role"
+                            />
+                          }
+                        >
+                          {contactCategory === 'Distributor' ? (
+                            <Building2 className="size-3" />
+                          ) : contactCategory === 'Wholesaler' ? (
+                            <Store className="size-3" />
+                          ) : contactCategory === 'Mechanic' ? (
+                            <Wrench className="size-3" />
+                          ) : (
+                            <User className="size-3" />
+                          )}
+                          <span>{contactCategory}</span>
+                          <ChevronDown className="size-3 opacity-60" />
+                        </DropdownMenuTrigger>
+
+                        <DropdownMenuContent align="start" className="w-44 bg-popover border-border shadow-lg">
+                          {(['Customer', 'Mechanic', 'Wholesaler', 'Distributor'] as const).map((cat) => (
+                            <DropdownMenuItem
+                              key={cat}
+                              onClick={() => handleUpdateCategory(contact.id, contact.name || contact.phone, cat)}
+                              className={`cursor-pointer text-xs font-medium flex items-center justify-between ${
+                                contactCategory === cat ? 'bg-muted font-bold' : ''
+                              }`}
+                            >
+                              <span className="flex items-center gap-2">
+                                {cat === 'Distributor' && <Building2 className="size-3.5 text-blue-500" />}
+                                {cat === 'Wholesaler' && <Store className="size-3.5 text-purple-500" />}
+                                {cat === 'Mechanic' && <Wrench className="size-3.5 text-amber-500" />}
+                                {cat === 'Customer' && <User className="size-3.5 text-emerald-500" />}
+                                {cat}
+                              </span>
+                              {contactCategory === cat && <Check className="size-3.5 text-emerald-500" />}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+
+                    {/* Live Udhaar / Balance Badge */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {dueAmount > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            router.push(
+                              `/payments?tab=udhaar&search=${encodeURIComponent(
+                                contact.phone || contact.name || ''
+                              )}`
+                            );
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors"
+                          title="Open Udhaar Ledger"
+                        >
+                          <AlertCircle className="size-3.5 shrink-0" />
+                          <span>₹{dueAmount.toLocaleString('en-IN')} Due</span>
+                        </button>
                       ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
-                      )}
-                      {contact.tags && contact.tags.length > 3 && (
-                        <span className="text-[10px] text-muted-foreground">
-                          +{contact.tags.length - 3}
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                          <CheckCircle2 className="size-3.5 shrink-0" />
+                          <span>Settled ₹0</span>
                         </span>
                       )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
-                    {new Date(contact.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="text-muted-foreground hover:text-foreground"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        }
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent
-                        align="end"
-                        className="bg-popover border-border"
-                      >
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditForm(contact);
-                          }}
-                          className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                    </TableCell>
+
+                    {/* Tags */}
+                    <TableCell className="hidden md:table-cell">
+                      <div className="flex flex-wrap gap-1">
+                        {contact.tags && contact.tags.length > 0 ? (
+                          contact.tags.slice(0, 3).map((tag) => (
+                            <span
+                              key={tag.id}
+                              className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                              style={{
+                                backgroundColor: tag.color + '20',
+                                color: tag.color,
+                              }}
+                            >
+                              {tag.name}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                        {contact.tags && contact.tags.length > 3 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            +{contact.tags.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* Created Date */}
+                    <TableCell className="text-muted-foreground text-xs hidden lg:table-cell">
+                      {new Date(contact.created_at).toLocaleDateString('en-IN', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </TableCell>
+
+                    {/* 3-Line (☰ / ⋮) Quick-Redirect Action Menu */}
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-muted-foreground hover:text-foreground hover:bg-muted"
+                              title="Contact Quick Actions"
+                            />
+                          }
                         >
-                          <Pencil className="size-4" />
-                          {t('editAction')}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-border" />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            confirmDelete(contact);
-                          }}
-                        >
-                          <Trash2 className="size-4" />
-                          {t('deleteAction')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
+                          <MoreVertical className="size-4" />
+                        </DropdownMenuTrigger>
+
+                        <DropdownMenuContent align="end" className="w-56 bg-popover border-border shadow-xl">
+                          {/* 1. Inbox (WhatsApp Chat) */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              router.push(
+                                `/inbox?phone=${encodeURIComponent(
+                                  contact.phone
+                                )}&name=${encodeURIComponent(contact.name || '')}`
+                              );
+                            }}
+                            className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                          >
+                            <MessageSquare className="mr-2 size-4 text-emerald-500" />
+                            <span>💬 Inbox (WhatsApp Chat)</span>
+                          </DropdownMenuItem>
+
+                          {/* 2. Payments Ledger */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              router.push(
+                                `/payments?search=${encodeURIComponent(
+                                  contact.phone || contact.name || ''
+                                )}`
+                              );
+                            }}
+                            className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                          >
+                            <CreditCard className="mr-2 size-4 text-blue-500" />
+                            <span>💳 Payments Ledger</span>
+                          </DropdownMenuItem>
+
+                          {/* 3. Udhaar / Khata */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              router.push(
+                                `/payments?tab=udhaar&search=${encodeURIComponent(
+                                  contact.phone || contact.name || ''
+                                )}`
+                              );
+                            }}
+                            className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
+                          >
+                            <BookOpen className="mr-2 size-4 text-amber-500" />
+                            <span>📒 Udhaar / Khata</span>
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator className="bg-border my-1" />
+
+                          {/* Edit Contact */}
+                          <DropdownMenuItem
+                            onClick={() => openEditForm(contact)}
+                            className="cursor-pointer text-popover-foreground hover:bg-muted"
+                          >
+                            <Pencil className="mr-2 size-4 text-muted-foreground" />
+                            <span>{t('editAction')}</span>
+                          </DropdownMenuItem>
+
+                          {/* Delete Contact */}
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => confirmDelete(contact)}
+                            className="cursor-pointer text-red-500 hover:bg-red-500/10"
+                          >
+                            <Trash2 className="mr-2 size-4" />
+                            <span>{t('deleteAction')}</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -719,7 +1090,7 @@ export default function ContactsPage() {
             {t('showingPagination', {
               start: page * PAGE_SIZE + 1,
               end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount
+              total: totalCount,
             })}
           </p>
           <div className="flex items-center gap-1">
@@ -757,6 +1128,7 @@ export default function ContactsPage() {
         onSaved={() => {
           fetchContacts();
           fetchTags();
+          fetchCategoryCounts();
         }}
         onViewExisting={(id) => {
           setFormOpen(false);
@@ -769,14 +1141,20 @@ export default function ContactsPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         contactId={detailContactId}
-        onUpdated={fetchContacts}
+        onUpdated={() => {
+          fetchContacts();
+          fetchCategoryCounts();
+        }}
       />
 
       {/* Import Modal */}
       <ImportModal
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImported={fetchContacts}
+        onImported={() => {
+          fetchContacts();
+          fetchCategoryCounts();
+        }}
       />
 
       {/* Custom Fields Manager (admin+) */}
@@ -804,11 +1182,7 @@ export default function ContactsPage() {
             >
               {t('cancel')}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting && <Loader2 className="size-4 animate-spin" />}
               {t('deleteBtn')}
             </Button>
@@ -820,9 +1194,7 @@ export default function ContactsPage() {
       <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-popover-foreground">
-              {t('deleteBulkTitle')}
-            </DialogTitle>
+            <DialogTitle className="text-popover-foreground">{t('deleteBulkTitle')}</DialogTitle>
             <DialogDescription className="text-muted-foreground">
               {t('deleteBulkDesc', { count: selected.size })}
             </DialogDescription>
@@ -835,11 +1207,7 @@ export default function ContactsPage() {
             >
               {t('cancel')}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleBulkDelete}
-              disabled={deleting}
-            >
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={deleting}>
               {deleting && <Loader2 className="size-4 animate-spin" />}
               {t('deleteBtn')}
             </Button>

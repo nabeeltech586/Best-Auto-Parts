@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   CreditCard,
@@ -60,6 +61,18 @@ interface PaymentMetrics {
 }
 
 export default function PaymentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <PaymentsPageInner />
+    </Suspense>
+  );
+}
+
+function PaymentsPageInner() {
+  const searchParams = useSearchParams();
+  const urlSearch = searchParams.get('search');
+  const urlTab = searchParams.get('tab');
+
   const [links, setLinks] = useState<PaymentLinkItem[]>([]);
   const [metrics, setMetrics] = useState<PaymentMetrics>({
     totalCollected: 0,
@@ -70,14 +83,38 @@ export default function PaymentsPage() {
   });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'ALL' | 'PAID' | 'PENDING' | 'FAILED'>('ALL');
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'ALL' | 'PAID' | 'PENDING' | 'FAILED'>(() => {
+    if (urlTab === 'udhaar' || urlTab === 'pending') return 'PENDING';
+    if (urlTab === 'paid') return 'PAID';
+    if (urlTab === 'failed') return 'FAILED';
+    return 'ALL';
+  });
+  const [search, setSearch] = useState(() => urlSearch || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(() => urlSearch || '');
   const [verifyingTxnId, setVerifyingTxnId] = useState<string | null>(null);
   const [updatingStatusTxnId, setUpdatingStatusTxnId] = useState<string | null>(null);
   const [copiedTxnId, setCopiedTxnId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkItem | null>(null);
+
+  // Sync state if URL search params change
+  useEffect(() => {
+    if (urlSearch !== null && urlSearch !== undefined) {
+      setSearch(urlSearch);
+      setDebouncedSearch(urlSearch);
+    }
+    if (urlTab) {
+      if (urlTab === 'udhaar' || urlTab === 'pending') {
+        setActiveTab('PENDING');
+      } else if (urlTab === 'paid') {
+        setActiveTab('PAID');
+      } else if (urlTab === 'failed') {
+        setActiveTab('FAILED');
+      } else if (urlTab === 'all') {
+        setActiveTab('ALL');
+      }
+    }
+  }, [urlSearch, urlTab]);
 
   // Debounce search input
   useEffect(() => {

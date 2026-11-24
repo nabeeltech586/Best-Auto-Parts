@@ -50,11 +50,11 @@ describe('extractInventoryKeywords', () => {
   });
 
   it('extracts OEM number patterns and model year', () => {
-    const text = 'Is OEM 04465-02220 compatible with Honda City 2018?';
+    const text = 'Is OEM 04465-02220 compatible with Honda Shine 2018?';
     const result = extractInventoryKeywords(text);
 
     expect(result.skuOrOemCandidates).toContain('04465-02220');
-    expect(result.vehicleCandidates).toContain('City');
+    expect(result.vehicleCandidates).toContain('Shine');
     expect(result.modelYear).toBe(2018);
     expect(result.isFitmentInquiry).toBe(true);
   });

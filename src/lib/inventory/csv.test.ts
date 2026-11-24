@@ -192,7 +192,7 @@ describe('generatePartsCsv & generateSampleCsv', () => {
   it('generates downloadable sample CSV containing expected columns and examples', () => {
     const sample = generateSampleCsv();
     expect(sample).toContain('part_name,sku,oem_number');
-    expect(sample).toContain('Ceramic Front Brake Pads');
+    expect(sample).toContain('Front Disc Brake Pad Set (Pulsar / Platina)');
   });
 
   it('generates valid export CSV from parts array with proper quotation', () => {

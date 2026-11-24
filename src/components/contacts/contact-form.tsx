@@ -24,7 +24,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -56,6 +55,7 @@ export function ContactForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [category, setCategory] = useState<'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer'>('Customer');
   const [saving, setSaving] = useState(false);
 
   // Duplicate-phone detection for NEW contacts. `exact` (same digits)
@@ -77,6 +77,7 @@ export function ContactForm({
       setPhone(contact?.phone ?? '');
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
+      setCategory((contact?.category as 'Distributor' | 'Wholesaler' | 'Mechanic' | 'Customer') || 'Customer');
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
       fetchTags();
@@ -170,6 +171,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            category: category || 'Customer',
             updated_at: new Date().toISOString(),
           })
           .eq('id', contactId);
@@ -184,6 +186,7 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            category: category || 'Customer',
           })
           .select('id')
           .single();
@@ -334,6 +337,35 @@ export function ContactForm({
               placeholder={t('companyPlaceholder')}
               className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-muted-foreground">Category / Role</Label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(['Customer', 'Mechanic', 'Wholesaler', 'Distributor'] as const).map((cat) => {
+                const isSelected = category === cat;
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCategory(cat)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-all ${
+                      isSelected
+                        ? cat === 'Distributor'
+                          ? 'border-blue-500 bg-blue-500/20 text-blue-400 dark:text-blue-300 ring-1 ring-blue-500'
+                          : cat === 'Wholesaler'
+                          ? 'border-purple-500 bg-purple-500/20 text-purple-400 dark:text-purple-300 ring-1 ring-purple-500'
+                          : cat === 'Mechanic'
+                          ? 'border-amber-500 bg-amber-500/20 text-amber-400 dark:text-amber-300 ring-1 ring-amber-500'
+                          : 'border-emerald-500 bg-emerald-500/20 text-emerald-400 dark:text-emerald-300 ring-1 ring-emerald-500'
+                        : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-2">
