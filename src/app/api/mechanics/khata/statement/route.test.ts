@@ -32,7 +32,8 @@ describe('Partner Ledger Statement Module', () => {
       expect(formatAccountTier('Silver')).toBe('⭐ Silver Partner');
     });
 
-    it('deduplicates strings already ending in Partner', () => {
+    it('deduplicates strings already ending in Partner or Partner Partner', () => {
+      expect(formatAccountTier('Partner Partner')).toBe('⭐ Pro Partner');
       expect(formatAccountTier('Pro Partner')).toBe('⭐ Pro Partner');
       expect(formatAccountTier('Authorized Partner')).toBe('⭐ Authorized Partner');
       expect(formatAccountTier('Trade Partner')).toBe('⭐ Trade Partner');
@@ -64,7 +65,7 @@ describe('Partner Ledger Statement Module', () => {
 
       // 3. Clear call to action and direct UPI URI (NO crm.example.com dummy link, NO mock=true)
       expect(text).toContain('Kindly clear your outstanding ledger balance at your earliest convenience.');
-      expect(text).toContain('👉 *Pay Online via PhonePe / UPI:*');
+      expect(text).toContain('👉 *Pay Online via BestPay / UPI:*');
       expect(text).toContain('https://best-auto-parts-one.vercel.app/pay?order=');
       expect(text).toContain('upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=3200&cu=INR');
       expect(text).toContain('(UPI ID: 9761224004-2@ybl)');

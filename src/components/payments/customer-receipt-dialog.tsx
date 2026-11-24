@@ -67,8 +67,8 @@ export function CustomerReceiptDialog({
     `• Spare Part: ${order.part_details}\n` +
     `• Amount Paid: ${formatCurrency(order.amount)}\n` +
     `• Status: ${isPaid ? 'PAID (Success) ✅' : order.status}\n` +
-    `• Payment Mode: ${order.payment_mode || 'UPI / PhonePe'}\n` +
-    `• PhonePe Ref ID: ${order.phonepe_transaction_id || 'VERIFIED'}\n` +
+    `• Payment Mode: ${order.payment_mode || 'UPI / QR'}\n` +
+    `• Transaction Ref / UTR: ${order.phonepe_transaction_id || 'VERIFIED'}\n` +
     `• Stock Status: Auto-Deducted (-1 Unit) ✅\n` +
     `• Date & Time: ${formattedDate}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -207,14 +207,14 @@ export function CustomerReceiptDialog({
             </div>
 
             <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Payment Gateway / Mode:</span>
+              <span className="text-muted-foreground text-xs">Payment Mode:</span>
               <span className="font-medium text-foreground text-xs">
-                {order.payment_mode || 'PhonePe PG / UPI'}
+                {order.payment_mode || 'BestPay Instant (UPI / QR)'}
               </span>
             </div>
 
             <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">PhonePe Ref ID:</span>
+              <span className="text-muted-foreground text-xs">Transaction Ref / UTR:</span>
               <span className="font-mono text-muted-foreground text-[11px] truncate max-w-[200px]">
                 {order.phonepe_transaction_id || 'VERIFIED'}
               </span>

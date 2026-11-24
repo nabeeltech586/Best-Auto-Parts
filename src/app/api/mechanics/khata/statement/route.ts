@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 
 export function formatAccountTier(tier?: string | null): string {
-  if (!tier || tier === 'Partner') return '⭐ Pro Partner';
+  if (!tier || tier === 'Partner' || tier === 'Partner Partner') return '⭐ Pro Partner';
   const clean = tier.trim();
+  if (clean.toLowerCase().endsWith('partner partner')) return `⭐ ${clean.replace(/partner\s+partner/gi, 'Pro Partner')}`;
   if (clean.toLowerCase().endsWith('partner')) return `⭐ ${clean}`;
   return `⭐ ${clean} Partner`;
 }
@@ -61,10 +62,10 @@ export function generatePartnerStatementText({
     `• *Statement Date:* ${formattedDate}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n`;
 
-  if (balanceDue > 0) {
+    if (balanceDue > 0) {
     text +=
       `Kindly clear your outstanding ledger balance at your earliest convenience.\n\n` +
-      `👉 *Pay Online via PhonePe / UPI:*\n` +
+      `👉 *Pay Online via BestPay / UPI:*\n` +
       `${payUrl}\n` +
       `${directUpiUri}\n` +
       `(UPI ID: 9761224004-2@ybl)\n\n` +

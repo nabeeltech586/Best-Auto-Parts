@@ -239,6 +239,60 @@ export async function getContactLanguage(
   return null
 }
 
+export interface ActiveProductSession {
+  partName: string
+  unitPrice: number
+  partId?: string
+  updatedAt: number
+}
+
+export const activeProductSessions = new Map<string, ActiveProductSession>()
+
+export async function resolveActiveProduct(
+  db: SupabaseClient,
+  conversationId: string,
+  contactId: string,
+  accountId: string
+): Promise<{ partName: string; unitPrice: number; partId?: string }> {
+  // 1. Check in-memory session cache
+  const cached =
+    activeProductSessions.get(conversationId) ||
+    activeProductSessions.get(`${accountId}:${contactId}`)
+  if (cached && Date.now() - cached.updatedAt < 3600000 && cached.unitPrice > 0) {
+    return { partName: cached.partName, unitPrice: cached.unitPrice, partId: cached.partId }
+  }
+
+  // 2. Check latest order for this conversation / contact
+  try {
+    const { data: latestOrder } = await db
+      .from('orders')
+      .select('unit_price, total_amount, part_id, metadata')
+      .eq('account_id', accountId)
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (latestOrder && Number(latestOrder.unit_price) > 0) {
+      const partName =
+        latestOrder.metadata?.part_name || 'Bajaj Front Disc Brake Pad Set'
+      return {
+        partName,
+        unitPrice: Number(latestOrder.unit_price),
+        partId: latestOrder.part_id || undefined,
+      }
+    }
+  } catch {
+    // Ignore DB fetch failure
+  }
+
+  // 3. Standard active catalog default: Bajaj Front Disc Brake Pad Set ₹340
+  return {
+    partName: 'Bajaj Front Disc Brake Pad Set',
+    unitPrice: 340,
+  }
+}
+
 export async function setContactLanguage(
   db: SupabaseClient,
   accountId: string,
@@ -1094,7 +1148,29 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_RETRY ||
     /^(online\s*payment|pay\s*online|online\s*pay)$/i.test(rawText)
   ) {
-    let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=690'
+    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
+      await resolveActiveProduct(db, conversationId, contactId, accountId)
+
+    let customerName = 'Customer'
+    let customerPhone = ''
+    try {
+      const { data: c } = await db
+        .from('contacts')
+        .select('name, phone')
+        .eq('id', contactId)
+        .maybeSingle()
+      if (c?.name) customerName = c.name
+      if (c?.phone) customerPhone = c.phone
+    } catch {
+      // ignore
+    }
+
+    let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER&name=${encodeURIComponent(
+      customerName
+    )}&phone=${encodeURIComponent(customerPhone)}&item=${encodeURIComponent(
+      selectedPartName
+    )}&amount=${selectedUnitPrice}`
+
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1102,8 +1178,9 @@ export async function handleWelcomeFlowInbound(
         userId,
         contactId,
         conversationId,
-        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
-        unitPrice: 690,
+        partId: selectedPartId,
+        partName: selectedPartName,
+        unitPrice: selectedUnitPrice,
         quantity: 1,
         fulfillmentType: 'online_checkout',
         preferredLanguage: isHinglish ? 'hinglish' : 'en',
@@ -1113,8 +1190,12 @@ export async function handleWelcomeFlowInbound(
         checkoutLink = initResult.checkoutUrl
       } else {
         const orderId = initResult.merchantTransactionId || 'BAP-ORDER'
-        const amt = initResult.totalAmount || 690
-        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(orderId)}&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=${amt}`
+        const amt = initResult.totalAmount || selectedUnitPrice
+        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+          orderId
+        )}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
+          customerPhone
+        )}&item=${encodeURIComponent(selectedPartName)}&amount=${amt}`
       }
     } catch {
       // Fallback
@@ -1147,8 +1228,11 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_SCAN_QR ||
     /^(scan\s*qr|scan\s*qr\s*code|qr\s*code)$/i.test(rawText)
   ) {
+    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
+      await resolveActiveProduct(db, conversationId, contactId, accountId)
+
     let orderRef = 'BAP-9634'
-    let totalAmt = 690
+    let totalAmt = selectedUnitPrice
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1156,8 +1240,9 @@ export async function handleWelcomeFlowInbound(
         userId,
         contactId,
         conversationId,
-        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
-        unitPrice: 690,
+        partId: selectedPartId,
+        partName: selectedPartName,
+        unitPrice: selectedUnitPrice,
         quantity: 1,
         fulfillmentType: 'online_checkout',
         preferredLanguage: isHinglish ? 'hinglish' : 'en',
@@ -1172,21 +1257,23 @@ export async function handleWelcomeFlowInbound(
     const shortRef = orderRef.slice(-6)
     const bodyText = isHinglish
       ? `📷 *Scan karke Pay karein: ₹${totalAmt.toFixed(2)}*\n` +
-        `Payee: Best Auto Parts (Nabeel Khan)\n` +
+        `Product: ${selectedPartName}\n` +
+        `Payee: Best Auto Parts (Saud Bhai)\n` +
         `Order ID: #${shortRef}\n\n` +
         `1. Apne PhonePe, Google Pay ya Paytm se scan karein.\n` +
         `2. ₹${totalAmt.toFixed(2)} ka amount automatically pre-filled hai.\n` +
         `3. Kripya agle 15 minutes ke andar payment complete karein.\n\n` +
         `⏱️ *Yeh Dynamic QR agle 15 minutes ke liye valid hai.*\n` +
-        `✅ PhonePe gateway dwara verify hote hi order confirm ho jayega.`
+        `✅ Payment verify hote hi order confirm ho jayega.`
       : `📷 *Scan to Pay: ₹${totalAmt.toFixed(2)}*\n` +
-        `Payee: Best Auto Parts (Nabeel Khan)\n` +
+        `Product: ${selectedPartName}\n` +
+        `Payee: Best Auto Parts (Saud Bhai)\n` +
         `Order ID: #${shortRef}\n\n` +
         `1. Scan this dynamic QR using PhonePe, Google Pay, or Paytm.\n` +
         `2. The amount ₹${totalAmt.toFixed(2)} is pre-filled.\n` +
         `3. Please complete payment within 15 minutes.\n\n` +
         `⏱️ *This Dynamic QR will expire in 15 minutes.*\n` +
-        `✅ Your order will be confirmed automatically once verified by PhonePe.`;
+        `✅ Your order will be confirmed automatically once verified.`;
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://best-auto-parts-one.vercel.app'
     const qrImageUrl = `${siteUrl}/api/payments/phonepe/qr/${encodeURIComponent(orderRef)}`
@@ -1228,9 +1315,31 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_UPI_ID ||
     /^(upi\s*id|upi\s*id\s*payment|pay\s*via\s*upi)$/i.test(rawText)
   ) {
+    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
+      await resolveActiveProduct(db, conversationId, contactId, accountId)
+
+    let customerName = 'Customer'
+    let customerPhone = ''
+    try {
+      const { data: c } = await db
+        .from('contacts')
+        .select('name, phone')
+        .eq('id', contactId)
+        .maybeSingle()
+      if (c?.name) customerName = c.name
+      if (c?.phone) customerPhone = c.phone
+    } catch {
+      // ignore
+    }
+
     let orderRef = 'BAP-9634'
-    let totalAmt = 690
-    let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(orderRef)}&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=${totalAmt}`
+    let totalAmt = selectedUnitPrice
+    let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+      orderRef
+    )}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
+      customerPhone
+    )}&item=${encodeURIComponent(selectedPartName)}&amount=${totalAmt}`
+
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1238,8 +1347,9 @@ export async function handleWelcomeFlowInbound(
         userId,
         contactId,
         conversationId,
-        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
-        unitPrice: 690,
+        partId: selectedPartId,
+        partName: selectedPartName,
+        unitPrice: selectedUnitPrice,
         quantity: 1,
         fulfillmentType: 'online_checkout',
         preferredLanguage: isHinglish ? 'hinglish' : 'en',
@@ -1250,7 +1360,11 @@ export async function handleWelcomeFlowInbound(
       } else {
         const orderId = initResult.merchantTransactionId || orderRef
         const amt = initResult.totalAmount || totalAmt
-        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(orderId)}&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=${amt}`
+        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+          orderId
+        )}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
+          customerPhone
+        )}&item=${encodeURIComponent(selectedPartName)}&amount=${amt}`
       }
       orderRef = initResult.merchantTransactionId
       totalAmt = initResult.totalAmount
@@ -1261,24 +1375,26 @@ export async function handleWelcomeFlowInbound(
     const shortRef = orderRef.slice(-6)
     const formattedAmt = `₹${totalAmt.toFixed(2)}`
     const text = isHinglish
-      ? `⚡ *UPI ID Payment — PhonePe Gateway*\n` +
+      ? `⚡ *UPI ID Payment — BestPay Instant Checkout*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• Order ID: #${shortRef}\n` +
+        `• Part / Item: ${selectedPartName}\n` +
         `• Total Amount: ${formattedAmt} (All taxes included)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `Apne phone se seedhe 1-click pay karne ke liye niche secure checkout link par tap karein:\n` +
         `👉 ${checkoutLink}\n\n` +
-        `Yeh PhonePe, Google Pay aur Paytm ko support karta hai.\n\n` +
-        `Ya agar aap direct collect request chahte hain, toh apni UPI ID (VPA) yahan send karein (jaise: username@okhdfcbank).`
-      : `⚡ *UPI ID Payment — PhonePe Gateway*\n` +
+        `• *Direct Merchant UPI ID:* 9761224004-2@ybl\n` +
+        `• PhonePe, Google Pay, Paytm, BHIM aur sabhi UPI apps supported hain.`
+      : `⚡ *UPI ID Payment — BestPay Instant Checkout*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• Order ID: #${shortRef}\n` +
+        `• Part / Item: ${selectedPartName}\n` +
         `• Total Amount: ${formattedAmt} (All taxes included)\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `To pay directly from your UPI app on this phone, tap our secure checkout link:\n` +
         `👉 ${checkoutLink}\n\n` +
-        `Supports PhonePe, Google Pay, and Paytm.\n\n` +
-        `Alternatively, type your UPI ID (VPA) here to receive an instant collect request (e.g. username@okhdfcbank).`;
+        `• *Direct Merchant UPI ID:* 9761224004-2@ybl\n` +
+        `• Supports PhonePe, Google Pay, Paytm, and BHIM UPI apps.`;
 
     const res = await engineSendText({
       accountId,
@@ -1293,8 +1409,11 @@ export async function handleWelcomeFlowInbound(
   // Customer Enters / Sends a UPI ID (VPA)
   if (UPI_ID_REGEX.test(rawText)) {
     const customerVpa = rawText
+    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
+      await resolveActiveProduct(db, conversationId, contactId, accountId)
+
     let orderRef = 'BAP-9634'
-    let totalAmt = 690
+    let totalAmt = selectedUnitPrice
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1302,8 +1421,9 @@ export async function handleWelcomeFlowInbound(
         userId,
         contactId,
         conversationId,
-        partName: 'Bajaj Pulsar 150 Clutch Plate Set',
-        unitPrice: 690,
+        partId: selectedPartId,
+        partName: selectedPartName,
+        unitPrice: selectedUnitPrice,
         quantity: 1,
         fulfillmentType: 'online_checkout',
         preferredLanguage: isHinglish ? 'hinglish' : 'en',
@@ -1908,6 +2028,18 @@ export async function handleWelcomeFlowInbound(
           !Number.isNaN(rawPrice) &&
           Number.isFinite(rawPrice) &&
           rawPrice > 0
+
+        // Persist active product session for checkout flow
+        if (hasValidPrice) {
+          const sessionData: ActiveProductSession = {
+            partName: fullDisplayName,
+            unitPrice: rawPrice,
+            partId: matchedPart.id,
+            updatedAt: Date.now(),
+          }
+          activeProductSessions.set(conversationId, sessionData)
+          activeProductSessions.set(`${accountId}:${contactId}`, sessionData)
+        }
 
         const priceLine = hasValidPrice
           ? `• *Price:* ₹${rawPrice.toFixed(2)} (All taxes included)`

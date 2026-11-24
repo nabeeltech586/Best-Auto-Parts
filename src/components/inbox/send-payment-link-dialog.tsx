@@ -122,7 +122,7 @@ export function SendPaymentLinkDialog({
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `📍 Store: Kailashpur, Saharanpur, UP 247001\n` +
       `📞 Contact: Saud Bhai (+91 96347 22174)\n\n` +
-      `Reply here to confirm your order or request a secure PhonePe payment link.`;
+      `Reply here to confirm your order or request a secure payment link.`;
 
     onSendPaymentMessage(quoteMessage);
     toast.success('English part quote sent to chat!');
@@ -181,7 +181,7 @@ export function SendPaymentLinkDialog({
         `• Amount Due: ${formatCurrency(numAmount)}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         `👉 *Pay securely here:* ${data.paymentLink}\n\n` +
-        `⚡ Supports UPI (Google Pay, PhonePe, Paytm), Debit/Credit Cards & Net Banking.\n` +
+        `⚡ Supports UPI (Google Pay, PhonePe, Paytm, BHIM), QR Code & Cash.\n` +
         `Thank you for choosing Best Auto Parts!`;
 
       onSendPaymentMessage(formattedMessage);
@@ -204,9 +204,9 @@ export function SendPaymentLinkDialog({
               <CreditCard className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle>Quick Part Quote & PhonePe Pay Link</DialogTitle>
+              <DialogTitle>BestPay Instant Checkout & Part Quote</DialogTitle>
               <DialogDescription className="text-xs">
-                Search live inventory catalog, quote verified price, or dispatch a PhonePe link into chat.
+                Search live inventory catalog, quote verified price, or dispatch a BestPay instant checkout link into chat.
               </DialogDescription>
             </div>
           </div>
@@ -380,7 +380,7 @@ export function SendPaymentLinkDialog({
               ) : (
                 <Send className="size-3.5" />
               )}
-              Send Quote & PhonePe Link
+              Send Quote & BestPay Link
             </Button>
           </DialogFooter>
         </form>

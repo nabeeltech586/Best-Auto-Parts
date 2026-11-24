@@ -132,7 +132,7 @@ export default function PaymentsPage() {
       if (data.status === 'PAID') {
         toast.success(`Payment verified! Received ₹${data.amount || ''} via ${data.paymentMode || 'UPI'}`);
       } else if (data.status === 'PENDING') {
-        toast.info('Payment is still pending on PhonePe.');
+        toast.info('Payment is still pending on UPI / BestPay.');
       } else {
         toast.error(`Payment marked as ${data.status || 'FAILED'}`);
       }
@@ -245,6 +245,15 @@ export default function PaymentsPage() {
     }
   };
 
+  const cleanPartDetails = (details?: string) => {
+    if (!details) return 'Motorcycle Spare Parts Order';
+    return details
+      .replace(/Monthly\s+Khata\s+Ledger\s+Clearance/gi, 'Monthly Partner Ledger Clearance')
+      .replace(/Khata\s+Statement/gi, 'Partner Ledger Statement')
+      .replace(/Mechanic\s+Khata/gi, 'Partner Ledger')
+      .replace(/Khata/gi, 'Partner Ledger');
+  };
+
   return (
     <div className="flex-1 space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Header */}
@@ -252,15 +261,15 @@ export default function PaymentsPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              PhonePe Payments & Ledger
+              BestPay Collections & Ledger
             </h1>
             <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-              UPI & PG V1
+              UPI • QR • CASH
             </Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Generate short payment links for WhatsApp, track real-time UPI collections, and verify transactions.
+            Manage all UPI, QR code, and cash collections with real-time ledger sync and instant receipts.
           </p>
         </div>
 
@@ -282,7 +291,7 @@ export default function PaymentsPage() {
             className="h-9 bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700"
           >
             <Plus className="mr-2 h-4 w-4" />
-            Create Payment Link
+            BestPay Instant Checkout
           </Button>
         </div>
       </div>
@@ -462,8 +471,8 @@ export default function PaymentsPage() {
                           #{item.order_id}
                         </Badge>
                       </span>
-                      <span className="text-xs text-muted-foreground truncate" title={item.part_details}>
-                        {item.part_details}
+                      <span className="text-xs text-muted-foreground truncate" title={cleanPartDetails(item.part_details)}>
+                        {cleanPartDetails(item.part_details)}
                       </span>
                     </div>
                   </TableCell>
@@ -521,7 +530,11 @@ export default function PaymentsPage() {
                       {item.status === 'PAID' ? (
                         <>
                           <span className="font-medium text-foreground">
-                            {item.payment_mode || 'UPI'}
+                            {item.payment_mode
+                              ? item.payment_mode.toLowerCase() === 'cash'
+                                ? 'Cash'
+                                : 'UPI / QR'
+                              : 'UPI / QR'}
                           </span>
                           <span className="text-muted-foreground font-mono text-[10px]" title={item.phonepe_transaction_id}>
                             Ref: {item.phonepe_transaction_id || 'VERIFIED'}

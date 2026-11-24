@@ -1174,7 +1174,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
   // ------------------------------------------------------------
   // Test 32: Scan QR Code with 15-minute validity & pre-filled amount
   // ------------------------------------------------------------
-  it('32. Scan QR Code: delivers Dynamic QR details with pre-filled ₹690 and 15-minute countdown', async () => {
+  it('32. Scan QR Code: delivers Dynamic QR details with pre-filled ₹340 and 15-minute countdown', async () => {
     const db = createFakeDb({
       contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
       orders: [],
@@ -1197,9 +1197,9 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     const mediaCall = sentMedia[0]
     expect(mediaCall.kind).toBe('image')
     expect(mediaCall.link).toContain('/api/payments/phonepe/qr/')
-    expect(mediaCall.caption).toContain('Scan karke Pay karein: ₹690.00')
+    expect(mediaCall.caption).toContain('Scan karke Pay karein: ₹340.00')
     expect(mediaCall.caption).toContain('15 minutes')
-    expect(mediaCall.caption).toContain('Nabeel Khan')
+    expect(mediaCall.caption).toContain('Saud Bhai')
     // Guarantee stock privacy: no counts
     expect(mediaCall.caption).not.toMatch(/\b(in stock|remaining|units left)\b/i)
 
@@ -1234,9 +1234,12 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     expect(res.consumed).toBe(true)
     const txtCall = sentTexts[sentTexts.length - 1]
-    expect(txtCall.text).toContain('UPI ID Payment — PhonePe Gateway')
+    expect(txtCall.text).toContain('UPI ID Payment — BestPay Instant Checkout')
     expect(txtCall.text).toContain('https://best-auto-parts-one.vercel.app/pay?order=')
-    expect(txtCall.text).toContain('PhonePe, Google Pay, and Paytm')
+    expect(txtCall.text).toContain('9761224004-2@ybl')
+    expect(txtCall.text).toContain('₹340.00')
+    expect(txtCall.text).toContain('PhonePe, Google Pay, Paytm, and BHIM')
+    expect(txtCall.text).not.toContain('okhdfcbank')
   })
 
   // ------------------------------------------------------------
@@ -1261,8 +1264,99 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(res.consumed).toBe(true)
     const txtCall = sentTexts[sentTexts.length - 1]
     expect(txtCall.text).toContain('nabeelkhan@okhdfcbank')
-    expect(txtCall.text).toContain('₹690')
+    expect(txtCall.text).toContain('₹340.00')
     expect(txtCall.text).toContain('15 minutes')
+  })
+
+  it('34b. Preserves exact catalog quoted price through Buy Now -> Online Payment -> UPI ID Payment', async () => {
+    const customConvId = 'conv-pricing-preservation'
+    const customContactId = 'contact-pricing-test'
+    const db = createFakeDb({
+      contacts: [{ id: customContactId, account_id: accountId, name: 'Aslam Bhai', phone: '+919634722174', preferred_language: 'en' }],
+      parts_catalog: [
+        {
+          id: 'part-pulsar-150-clutch-340',
+          account_id: accountId,
+          part_name: 'Pulsar 150 Clutch Plate Set (5 Pcs)',
+          brand: 'Bajaj',
+          selling_price: 340,
+          quantity_in_stock: 15,
+          is_active: true,
+          fitments: [
+            {
+              id: 'fit-pulsar-150-340',
+              account_id: accountId,
+              part_id: 'part-pulsar-150-clutch-340',
+              vehicle_type: 'Motorcycle',
+              manufacturer: 'Bajaj',
+              model: 'Pulsar 150',
+              year_from: 2010,
+              year_to: 2023,
+              engine: '150cc DTS-i',
+              fuel_type: 'Petrol',
+              notes: 'Fits all Pulsar 150',
+            },
+          ],
+        },
+      ],
+      vehicle_fitment: [],
+      orders: [],
+      payments: [],
+    })
+
+    // 1. Inquiry: search and quote product at ₹340
+    const inqRes = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: customConvId,
+      contactId: customContactId,
+      inboundText: 'Bajaj Pulsar 150 clutch plate',
+    })
+    expect(inqRes.consumed).toBe(true)
+    expect(inqRes.responseSent).toContain('₹340.00')
+
+    // 2. Buy Now action
+    const buyRes = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: customConvId,
+      contactId: customContactId,
+      inboundText: 'Buy Now',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_NOW,
+    })
+    expect(buyRes.consumed).toBe(true)
+
+    // 3. Online Payment action
+    const onlinePayRes = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: customConvId,
+      contactId: customContactId,
+      inboundText: 'Online Payment',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_ONLINE_PAY,
+    })
+    expect(onlinePayRes.consumed).toBe(true)
+    expect(onlinePayRes.responseSent).toContain('amount=340')
+    expect(onlinePayRes.responseSent).not.toContain('amount=690')
+
+    // 4. UPI ID Payment action
+    const upiRes = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId: customConvId,
+      contactId: customContactId,
+      inboundText: 'UPI ID Payment',
+      interactiveReplyId: WELCOME_CALLBACKS.PAY_UPI_ID,
+    })
+    expect(upiRes.consumed).toBe(true)
+    const txtCall = sentTexts[sentTexts.length - 1]
+    expect(txtCall.text).toContain('₹340.00')
+    expect(txtCall.text).not.toContain('₹690')
+    expect(txtCall.text).toContain('9761224004-2@ybl')
   })
 
   // ------------------------------------------------------------
