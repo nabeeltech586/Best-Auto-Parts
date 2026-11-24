@@ -48,6 +48,7 @@ export interface PartCatalogItem {
   // Restock & PO confirmation tracking
   last_restocked_at?: string | null;
   last_po_number?: string | null;
+  last_restocked_quantity?: number | null;
   pending_po?: { po_number: string; date: string } | null;
 
   // Optional populated relationships
@@ -286,6 +287,13 @@ export interface PurchaseOrderItem {
   unit_cost?: number;
   quantity: number;
   total_cost: number;
+  // Inward restock tracking details
+  prev_stock?: number;
+  new_stock?: number;
+  quantity_added?: number;
+  received_at?: string;
+  received_date_formatted?: string;
+  inward_reference?: string;
 }
 
 export interface PurchaseOrder {

@@ -151,7 +151,57 @@ export default function InventoryPage() {
     fetchParts();
   }, [fetchParts]);
 
-  const handleRefreshAll = () => {
+  interface StockReceiveResult {
+    updated_parts?: Array<{
+      id: string;
+      part_name: string;
+      sku: string;
+      prev_stock: number;
+      new_stock: number;
+      quantity_added: number;
+      last_restocked_at: string;
+      last_po_number: string;
+    }>;
+    total_stock_added?: number;
+    metrics?: InventoryMetrics;
+  }
+
+  const handleRefreshAll = (receiveResult?: StockReceiveResult | unknown) => {
+    // Instantly reflect received stock in local React state without waiting for network
+    const result = receiveResult as StockReceiveResult | undefined;
+    if (result?.updated_parts && Array.isArray(result.updated_parts)) {
+      const updatedMap = new Map<string, (typeof result.updated_parts)[number]>(
+        result.updated_parts.map((p) => [p.id, p])
+      );
+      setParts((prev) =>
+        prev.map((part) => {
+          const match = updatedMap.get(part.id);
+          if (match) {
+            return {
+              ...part,
+              quantity_in_stock: match.new_stock,
+              last_restocked_at: match.last_restocked_at,
+              last_po_number: match.last_po_number,
+              last_restocked_quantity: match.quantity_added,
+              pending_po: null,
+            };
+          }
+          return part;
+        })
+      );
+    }
+
+    // Instantly update KPI cards (Total Stock Units, Inventory Cost, Potential Retail Value)
+    if (result?.metrics) {
+      setMetrics(result.metrics);
+    } else if (result?.total_stock_added) {
+      setMetrics((prev) => ({
+        ...prev,
+        total_stock_units: prev.total_stock_units + Number(result.total_stock_added),
+      }));
+    }
+
+    // Fetch from server for full database sync parity
     fetchMetrics();
     fetchParts();
   };

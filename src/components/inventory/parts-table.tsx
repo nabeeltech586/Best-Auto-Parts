@@ -126,6 +126,18 @@ export function PartsTable({
     }
   };
 
+  const formatDeliveryDate = (dateStr: string): string => {
+    try {
+      const d = new Date(dateStr);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = d.toLocaleDateString('en-GB', { month: 'short' });
+      const year = d.getFullYear();
+      return `${day} ${month} ${year}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
   // Check if all visible parts are selected
   const allVisibleSelected =
     parts.length > 0 &&
@@ -323,21 +335,20 @@ export function PartsTable({
                           </div>
                         )}
 
-                        {/* Confirmed Restock Badge */}
+                        {/* Confirmed Restock & Delivery Inward Badge */}
                         {part.last_restocked_at && (
                           <div className="mt-1">
                             <Badge
                               variant="outline"
                               className="text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-medium gap-1 px-1.5 py-0"
+                              title={
+                                part.last_po_number
+                                  ? `Purchase Order ${part.last_po_number.startsWith('#') ? part.last_po_number : `#${part.last_po_number}`}`
+                                  : 'Stock Inward Restock Verified'
+                              }
                             >
-                              <Check className="size-2.5" />
-                              Confirmed Restock:{' '}
-                              {new Date(part.last_restocked_at).toLocaleDateString('en-IN', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}{' '}
-                              {part.last_po_number ? `(${part.last_po_number.startsWith('#') ? part.last_po_number : `#${part.last_po_number}`})` : ''}
+                              <Check className="size-2.5 text-emerald-600 dark:text-emerald-400" />
+                              ✓ Delivered: {formatDeliveryDate(part.last_restocked_at)} (+{part.last_restocked_quantity || 10} Added)
                             </Badge>
                           </div>
                         )}

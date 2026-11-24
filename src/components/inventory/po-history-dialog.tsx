@@ -36,7 +36,7 @@ import type { PurchaseOrder } from '@/types/inventory';
 interface PoHistoryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStockUpdated?: () => void;
+  onStockUpdated?: (data?: unknown) => void;
 }
 
 export function PoHistoryDialog({
@@ -93,8 +93,24 @@ export function PoHistoryDialog({
       toast.success(
         `PO #${po.po_number} Received! Added ${data.total_stock_added} units to inventory.`,
       );
+
+      // Instantly update orders list in dialog state
+      if (data.purchase_order) {
+        setOrders((prev) =>
+          prev.map((o) => (o.id === po.id ? data.purchase_order : o))
+        );
+      } else {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === po.id
+              ? { ...o, status: 'RECEIVED', received_at: new Date().toISOString() }
+              : o
+          )
+        );
+      }
+
       fetchOrders();
-      onStockUpdated?.();
+      onStockUpdated?.(data);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error receiving PO');
     } finally {
@@ -345,25 +361,31 @@ export function PoHistoryDialog({
                           </TableCell>
                         </TableRow>
 
-                        {/* Expandable Line Items Details */}
+                        {/* Expandable Line Items Details & Date-Wise Stock Inward */}
                         {isExpanded && (
                           <TableRow key={`${po.id}-expanded`} className="bg-muted/30 hover:bg-muted/30">
                             <TableCell colSpan={8} className="p-3">
-                              <div className="rounded-md border border-border/80 bg-card p-3 space-y-2">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="font-semibold text-foreground">
-                                    Line Items in PO #{po.po_number}:
-                                  </span>
+                              <div className="rounded-md border border-border/80 bg-card p-3 space-y-2.5">
+                                <div className="flex flex-wrap items-center justify-between text-xs gap-2 pb-1 border-b border-border/60">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-foreground">
+                                      Line Items in PO #{po.po_number}:
+                                    </span>
+                                    {po.status === 'RECEIVED' ? (
+                                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                                        <CheckCircle2 className="size-3" />
+                                        Stock Inward Verified: {po.received_at ? new Date(po.received_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Delivered'}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="text-[10px] text-amber-600 dark:text-amber-400 border-amber-500/30 gap-1">
+                                        <Clock className="size-2.5" />
+                                        Awaiting Delivery
+                                      </Badge>
+                                    )}
+                                  </div>
                                   {po.received_at && (
-                                    <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
-                                      <CheckCircle2 className="size-3" />
-                                      Stock received on{' '}
-                                      {new Date(po.received_at).toLocaleDateString('en-IN', {
-                                        day: 'numeric',
-                                        month: 'short',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                      })}
+                                    <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">
+                                      Received on {new Date(po.received_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                                     </span>
                                   )}
                                 </div>
@@ -375,6 +397,9 @@ export function PoHistoryDialog({
                                       <TableHead className="text-[11px] py-1">OEM / Brand</TableHead>
                                       <TableHead className="text-[11px] text-right py-1">Cost Price</TableHead>
                                       <TableHead className="text-[11px] text-center py-1">Order Qty</TableHead>
+                                      {po.status === 'RECEIVED' && (
+                                        <TableHead className="text-[11px] text-center py-1">Stock Inward Transition</TableHead>
+                                      )}
                                       <TableHead className="text-[11px] text-right py-1">Est. Line Total</TableHead>
                                     </TableRow>
                                   </TableHeader>
@@ -394,8 +419,21 @@ export function PoHistoryDialog({
                                           {formatCurrency(item.cost_price)}
                                         </TableCell>
                                         <TableCell className="py-1 text-xs text-center font-mono font-bold text-foreground">
-                                          {item.quantity} pcs
+                                          +{item.quantity} pcs
                                         </TableCell>
+                                        {po.status === 'RECEIVED' && (
+                                          <TableCell className="py-1 text-xs text-center">
+                                            {item.prev_stock !== undefined && item.new_stock !== undefined ? (
+                                              <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                                {item.prev_stock} → {item.new_stock}
+                                              </Badge>
+                                            ) : (
+                                              <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                                +{item.quantity} Inward Stock
+                                              </Badge>
+                                            )}
+                                          </TableCell>
+                                        )}
                                         <TableCell className="py-1 text-xs text-right font-mono font-medium text-foreground">
                                           {formatCurrency(item.total_cost || item.cost_price * item.quantity)}
                                         </TableCell>

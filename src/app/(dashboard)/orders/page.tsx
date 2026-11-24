@@ -121,7 +121,7 @@ export default function OrderHistoryPage() {
     fetchData();
   }, [fetchData]);
 
-  // Handle Mark Received on PO
+  // Handle Mark Received / Mark Resolved on PO
   const handleMarkReceived = async (po: PurchaseOrder) => {
     setReceivingPoId(po.id);
     try {
@@ -133,8 +133,24 @@ export default function OrderHistoryPage() {
         throw new Error(data.error || 'Failed to receive purchase order');
       }
 
+      const nowIso = new Date().toISOString();
+      setPurchaseOrders((prev) =>
+        prev.map((p) =>
+          p.id === po.id
+            ? {
+                ...p,
+                status: 'RECEIVED',
+                received_at: nowIso,
+                confirmed_at: nowIso,
+                items: data.purchase_order?.items || p.items,
+              }
+            : p
+        )
+      );
+
+      const addedUnits = data.total_stock_added || po.total_units;
       toast.success(
-        `PO #${po.po_number} marked as RECEIVED. Inventory stock incremented for ${po.total_units} units!`
+        `PO #${po.po_number} marked as RECEIVED. Added +${addedUnits} units to live inventory stock!`
       );
       fetchData();
     } catch (err) {
@@ -799,6 +815,7 @@ export default function OrderHistoryPage() {
                               onClick={() => handleMarkReceived(po)}
                               disabled={receivingPoId === po.id}
                               className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium h-8"
+                              title="Mark Received / Mark Resolved — Add ordered quantities to live stock"
                             >
                               {receivingPoId === po.id ? (
                                 <Loader2 className="size-3.5 animate-spin" />
@@ -846,6 +863,9 @@ export default function OrderHistoryPage() {
                                 <TableHead className="text-[11px] h-7">Part Name</TableHead>
                                 <TableHead className="text-[11px] h-7">OEM / Brand</TableHead>
                                 <TableHead className="text-[11px] h-7 text-right">Order Qty</TableHead>
+                                {isReceived && (
+                                  <TableHead className="text-[11px] h-7 text-center">Stock Inward Transition</TableHead>
+                                )}
                                 <TableHead className="text-[11px] h-7 text-right">Est. Unit Cost</TableHead>
                                 <TableHead className="text-[11px] h-7 text-right">Line Total</TableHead>
                               </TableRow>
@@ -860,8 +880,21 @@ export default function OrderHistoryPage() {
                                     {[item.oem_number, item.brand].filter(Boolean).join(' • ') || '—'}
                                   </TableCell>
                                   <TableCell className="text-xs text-right font-bold py-1.5">
-                                    {item.quantity} pcs
+                                    +{item.quantity} pcs
                                   </TableCell>
+                                  {isReceived && (
+                                    <TableCell className="text-xs text-center py-1.5">
+                                      {item.prev_stock !== undefined && item.new_stock !== undefined ? (
+                                        <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                          {item.prev_stock} → {item.new_stock}
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="font-mono text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                          +{item.quantity} Inward
+                                        </Badge>
+                                      )}
+                                    </TableCell>
+                                  )}
                                   <TableCell className="text-xs text-right font-mono py-1.5">
                                     {formatCurrency(item.cost_price || item.unit_cost || 0)}
                                   </TableCell>

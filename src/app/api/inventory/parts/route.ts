@@ -143,21 +143,31 @@ export async function GET(request: Request) {
 
       if (pendingOrders && pendingOrders.length > 0) {
         const pendingMap = new Map<string, { po_number: string; date: string }>();
+        const pendingSkuMap = new Map<string, { po_number: string; date: string }>();
+        const pendingNameMap = new Map<string, { po_number: string; date: string }>();
+
         for (const po of pendingOrders) {
           const poDate = po.sent_at || po.created_at;
           const poItems = Array.isArray(po.items) ? po.items : [];
           for (const it of poItems) {
+            const info = { po_number: po.po_number, date: poDate };
             if (it?.part_id && !pendingMap.has(it.part_id)) {
-              pendingMap.set(it.part_id, {
-                po_number: po.po_number,
-                date: poDate,
-              });
+              pendingMap.set(it.part_id, info);
+            }
+            if (it?.sku && !pendingSkuMap.has(it.sku.toLowerCase().trim())) {
+              pendingSkuMap.set(it.sku.toLowerCase().trim(), info);
+            }
+            if (it?.part_name && !pendingNameMap.has(it.part_name.toLowerCase().trim())) {
+              pendingNameMap.set(it.part_name.toLowerCase().trim(), info);
             }
           }
         }
 
         items = items.map((part) => {
-          const pending = pendingMap.get(part.id);
+          const pending =
+            pendingMap.get(part.id) ||
+            (part.sku ? pendingSkuMap.get(part.sku.toLowerCase().trim()) : null) ||
+            (part.part_name ? pendingNameMap.get(part.part_name.toLowerCase().trim()) : null);
           return pending ? { ...part, pending_po: pending } : part;
         });
       }
