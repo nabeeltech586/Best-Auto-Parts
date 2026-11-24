@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
+import { syncSupplierToContact } from '@/lib/contacts/distributor-sync';
 
 export async function GET() {
   try {
@@ -74,6 +75,14 @@ export async function POST(request: Request) {
       console.error('[inventory/suppliers POST] Insert failed:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Auto-sync new supplier into contacts table
+    await syncSupplierToContact(supabase, {
+      firm_name: supplier.firm_name,
+      whatsapp_number: supplier.whatsapp_number,
+      contact_person: supplier.contact_person,
+      account_id: accountId,
+    });
 
     return NextResponse.json({ supplier }, { status: 201 });
   } catch (err) {

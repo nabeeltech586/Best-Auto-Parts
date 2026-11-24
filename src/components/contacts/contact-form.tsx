@@ -13,6 +13,7 @@ import {
   type ExistingContact,
 } from '@/lib/contacts/dedupe';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
+import { syncContactToSupplier } from '@/lib/contacts/distributor-sync';
 import {
   Dialog,
   DialogContent,
@@ -206,6 +207,21 @@ export function ContactForm({
         }
         for (const tagId of toAdd) {
           await addContactTag(contactId, tagId);
+        }
+      }
+
+      // If category is Distributor or Wholesaler, automatically sync to suppliers table
+      if (category === 'Distributor' || category === 'Wholesaler') {
+        try {
+          await syncContactToSupplier(supabase, {
+            name: name.trim() || null,
+            phone: phone.trim(),
+            company: company.trim() || null,
+            category,
+            account_id: accountId,
+          });
+        } catch (supErr) {
+          console.warn('[ContactForm] Supplier sync warning:', supErr);
         }
       }
 

@@ -75,6 +75,10 @@ import {
   contactSearchPattern,
 } from '@/lib/contacts/search-filter';
 import { pageAfterRangeError, pageAfterShrink } from '@/lib/contacts/page-bounds';
+import {
+  syncDistributorsAndWholesalers,
+  syncContactToSupplier,
+} from '@/lib/contacts/distributor-sync';
 
 const PAGE_SIZE = 25;
 
@@ -334,7 +338,15 @@ export default function ContactsPage() {
     fetchTags();
     fetchCategoryCounts();
     fetchLiveDues();
-  }, [fetchTags, fetchCategoryCounts, fetchLiveDues]);
+
+    // Auto-sync existing and future distributors & wholesalers into contacts
+    syncDistributorsAndWholesalers(supabase).then((res) => {
+      if (res.inserted > 0 || res.updated > 0) {
+        fetchContacts();
+        fetchCategoryCounts();
+      }
+    });
+  }, [fetchTags, fetchCategoryCounts, fetchLiveDues, fetchContacts, supabase]);
 
   useEffect(() => {
     fetchContacts();
@@ -360,6 +372,17 @@ export default function ContactsPage() {
       if (error) throw error;
       toast.success(`Role updated: ${contactName || 'Contact'} is now ${newCategory}`);
       fetchCategoryCounts();
+
+      // If marked as Distributor or Wholesaler, keep suppliers directory synced
+      if (newCategory === 'Distributor' || newCategory === 'Wholesaler') {
+        const targetContact = contacts.find((c) => c.id === contactId);
+        if (targetContact) {
+          syncContactToSupplier(supabase, {
+            ...targetContact,
+            category: newCategory,
+          }).catch((err) => console.warn('[handleUpdateCategory] supplier sync warning:', err));
+        }
+      }
     } catch (err) {
       console.error('Update category error:', err);
       toast.error('Failed to update category');

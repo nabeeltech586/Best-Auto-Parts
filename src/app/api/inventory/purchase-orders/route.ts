@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
 import { sendTextMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { syncSupplierToContact } from '@/lib/contacts/distributor-sync';
 import type { PurchaseOrderItem } from '@/types/inventory';
 
 export async function GET() {
@@ -100,6 +101,14 @@ export async function POST(request: Request) {
       console.error('[inventory/purchase-orders POST] Insert failed:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Auto-sync PO supplier to contacts directory
+    await syncSupplierToContact(supabase, {
+      firm_name: supplierName,
+      whatsapp_number: supplierPhone,
+      contact_person: supplierName,
+      account_id: accountId,
+    });
 
     let whatsappDispatched = false;
     let whatsappError: string | null = null;
