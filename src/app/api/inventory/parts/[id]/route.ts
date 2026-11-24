@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeAlternateOemNumbers, validatePartPayload } from '@/lib/inventory/parts';
+import { getMatchingPartImage } from '@/lib/partImages';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -36,10 +37,28 @@ export async function GET(request: Request, context: Params) {
       .order('created_at', { ascending: false })
       .limit(20);
 
+    const partRecord = part as Record<string, unknown> | null;
+    const resolvedImg = getMatchingPartImage(partRecord);
+    const existingUrl =
+      (typeof partRecord?.image_url === 'string' && partRecord.image_url) ||
+      (Array.isArray(partRecord?.image_urls) &&
+        typeof partRecord.image_urls[0] === 'string' &&
+        partRecord.image_urls[0]) ||
+      null;
+    const enrichedPart = {
+      ...part,
+      image_url: existingUrl || resolvedImg,
+      image_urls: existingUrl
+        ? Array.isArray(partRecord?.image_urls)
+          ? partRecord.image_urls
+          : [existingUrl]
+        : [resolvedImg],
+    };
+
     const fitments = (part as { fitments?: unknown[] })?.fitments || [];
 
     return NextResponse.json({
-      part,
+      part: enrichedPart,
       fitments,
       movements: movements || [],
     });
@@ -134,16 +153,43 @@ export async function PATCH(request: Request, context: Params) {
       patch.low_stock_threshold = Math.max(0, parseInt(body.low_stock_threshold, 10) || 5);
     }
     if (body.location !== undefined) patch.location = body.location?.trim() || null;
-    if (body.image_urls !== undefined && Array.isArray(body.image_urls)) patch.image_urls = body.image_urls;
+    if (body.image_url !== undefined) {
+      const trimmed = body.image_url?.trim() || null;
+      patch.image_url = trimmed;
+      if (trimmed) {
+        patch.image_urls = [trimmed];
+      }
+    }
+    if (body.image_urls !== undefined && Array.isArray(body.image_urls)) {
+      patch.image_urls = body.image_urls;
+      if (body.image_urls.length > 0 && !patch.image_url) {
+        patch.image_url = body.image_urls[0];
+      }
+    }
     if (body.is_active !== undefined) patch.is_active = Boolean(body.is_active);
 
-    const { data: updated, error: updateError } = await supabase
+    let { data: updated, error: updateError } = await supabase
       .from('parts_catalog')
       .update(patch)
       .eq('id', id)
       .eq('account_id', accountId)
       .select()
       .single();
+
+    if (updateError) {
+      // Retry without image_url if column not yet migrated
+      const fallbackPatch = { ...patch };
+      delete fallbackPatch.image_url;
+      const retry = await supabase
+        .from('parts_catalog')
+        .update(fallbackPatch)
+        .eq('id', id)
+        .eq('account_id', accountId)
+        .select()
+        .single();
+      updated = retry.data;
+      updateError = retry.error;
+    }
 
     if (updateError) {
       console.error('[inventory/parts/[id] PATCH] Update failed:', updateError);

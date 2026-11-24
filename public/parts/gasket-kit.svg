@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="gasketGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Engine Cylinder Head Gasket Silhouette -->
+  <path d="M26 34 C26 28 32 24 38 24 L82 24 C88 24 94 28 94 34 L96 76 C96 84 88 92 80 92 L40 92 C32 92 24 84 24 76 Z" 
+        fill="url(#gasketGrad)" stroke="#065f46" stroke-width="2"/>
+
+  <!-- Cylinder Bore Aperture -->
+  <circle cx="60" cy="56" r="22" fill="#f8fafc" stroke="#065f46" stroke-width="2"/>
+  <!-- Copper Fire Ring Ring -->
+  <circle cx="60" cy="56" r="25" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="3 2"/>
+
+  <!-- Bolt Stud Holes -->
+  <circle cx="34" cy="34" r="4" fill="#f8fafc" stroke="#065f46" stroke-width="1.5"/>
+  <circle cx="86" cy="34" r="4" fill="#f8fafc" stroke="#065f46" stroke-width="1.5"/>
+  <circle cx="34" cy="78" r="4" fill="#f8fafc" stroke="#065f46" stroke-width="1.5"/>
+  <circle cx="86" cy="78" r="4" fill="#f8fafc" stroke="#065f46" stroke-width="1.5"/>
+
+  <!-- Oil Gallery Passages -->
+  <circle cx="60" cy="28" r="3" fill="#f8fafc" stroke="#065f46" stroke-width="1.5"/>
+  <circle cx="60" cy="84" r="3" fill="#f8fafc" stroke="#065f46" stroke-width="1.5"/>
+
+  <!-- Valve Stem Oil Seal Ring Accents -->
+  <circle cx="30" cy="98" r="6" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+  <circle cx="48" cy="100" r="6" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+  <circle cx="90" cy="98" r="6" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+</svg>

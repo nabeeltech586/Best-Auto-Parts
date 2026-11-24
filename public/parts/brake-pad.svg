@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="padSteel" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="padFriction" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#92400e"/>
+    </linearGradient>
+    <linearGradient id="shoeAlloy" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Curved Drum Brake Shoe (Left/Bottom) -->
+  <path d="M22 66 C22 40 42 22 68 22 C78 22 84 26 88 32 C82 36 74 34 68 34 C48 34 34 48 34 68 C34 76 38 84 44 90 C38 92 32 90 28 84 C24 78 22 72 22 66 Z" 
+        fill="url(#shoeAlloy)" stroke="#475569" stroke-width="1.5"/>
+  <path d="M24 64 C24 44 42 28 66 28" fill="none" stroke="#b45309" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Disc Brake Pad Assembly (Front/Right) -->
+  <!-- Metal Backing Plate with Mount Lugs -->
+  <path d="M54 48 C54 44 58 42 62 42 L94 42 C98 42 104 46 104 52 L104 86 C104 90 98 94 94 94 L62 94 C56 94 54 88 54 84 Z" 
+        fill="url(#padSteel)" stroke="#0f172a" stroke-width="2"/>
+  
+  <!-- Caliper Mount Holes -->
+  <circle cx="62" cy="48" r="3.5" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+  <circle cx="96" cy="48" r="3.5" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+
+  <!-- Ceramic Friction Block with Thermal Expansion Slot -->
+  <rect x="60" y="56" width="38" height="32" rx="3" fill="url(#padFriction)" stroke="#78350f" stroke-width="1"/>
+  <line x1="79" y1="56" x2="79" y2="88" stroke="#1e293b" stroke-width="2"/>
+</svg>

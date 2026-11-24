@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="batBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="batTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#b91c1c"/>
+    </linearGradient>
+    <linearGradient id="termGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <!-- Background Badge -->
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+  
+  <!-- Terminal Posts -->
+  <rect x="30" y="22" width="14" height="10" rx="2" fill="url(#termGrad)"/>
+  <rect x="76" y="22" width="14" height="10" rx="2" fill="url(#termGrad)"/>
+  <!-- Polarity symbols on terminals -->
+  <text x="37" y="29" font-family="Arial,sans-serif" font-size="8" font-weight="bold" fill="#0f172a" text-anchor="middle">-</text>
+  <text x="83" y="30" font-family="Arial,sans-serif" font-size="8" font-weight="bold" fill="#0f172a" text-anchor="middle">+</text>
+
+  <!-- Battery Main Case -->
+  <rect x="22" y="32" width="76" height="66" rx="6" fill="url(#batBg)"/>
+  <!-- Battery Top Cover Red Accent -->
+  <path d="M22 38 C22 34.686 24.686 32 28 32 L92 32 C95.314 32 98 34.686 98 38 L98 46 L22 46 Z" fill="url(#batTop)"/>
+  
+  <!-- Casing Grooves / Ribs -->
+  <line x1="28" y1="52" x2="28" y2="90" stroke="#334155" stroke-width="2" stroke-linecap="round"/>
+  <line x1="92" y1="52" x2="92" y2="90" stroke="#334155" stroke-width="2" stroke-linecap="round"/>
+  <line x1="38" y1="52" x2="38" y2="90" stroke="#334155" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="82" y1="52" x2="82" y2="90" stroke="#334155" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- Battery Label Box -->
+  <rect x="42" y="52" width="36" height="36" rx="4" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5"/>
+  <path d="M57 56 L64 68 L59 68 L62 82 L53 71 L58 71 Z" fill="#fbbf24"/>
+  <text x="60" y="94" font-family="Arial,sans-serif" font-size="6" font-weight="bold" fill="#94a3b8" text-anchor="middle">12V VRLA</text>
+</svg>

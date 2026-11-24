@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="filterMesh" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="50%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="rubberRim" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Rubber Sealing Outer Flange Frame (Scooter / Bike Airbox shape) -->
+  <path d="M26 30 C26 24 32 20 40 20 L86 20 C94 20 100 26 100 34 L100 86 C100 94 94 100 86 100 L36 100 C28 100 24 94 24 86 L24 44 Z" 
+        fill="url(#rubberRim)" stroke="#020617" stroke-width="2"/>
+
+  <!-- Airflow Pleated Filter Element (Orange / Yellow Paper) -->
+  <rect x="32" y="28" width="60" height="64" rx="4" fill="url(#filterMesh)" stroke="#c2410c" stroke-width="1.5"/>
+
+  <!-- Accordion Pleat Folds (High-Efficiency Micronic Media) -->
+  <line x1="38" y1="28" x2="38" y2="92" stroke="#7c2d12" stroke-width="2"/>
+  <line x1="44" y1="28" x2="44" y2="92" stroke="#fed7aa" stroke-width="1.5"/>
+  <line x1="50" y1="28" x2="50" y2="92" stroke="#7c2d12" stroke-width="2"/>
+  <line x1="56" y1="28" x2="56" y2="92" stroke="#fed7aa" stroke-width="1.5"/>
+  <line x1="62" y1="28" x2="62" y2="92" stroke="#7c2d12" stroke-width="2"/>
+  <line x1="68" y1="28" x2="68" y2="92" stroke="#fed7aa" stroke-width="1.5"/>
+  <line x1="74" y1="28" x2="74" y2="92" stroke="#7c2d12" stroke-width="2"/>
+  <line x1="80" y1="28" x2="80" y2="92" stroke="#fed7aa" stroke-width="1.5"/>
+  <line x1="86" y1="28" x2="86" y2="92" stroke="#7c2d12" stroke-width="2"/>
+
+  <!-- Metal Protective Screen Mesh Grid -->
+  <line x1="32" y1="46" x2="92" y2="46" stroke="#ffffff" stroke-width="1.5" opacity="0.6"/>
+  <line x1="32" y1="62" x2="92" y2="62" stroke="#ffffff" stroke-width="1.5" opacity="0.6"/>
+  <line x1="32" y1="78" x2="92" y2="78" stroke="#ffffff" stroke-width="1.5" opacity="0.6"/>
+</svg>

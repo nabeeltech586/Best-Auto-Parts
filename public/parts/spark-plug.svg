@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="ceramicGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="40%" stop-color="#ffffff"/>
+      <stop offset="80%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <linearGradient id="metalThread" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="50%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Terminal Stud Nut (Top) -->
+  <rect x="56" y="8" width="8" height="8" rx="1.5" fill="#ca8a04" stroke="#854d0e" stroke-width="1"/>
+
+  <!-- Ceramic White Insulator with Ribs -->
+  <rect x="52" y="16" width="16" height="38" rx="3" fill="url(#ceramicGrad)" stroke="#64748b" stroke-width="1.5"/>
+  <!-- Insulator Flashover Ribs -->
+  <line x1="50" y1="22" x2="70" y2="22" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
+  <line x1="50" y1="28" x2="70" y2="28" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
+  <line x1="50" y1="34" x2="70" y2="34" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Brand Marking Stripes on Insulator -->
+  <line x1="54" y1="44" x2="66" y2="44" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="54" y1="48" x2="66" y2="48" stroke="#2563eb" stroke-width="1.5"/>
+
+  <!-- Hex Nut Shell (Spanner Grip) -->
+  <polygon points="46,54 74,54 80,68 40,68" fill="url(#metalThread)" stroke="#1e293b" stroke-width="1.5"/>
+
+  <!-- Threaded Steel Shell Body -->
+  <rect x="48" y="68" width="24" height="28" fill="url(#metalThread)" stroke="#1e293b" stroke-width="1.5"/>
+  <!-- M10 / M14 Screw Threads -->
+  <line x1="46" y1="74" x2="74" y2="74" stroke="#1e293b" stroke-width="2"/>
+  <line x1="46" y1="80" x2="74" y2="80" stroke="#1e293b" stroke-width="2"/>
+  <line x1="46" y1="86" x2="74" y2="86" stroke="#1e293b" stroke-width="2"/>
+  <line x1="46" y1="92" x2="74" y2="92" stroke="#1e293b" stroke-width="2"/>
+
+  <!-- Center Electrode Tip -->
+  <rect x="58" y="96" width="4" height="12" fill="#ca8a04"/>
+
+  <!-- Ground Electrode J-Bend Hook with Electric Spark -->
+  <path d="M68 96 L68 110 L56 110" fill="none" stroke="#334155" stroke-width="3" stroke-linecap="square"/>
+  <!-- Spark Flash between gap -->
+  <polygon points="59,106 63,104 60,107 64,107" fill="#38bdf8"/>
+</svg>

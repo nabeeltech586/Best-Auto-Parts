@@ -23,7 +23,8 @@ import {
 } from '@/components/ui/select';
 import { COMMON_PART_CATEGORIES } from '@/lib/inventory/fitment';
 import { PART_CONDITIONS, type PartCatalogItem, type PartCondition, type PartFormData } from '@/types/inventory';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { PART_IMAGE_PRESETS, getMatchingPartImage, DEFAULT_PART_IMAGE } from '@/lib/partImages';
 
 interface PartFormDialogProps {
   open: boolean;
@@ -53,6 +54,7 @@ export function PartFormDialog({
   const [quantity, setQuantity] = useState('0');
   const [threshold, setThreshold] = useState('5');
   const [location, setLocation] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -72,6 +74,7 @@ export function PartFormDialog({
       setQuantity(String(initialData.quantity_in_stock ?? '0'));
       setThreshold(String(initialData.low_stock_threshold ?? '5'));
       setLocation(initialData.location || '');
+      setImageUrl(initialData.image_url || (initialData.image_urls && initialData.image_urls[0]) || '');
       setDescription(initialData.description || '');
     } else {
       setPartName('');
@@ -87,6 +90,7 @@ export function PartFormDialog({
       setQuantity('0');
       setThreshold('5');
       setLocation('');
+      setImageUrl('');
       setDescription('');
     }
     setErrors({});
@@ -105,6 +109,8 @@ export function PartFormDialog({
       return;
     }
 
+    const trimmedImg = imageUrl.trim();
+
     const payload: Partial<PartFormData> = {
       part_name: partName.trim(),
       sku: sku.trim().toUpperCase(),
@@ -121,6 +127,8 @@ export function PartFormDialog({
       quantity_in_stock: parseInt(quantity, 10) || 0,
       low_stock_threshold: parseInt(threshold, 10) || 5,
       location: location.trim() || undefined,
+      image_url: trimmedImg || undefined,
+      image_urls: trimmedImg ? [trimmedImg] : undefined,
       description: description.trim() || undefined,
     };
 
@@ -383,7 +391,101 @@ export function PartFormDialog({
             </div>
           </div>
 
-          {/* Section 4: Description */}
+          {/* Section 4: Product Visual & Thumbnail */}
+          <div className="space-y-3 pt-2 border-t border-border">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <ImageIcon className="size-3.5 text-primary" />
+                Product Visual &amp; Thumbnail Photo
+              </h4>
+              <span className="text-[11px] text-muted-foreground">
+                Appears in CRM Catalog &amp; WhatsApp Statements
+              </span>
+            </div>
+
+            <div className="flex items-start gap-3">
+              {/* Live Thumbnail Preview */}
+              <div className="size-16 shrink-0 relative rounded-lg border border-border bg-white p-1.5 shadow-xs flex items-center justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={
+                    imageUrl.trim() ||
+                    getMatchingPartImage({
+                      part_name: partName,
+                      sku,
+                      category,
+                    })
+                  }
+                  alt="Thumbnail Preview"
+                  className="size-full object-contain"
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_PART_IMAGE;
+                  }}
+                />
+              </div>
+
+              <div className="space-y-2 flex-1 min-w-0">
+                <div className="space-y-1">
+                  <Label htmlFor="imageUrl" className="text-xs">
+                    Custom Image URL or Path
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="imageUrl"
+                      placeholder="e.g. /parts/brake-pad.svg or https://..."
+                      value={imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      className="bg-muted/60 border-border font-mono text-xs"
+                    />
+                    {imageUrl && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setImageUrl('')}
+                        className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                        title="Reset to Auto Category Match"
+                      >
+                        Reset
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick Preset Selector Pills */}
+                <div>
+                  <div className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1">
+                    <Sparkles className="size-3 text-amber-500" />
+                    Quick Category Visual Presets:
+                  </div>
+                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
+                    {PART_IMAGE_PRESETS.filter((p) => p.id !== 'generic-part').map((preset) => {
+                      const isSelected =
+                        imageUrl === preset.path ||
+                        (!imageUrl &&
+                          getMatchingPartImage({ part_name: partName, sku, category }) === preset.path);
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setImageUrl(preset.path)}
+                          className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                            isSelected
+                              ? 'bg-primary/15 text-primary border-primary font-medium'
+                              : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                          }`}
+                        >
+                          {preset.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 5: Description */}
           <div className="space-y-1.5 pt-2 border-t border-border">
             <Label htmlFor="description" className="text-xs">
               Part Notes / Description

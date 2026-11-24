@@ -10,7 +10,6 @@ import {
   Trash2,
   Sliders,
   Eye,
-  Package,
   Wrench,
   AlertTriangle,
   MapPin,
@@ -42,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatCurrency, getStockStatus } from '@/lib/inventory/parts';
+import { getMatchingPartImage, DEFAULT_PART_IMAGE } from '@/lib/partImages';
 import type { PartCatalogItem, PurchaseOrderItem } from '@/types/inventory';
 
 interface PartsTableProps {
@@ -297,8 +297,24 @@ export function PartsTable({
                   {/* Part Name & SKU */}
                   <TableCell className="py-3">
                     <div className="flex items-start gap-2.5">
-                      <div className="size-9 rounded-md bg-muted/80 border border-border flex items-center justify-center shrink-0 mt-0.5 text-muted-foreground">
-                        <Package className="size-4" />
+                      <div className="size-11 shrink-0 mt-0.5 relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={part.image_url || (part.image_urls && part.image_urls[0]) || getMatchingPartImage(part)}
+                          alt={part.part_name}
+                          width={44}
+                          height={44}
+                          className="size-11 object-contain bg-white border border-slate-200 rounded-lg p-1 shadow-xs transition-transform hover:scale-105"
+                          loading="lazy"
+                          onError={(e) => {
+                            const fallback = getMatchingPartImage(part);
+                            if (e.currentTarget.src !== fallback && !e.currentTarget.src.endsWith(fallback)) {
+                              e.currentTarget.src = fallback;
+                            } else {
+                              e.currentTarget.src = DEFAULT_PART_IMAGE;
+                            }
+                          }}
+                        />
                       </div>
                       <div className="min-w-0">
                         <Link

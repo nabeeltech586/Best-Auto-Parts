@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   Package,
@@ -14,6 +14,7 @@ import {
   ClipboardList,
   AlertTriangle,
   Loader2,
+  ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { InventoryOverview } from '@/components/inventory/inventory-overview';
@@ -79,6 +80,8 @@ export default function InventoryPage() {
   const [deletingPart, setDeletingPart] = useState<PartCatalogItem | null>(null);
   const [isCsvImportOpen, setIsCsvImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [isSyncingPhotos, setIsSyncingPhotos] = useState(false);
+  const hasAutoSynced = useRef(false);
 
   // Distributor and Purchase Order states
   const [isSuppliersManagerOpen, setIsSuppliersManagerOpen] = useState(false);
@@ -150,6 +153,44 @@ export default function InventoryPage() {
   useEffect(() => {
     fetchParts();
   }, [fetchParts]);
+
+  // Handle manual photo sync
+  const handleSyncPhotos = async () => {
+    try {
+      setIsSyncingPhotos(true);
+      const res = await fetch('/api/inventory/parts/sync-photos', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || `Successfully synced ${data.updated} part photos!`);
+        fetchParts();
+      } else {
+        throw new Error(data.error || 'Failed to sync photos');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error syncing part photos';
+      toast.error(msg);
+    } finally {
+      setIsSyncingPhotos(false);
+    }
+  };
+
+  // Auto-sync photos if any loaded parts have missing images
+  useEffect(() => {
+    if (!loading && parts.length > 0 && !hasAutoSynced.current) {
+      const hasMissingImages = parts.some((p) => !p.image_url);
+      if (hasMissingImages) {
+        hasAutoSynced.current = true;
+        fetch('/api/inventory/parts/sync-photos', { method: 'POST' })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data?.updated > 0) {
+              fetchParts();
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [loading, parts, fetchParts]);
 
   interface StockReceiveResult {
     updated_parts?: Array<{
@@ -458,6 +499,23 @@ export default function InventoryPage() {
           >
             <ClipboardList className="size-3.5 text-purple-500" />
             PO History
+          </Button>
+
+          {/* Sync Photos Utility */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncPhotos}
+            disabled={isSyncingPhotos}
+            className="gap-1.5 border-teal-500/40 text-teal-600 dark:text-teal-400 hover:bg-teal-500/10 hover:border-teal-500/60"
+            title="Sync & backfill high-contrast product photos for all catalog parts"
+          >
+            {isSyncingPhotos ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <ImageIcon className="size-3.5" />
+            )}
+            Sync Photos
           </Button>
 
           <Button

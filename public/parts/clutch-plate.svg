@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="discGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="50%" stop-color="#64748b"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+    <linearGradient id="corkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#78350f"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Steel Backing Plate / Gear Outer Teeth -->
+  <circle cx="60" cy="60" r="46" fill="url(#discGrad)" stroke="#1e293b" stroke-width="1.5"/>
+
+  <!-- External Clutch Tabs (Drive Dogs) -->
+  <rect x="56" y="8" width="8" height="8" rx="1.5" fill="#334155"/>
+  <rect x="56" y="104" width="8" height="8" rx="1.5" fill="#334155"/>
+  <rect x="8" y="56" width="8" height="8" rx="1.5" fill="#334155"/>
+  <rect x="104" y="56" width="8" height="8" rx="1.5" fill="#334155"/>
+  <rect x="22" y="22" width="8" height="8" rx="1.5" transform="rotate(45 26 26)" fill="#334155"/>
+  <rect x="86" y="22" width="8" height="8" rx="1.5" transform="rotate(-45 90 26)" fill="#334155"/>
+  <rect x="22" y="86" width="8" height="8" rx="1.5" transform="rotate(-45 26 90)" fill="#334155"/>
+  <rect x="86" y="86" width="8" height="8" rx="1.5" transform="rotate(45 90 90)" fill="#334155"/>
+
+  <!-- Friction Lining Ring -->
+  <circle cx="60" cy="60" r="40" fill="none" stroke="url(#corkGrad)" stroke-width="12" stroke-dasharray="14 3"/>
+
+  <!-- Center Hub Aperture -->
+  <circle cx="60" cy="60" r="22" fill="#f8fafc" stroke="#334155" stroke-width="2"/>
+
+  <!-- Internal Spline Teeth -->
+  <circle cx="60" cy="60" r="25" fill="none" stroke="#1e293b" stroke-width="3" stroke-dasharray="4 4"/>
+</svg>

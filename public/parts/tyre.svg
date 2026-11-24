@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <radialGradient id="tyreRubber" cx="50%" cy="50%" r="50%">
+      <stop offset="60%" stop-color="#1e293b"/>
+      <stop offset="90%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+    <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#cbd5e1"/>
+      <stop offset="50%" stop-color="#f1f5f9"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Outer Tyre Profile -->
+  <circle cx="60" cy="60" r="46" fill="url(#tyreRubber)" stroke="#020617" stroke-width="2"/>
+
+  <!-- Tread Knobs & Grooves around circumference -->
+  <circle cx="60" cy="60" r="44" fill="none" stroke="#334155" stroke-width="4" stroke-dasharray="6 4"/>
+  <circle cx="60" cy="60" r="38" fill="none" stroke="#475569" stroke-width="1.5" stroke-dasharray="8 6"/>
+
+  <!-- Deep Tread Sipes -->
+  <path d="M56 16 L64 22 M56 22 L64 16" stroke="#475569" stroke-width="1.5"/>
+  <path d="M56 98 L64 104 M56 104 L64 98" stroke="#475569" stroke-width="1.5"/>
+  <path d="M16 56 L22 64 M22 56 L16 64" stroke="#475569" stroke-width="1.5"/>
+  <path d="M98 56 L104 64 M104 56 L98 64" stroke="#475569" stroke-width="1.5"/>
+
+  <!-- Wheel Rim (Alloy / Spoke Center) -->
+  <circle cx="60" cy="60" r="26" fill="url(#rimGrad)" stroke="#64748b" stroke-width="2"/>
+  <!-- Rim Center Hub -->
+  <circle cx="60" cy="60" r="10" fill="#334155" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="60" cy="60" r="4" fill="#f8fafc"/>
+
+  <!-- Alloy 5-Spoke Pattern -->
+  <line x1="60" y1="36" x2="60" y2="50" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+  <line x1="82" y1="52" x2="68" y2="56" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+  <line x1="74" y1="78" x2="64" y2="68" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+  <line x1="46" y1="78" x2="56" y2="68" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+  <line x1="38" y1="52" x2="52" y2="56" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+</svg>

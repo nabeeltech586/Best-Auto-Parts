@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="glassGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#fef08a"/>
+      <stop offset="80%" stop-color="#bae6fd"/>
+      <stop offset="100%" stop-color="#7dd3fc"/>
+    </linearGradient>
+    <linearGradient id="bulbBase" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#94a3b8"/>
+      <stop offset="50%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#64748b"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Light Glow Radiance -->
+  <circle cx="60" cy="46" r="32" fill="#fef9c3" opacity="0.6"/>
+
+  <!-- Quartz Glass Bulb Envelope -->
+  <path d="M46 54 C44 42 48 24 60 22 C72 24 76 42 74 54 L72 68 L48 68 Z" 
+        fill="url(#glassGlow)" stroke="#38bdf8" stroke-width="1.5" opacity="0.9"/>
+  <!-- Blue Tipped High Beam Cap -->
+  <path d="M52 24 C54 22 66 22 68 24 L68 30 L52 30 Z" fill="#2563eb"/>
+
+  <!-- Twin Tungsten Filaments (Hi/Lo Beam) -->
+  <path d="M55 42 L65 42" stroke="#ea580c" stroke-width="2" stroke-linecap="round"/>
+  <path d="M55 50 L65 50" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/>
+  <!-- Filament Support Wires -->
+  <line x1="55" y1="42" x2="55" y2="68" stroke="#475569" stroke-width="1.5"/>
+  <line x1="65" y1="42" x2="65" y2="68" stroke="#475569" stroke-width="1.5"/>
+  <!-- Anti-Glare Hood Reflector Shield -->
+  <path d="M52 46 L60 46 L60 52 L52 48 Z" fill="#475569"/>
+
+  <!-- Metal Flange Collar (H4 / HS1 3-Prong Base) -->
+  <ellipse cx="60" cy="70" rx="28" ry="6" fill="url(#bulbBase)" stroke="#334155" stroke-width="1.5"/>
+  <!-- Metal Cap Body -->
+  <rect x="48" y="72" width="24" height="22" rx="2" fill="url(#bulbBase)" stroke="#334155" stroke-width="1.5"/>
+  <!-- Connector Spade Terminals (3 Pin) -->
+  <rect x="44" y="94" width="6" height="12" rx="1" fill="#ca8a04"/>
+  <rect x="57" y="94" width="6" height="12" rx="1" fill="#ca8a04"/>
+  <rect x="70" y="94" width="6" height="12" rx="1" fill="#ca8a04"/>
+</svg>

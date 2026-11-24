@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeAlternateOemNumbers, validatePartPayload } from '@/lib/inventory/parts';
+import { getMatchingPartImage } from '@/lib/partImages';
 import type { PartCatalogItem } from '@/types/inventory';
 
 export async function GET(request: Request) {
@@ -175,6 +176,17 @@ export async function GET(request: Request) {
       // Non-fatal if purchase_orders is unavailable
     }
 
+    // Ensure every part has a crisp, matching product thumbnail populated
+    items = items.map((part) => {
+      const resolvedImg = getMatchingPartImage(part);
+      const existingUrl = part.image_url || (Array.isArray(part.image_urls) && part.image_urls[0]) || null;
+      return {
+        ...part,
+        image_url: existingUrl || resolvedImg,
+        image_urls: existingUrl ? (part.image_urls || [existingUrl]) : [resolvedImg],
+      };
+    });
+
     const total = count ?? items.length;
     const totalPages = Math.ceil(total / pageSize);
 
@@ -224,7 +236,17 @@ export async function POST(request: Request) {
     const quantity = parseInt(body.quantity_in_stock || '0', 10);
     const threshold = parseInt(body.low_stock_threshold || '5', 10);
 
-    const row = {
+    const initialImg =
+      (body.image_url && typeof body.image_url === 'string' && body.image_url.trim()) ||
+      (Array.isArray(body.image_urls) && body.image_urls[0]?.trim()) ||
+      getMatchingPartImage({
+        part_name: body.part_name,
+        sku,
+        category: body.category,
+        subcategory: body.subcategory,
+      });
+
+    const row: Record<string, unknown> = {
       account_id: accountId,
       part_name: body.part_name.trim(),
       sku,
@@ -240,16 +262,30 @@ export async function POST(request: Request) {
       quantity_in_stock: isNaN(quantity) ? 0 : Math.max(0, quantity),
       low_stock_threshold: isNaN(threshold) ? 5 : Math.max(0, threshold),
       location: body.location?.trim() || null,
-      image_urls: Array.isArray(body.image_urls) ? body.image_urls : [],
+      image_url: initialImg,
+      image_urls: body.image_urls && body.image_urls.length > 0 ? body.image_urls : [initialImg],
       is_active: true,
       updated_at: new Date().toISOString(),
     };
 
-    const { data: inserted, error: insertError } = await supabase
+    let { data: inserted, error: insertError } = await supabase
       .from('parts_catalog')
       .insert(row)
       .select()
       .single();
+
+    if (insertError) {
+      // Retry without image_url if column not yet migrated in Supabase
+      const fallbackRow = { ...row };
+      delete fallbackRow.image_url;
+      const retry = await supabase
+        .from('parts_catalog')
+        .insert(fallbackRow)
+        .select()
+        .single();
+      inserted = retry.data;
+      insertError = retry.error;
+    }
 
     if (insertError) {
       console.error('[inventory/parts POST] Insert failed:', insertError);

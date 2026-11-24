@@ -40,6 +40,7 @@ export interface PartCatalogItem {
   quantity_in_stock: number;
   low_stock_threshold: number;
   location: string | null;
+  image_url?: string | null;
   image_urls: string[];
   is_active: boolean;
   created_at: string;
@@ -165,6 +166,7 @@ export interface PartFormData {
   quantity_in_stock: number;
   low_stock_threshold: number;
   location?: string;
+  image_url?: string;
   image_urls?: string[];
   is_active?: boolean;
 }

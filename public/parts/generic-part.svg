@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="genBox" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="20" fill="#f8fafc"/>
+  <rect x="2" y="2" width="116" height="116" rx="18" fill="none" stroke="#e2e8f0" stroke-width="2"/>
+
+  <!-- Genuine Auto Parts Packaging Box Graphic -->
+  <path d="M60 22 L98 42 L98 84 L60 102 L22 84 L22 42 Z" fill="url(#genBox)" stroke="#0c4a6e" stroke-width="2"/>
+  <path d="M60 22 L60 102" stroke="#075985" stroke-width="1.5"/>
+  <path d="M22 42 L60 62 L98 42" stroke="#38bdf8" stroke-width="2"/>
+
+  <!-- Genuine Seal Badge / Wrench Icon -->
+  <circle cx="60" cy="62" r="14" fill="#f8fafc" stroke="#0284c7" stroke-width="2"/>
+  <path d="M54 62 L58 66 L66 58" fill="none" stroke="#0284c7" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="60" y="88" font-family="Arial,sans-serif" font-size="7" font-weight="bold" fill="#f8fafc" text-anchor="middle">BEST AUTO</text>
+</svg>
