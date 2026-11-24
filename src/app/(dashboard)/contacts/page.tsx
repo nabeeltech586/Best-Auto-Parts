@@ -120,6 +120,7 @@ export default function ContactsPage() {
 
   // Dues / Udhaar map by phone (digits)
   const [duesByPhone, setDuesByPhone] = useState<Record<string, number>>({});
+  const duesByPhoneRef = useRef<Record<string, number>>({});
 
   // Owner PIN protection modal state
   const [ownerPinOpen, setOwnerPinOpen] = useState(false);
@@ -166,26 +167,40 @@ export default function ContactsPage() {
 
   // All tags for display
   const [tagsMap, setTagsMap] = useState<Record<string, Tag>>({});
+  const tagsMapRef = useRef<Record<string, Tag>>({});
 
   const fetchSeq = useRef(0);
 
-  // Calculate live Udhaar / Due amount for a contact
+  // Calculate live Udhaar / Due amount for a contact (Non-blocking & synchronous)
   const getContactDue = useCallback(
     (contact: Contact | ContactWithTags): number => {
-      const directBalance = Number(contact.pending_balance || 0);
+      const directBalance = Number(contact.pending_balance ?? 0);
       const rawPhone = (contact.phone || '').replace(/\D/g, '').slice(-10);
-      const mappedDue = rawPhone ? duesByPhone[rawPhone] || 0 : 0;
+      const mappedDue = rawPhone
+        ? duesByPhone[rawPhone] ?? duesByPhoneRef.current[rawPhone] ?? 0
+        : 0;
       return Math.max(directBalance, mappedDue);
     },
     [duesByPhone]
   );
 
-  // Fetch Category Counts across all contacts
+  // Fetch Category Counts across all contacts (Non-blocking with pending_balance fallback)
   const fetchCategoryCounts = useCallback(
     async (currentDuesMap?: Record<string, number>) => {
       try {
-        const activeDues = currentDuesMap || duesByPhone;
-        const { data } = await supabase.from('contacts').select('category, phone, pending_balance');
+        const activeDues = currentDuesMap || duesByPhoneRef.current;
+        let data: { category?: string | null; phone?: string | null; pending_balance?: number | string | null }[] | null = null;
+
+        // Try select with pending_balance
+        const res = await supabase.from('contacts').select('category, phone, pending_balance');
+        if (res.error) {
+          // Gracefully fallback if pending_balance column is absent
+          const fallbackRes = await supabase.from('contacts').select('category, phone');
+          data = fallbackRes.data;
+        } else {
+          data = res.data;
+        }
+
         if (data) {
           const counts: Record<CategoryTab, number> = {
             All: data.length,
@@ -203,7 +218,10 @@ export default function ContactsPage() {
               counts.Customer++;
             }
             const rawPhone = (c.phone || '').replace(/\D/g, '').slice(-10);
-            const due = Math.max(Number(c.pending_balance || 0), rawPhone ? activeDues[rawPhone] || 0 : 0);
+            const due = Math.max(
+              Number(c.pending_balance ?? 0),
+              rawPhone ? activeDues[rawPhone] || 0 : 0
+            );
             if (due > 0) {
               counts.UdhaarDue++;
             }
@@ -211,63 +229,76 @@ export default function ContactsPage() {
           setCategoryCounts(counts);
         }
       } catch (err) {
-        console.error('Failed to fetch category counts:', err);
+        console.warn('[fetchCategoryCounts] Non-blocking warning:', err);
       }
     },
-    [supabase, duesByPhone]
+    [supabase]
   );
 
-  // Fetch Live Udhaar / Balance dues from purchase_orders and payment_links
+  // Fetch Live Udhaar / Balance dues from purchase_orders and payment_links (Non-blocking)
   const fetchLiveDues = useCallback(async (): Promise<Record<string, number>> => {
+    const duesMap: Record<string, number> = {};
     try {
-      const duesMap: Record<string, number> = {};
-
       // 1. Unpaid POs (for Distributors / Wholesalers)
-      const { data: unpaidPos } = await supabase
-        .from('purchase_orders')
-        .select('supplier_phone, total_estimated_cost, amount_paid')
-        .neq('payment_status', 'PAID');
+      try {
+        const { data: unpaidPos } = await supabase
+          .from('purchase_orders')
+          .select('supplier_phone, total_estimated_cost, amount_paid')
+          .neq('payment_status', 'PAID');
 
-      unpaidPos?.forEach((po) => {
-        const rawPhone = (po.supplier_phone || '').replace(/\D/g, '').slice(-10);
-        const due = Math.max(0, Number(po.total_estimated_cost || 0) - Number(po.amount_paid || 0));
-        if (rawPhone && due > 0) {
-          duesMap[rawPhone] = (duesMap[rawPhone] || 0) + due;
-        }
-      });
+        unpaidPos?.forEach((po) => {
+          const rawPhone = (po.supplier_phone || '').replace(/\D/g, '').slice(-10);
+          const due = Math.max(0, Number(po.total_estimated_cost || 0) - Number(po.amount_paid || 0));
+          if (rawPhone && due > 0) {
+            duesMap[rawPhone] = (duesMap[rawPhone] || 0) + due;
+          }
+        });
+      } catch (poErr) {
+        console.warn('[fetchLiveDues] POs check warning:', poErr);
+      }
 
       // 2. Pending payment links / collections
-      const { data: pendingLinks } = await supabase
-        .from('payment_links')
-        .select('customer_phone, amount')
-        .eq('status', 'PENDING');
+      try {
+        const { data: pendingLinks } = await supabase
+          .from('payment_links')
+          .select('customer_phone, amount')
+          .eq('status', 'PENDING');
 
-      pendingLinks?.forEach((link) => {
-        const rawPhone = (link.customer_phone || '').replace(/\D/g, '').slice(-10);
-        const amt = Number(link.amount || 0);
-        if (rawPhone && amt > 0) {
-          duesMap[rawPhone] = (duesMap[rawPhone] || 0) + amt;
-        }
-      });
+        pendingLinks?.forEach((link) => {
+          const rawPhone = (link.customer_phone || '').replace(/\D/g, '').slice(-10);
+          const amt = Number(link.amount || 0);
+          if (rawPhone && amt > 0) {
+            duesMap[rawPhone] = (duesMap[rawPhone] || 0) + amt;
+          }
+        });
+      } catch (linkErr) {
+        console.warn('[fetchLiveDues] Payment links check warning:', linkErr);
+      }
 
+      duesByPhoneRef.current = duesMap;
       setDuesByPhone(duesMap);
       return duesMap;
     } catch (err) {
-      console.error('Failed to load live dues map:', err);
-      return {};
+      console.warn('[fetchLiveDues] Non-blocking warning:', err);
+      return duesMap;
     }
   }, [supabase]);
 
   const fetchTags = useCallback(async () => {
-    const { data } = await supabase.from('tags').select('*');
-    if (data) {
-      const map: Record<string, Tag> = {};
-      data.forEach((t) => (map[t.id] = t));
-      setTagsMap(map);
-      setSelectedTagIds((prev) => {
-        const pruned = prev.filter((id) => map[id]);
-        return pruned.length === prev.length ? prev : pruned;
-      });
+    try {
+      const { data } = await supabase.from('tags').select('*');
+      if (data) {
+        const map: Record<string, Tag> = {};
+        data.forEach((t) => (map[t.id] = t));
+        tagsMapRef.current = map;
+        setTagsMap(map);
+        setSelectedTagIds((prev) => {
+          const pruned = prev.filter((id) => map[id]);
+          return pruned.length === prev.length ? prev : pruned;
+        });
+      }
+    } catch (err) {
+      console.warn('[fetchTags] Non-blocking warning:', err);
     }
   }, [supabase]);
 
@@ -276,159 +307,204 @@ export default function ContactsPage() {
     setLoading(true);
     setSelected(new Set());
 
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const term = search.trim();
-
-    let contactRows: Contact[];
-    let count: number;
-    let countIsExact = true;
-
-    if (selectedTagIds.length > 0) {
-      const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
-        p_tag_ids: selectedTagIds,
-        p_search: contactSearchPattern(term),
-        p_limit: PAGE_SIZE,
-        p_offset: from,
-      });
-      if (seq !== fetchSeq.current) return;
-      if (error) {
-        toast.error(t('toastFailedLoad'));
+    // 8-second safety timeout fallback so "Loading contacts..." NEVER hangs indefinitely
+    const safetyTimer = setTimeout(() => {
+      if (fetchSeq.current === seq) {
+        console.warn('[fetchContacts] Safety timeout triggered after 8s - force clearing loading spinner');
         setLoading(false);
-        return;
       }
-      const rows = (data ?? []) as { contact: Contact; total_count: number }[];
-      let rawContacts = rows.map((r) => r.contact);
+    }, 8000);
 
-      // Filter by selected category if specified
-      if (selectedCategory === 'UdhaarDue') {
-        rawContacts = rawContacts.filter((c) => getContactDue(c) > 0);
-      } else if (selectedCategory !== 'All') {
-        if (selectedCategory === 'Customer') {
-          rawContacts = rawContacts.filter((c) => !c.category || c.category === 'Customer');
-        } else {
-          rawContacts = rawContacts.filter((c) => c.category === selectedCategory);
+    try {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const term = search.trim();
+
+      let contactRows: Contact[] = [];
+      let count = 0;
+      let countIsExact = true;
+
+      if (selectedTagIds.length > 0) {
+        try {
+          const { data, error } = await supabase.rpc('filter_contacts_by_tags', {
+            p_tag_ids: selectedTagIds,
+            p_search: contactSearchPattern(term),
+            p_limit: PAGE_SIZE,
+            p_offset: from,
+          });
+          if (seq !== fetchSeq.current) return;
+          if (error) {
+            console.warn('[filter_contacts_by_tags] RPC error, falling back:', error);
+            const fallbackQuery = await supabase
+              .from('contacts')
+              .select('*', { count: 'exact' })
+              .order('created_at', { ascending: false })
+              .range(from, to);
+            contactRows = fallbackQuery.data ?? [];
+            count = fallbackQuery.count ?? contactRows.length;
+          } else {
+            const rows = (data ?? []) as { contact: Contact; total_count: number }[];
+            let rawContacts = rows.map((r) => r.contact);
+
+            if (selectedCategory === 'UdhaarDue') {
+              rawContacts = rawContacts.filter((c) => getContactDue(c) > 0);
+            } else if (selectedCategory !== 'All') {
+              if (selectedCategory === 'Customer') {
+                rawContacts = rawContacts.filter((c) => !c.category || c.category === 'Customer');
+              } else {
+                rawContacts = rawContacts.filter((c) => c.category === selectedCategory);
+              }
+            }
+
+            contactRows = rawContacts;
+            count = rows.length > 0 ? Number(rows[0].total_count) : 0;
+            countIsExact = rows.length > 0;
+          }
+        } catch (rpcErr) {
+          console.warn('[filter_contacts_by_tags] error:', rpcErr);
         }
-      }
+      } else if (selectedCategory === 'UdhaarDue') {
+        let query = supabase
+          .from('contacts')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-      contactRows = rawContacts;
-      count = rows.length > 0 ? Number(rows[0].total_count) : 0;
-      countIsExact = rows.length > 0;
-    } else if (selectedCategory === 'UdhaarDue') {
-      let query = supabase
-        .from('contacts')
-        .select('*')
-        .order('created_at', { ascending: false });
+        const searchFilter = contactSearchFilter(term, {
+          includeEmail: true,
+          includeCompany: true,
+          includeUniqueCode: true,
+        });
+        if (searchFilter) query = query.or(searchFilter);
 
-      const searchFilter = contactSearchFilter(term, {
-        includeEmail: true,
-        includeCompany: true,
-        includeUniqueCode: true,
-      });
-      if (searchFilter) query = query.or(searchFilter);
-
-      const { data, error } = await query;
-      if (seq !== fetchSeq.current) return;
-      if (error) {
-        toast.error(t('toastFailedLoad'));
-        setLoading(false);
-        return;
-      }
-
-      const dueFiltered = (data ?? []).filter((c) => getContactDue(c) > 0);
-      count = dueFiltered.length;
-      contactRows = dueFiltered.slice(from, to + 1);
-      countIsExact = true;
-    } else {
-      let query = supabase
-        .from('contacts')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (selectedCategory !== 'All') {
-        if (selectedCategory === 'Customer') {
-          query = query.or('category.eq.Customer,category.is.null');
-        } else {
-          query = query.eq('category', selectedCategory);
+        const { data, error } = await query;
+        if (seq !== fetchSeq.current) return;
+        if (error) {
+          console.error('[fetchContacts] UdhaarDue query error:', error);
+          toast.error(t('toastFailedLoad'));
+          return;
         }
+
+        const dueFiltered = (data ?? []).filter((c) => getContactDue(c) > 0);
+        count = dueFiltered.length;
+        contactRows = dueFiltered.slice(from, to + 1);
+        countIsExact = true;
+      } else {
+        let query = supabase
+          .from('contacts')
+          .select('*', { count: 'exact' })
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (selectedCategory !== 'All') {
+          if (selectedCategory === 'Customer') {
+            query = query.or('category.eq.Customer,category.is.null');
+          } else {
+            query = query.eq('category', selectedCategory);
+          }
+        }
+
+        const searchFilter = contactSearchFilter(term, {
+          includeEmail: true,
+          includeCompany: true,
+          includeUniqueCode: true,
+        });
+        if (searchFilter) query = query.or(searchFilter);
+
+        const { data, count: exactCount, error } = await query;
+        if (seq !== fetchSeq.current) return;
+
+        const pageInRange = error ? pageAfterRangeError(page, PAGE_SIZE, error) : null;
+        if (pageInRange !== null && pageInRange !== page) {
+          setPage(pageInRange);
+          return;
+        }
+
+        if (error) {
+          console.error('[fetchContacts] Load contacts error:', error);
+          toast.error(t('toastFailedLoad'));
+          return;
+        }
+        contactRows = data ?? [];
+        count = exactCount ?? contactRows.length;
       }
 
-      const searchFilter = contactSearchFilter(term, {
-        includeEmail: true,
-        includeCompany: true,
-        includeUniqueCode: true,
-      });
-      if (searchFilter) query = query.or(searchFilter);
+      setTotalCount(count);
 
-      const { data, count: exactCount, error } = await query;
-      if (seq !== fetchSeq.current) return;
-      const pageInRange = error ? pageAfterRangeError(page, PAGE_SIZE, error) : null;
-      if (pageInRange !== null && pageInRange !== page) {
-        setPage(pageInRange);
+      const boundedPage = pageAfterShrink(page, count, PAGE_SIZE, countIsExact);
+      if (contactRows.length === 0 && boundedPage !== page) {
+        setPage(boundedPage);
         return;
       }
-      if (error) {
-        toast.error(t('toastFailedLoad'));
+
+      if (contactRows.length === 0) {
+        setContacts([]);
+        return;
+      }
+
+      // Immediately render primary contacts list without waiting for tags!
+      const currentTagsMap = tagsMapRef.current;
+      const initialEnriched: ContactWithTags[] = contactRows.map((c) => ({
+        ...c,
+        tags: [],
+      }));
+      setContacts(initialEnriched);
+
+      // Secondary: fetch tags for these contacts in background without blocking render
+      const contactIds = contactRows.map((c) => c.id);
+      try {
+        const { data: contactTags } = await supabase
+          .from('contact_tags')
+          .select('contact_id, tag_id')
+          .in('contact_id', contactIds);
+
+        if (seq === fetchSeq.current && contactTags && contactTags.length > 0) {
+          const tagsByContact: Record<string, string[]> = {};
+          contactTags.forEach((ct) => {
+            if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
+            tagsByContact[ct.contact_id].push(ct.tag_id);
+          });
+
+          setContacts(
+            contactRows.map((c) => ({
+              ...c,
+              tags: (tagsByContact[c.id] ?? [])
+                .map((tid) => currentTagsMap[tid] || tagsMap[tid])
+                .filter(Boolean),
+            }))
+          );
+        }
+      } catch (tagErr) {
+        console.warn('[fetchContacts] Non-blocking tag enrichment warning:', tagErr);
+      }
+    } catch (err) {
+      console.error('[fetchContacts] Unexpected error:', err);
+      toast.error(t('toastFailedLoad'));
+    } finally {
+      clearTimeout(safetyTimer);
+      if (seq === fetchSeq.current) {
         setLoading(false);
-        return;
       }
-      contactRows = data ?? [];
-      count = exactCount ?? 0;
     }
+  }, [supabase, page, search, selectedCategory, selectedTagIds, getContactDue, t]);
 
-    setTotalCount(count);
-
-    const boundedPage = pageAfterShrink(page, count, PAGE_SIZE, countIsExact);
-    if (contactRows.length === 0 && boundedPage !== page) {
-      setPage(boundedPage);
-      return;
-    }
-
-    if (contactRows.length === 0) {
-      setContacts([]);
-      setLoading(false);
-      return;
-    }
-
-    // Fetch tags for these contacts
-    const contactIds = contactRows.map((c) => c.id);
-    const { data: contactTags } = await supabase
-      .from('contact_tags')
-      .select('contact_id, tag_id')
-      .in('contact_id', contactIds);
-    if (seq !== fetchSeq.current) return;
-
-    const tagsByContact: Record<string, string[]> = {};
-    contactTags?.forEach((ct) => {
-      if (!tagsByContact[ct.contact_id]) tagsByContact[ct.contact_id] = [];
-      tagsByContact[ct.contact_id].push(ct.tag_id);
-    });
-
-    const enriched: ContactWithTags[] = contactRows.map((c) => ({
-      ...c,
-      tags: (tagsByContact[c.id] ?? []).map((tid) => tagsMap[tid]).filter(Boolean),
-    }));
-
-    setContacts(enriched);
-    setLoading(false);
-  }, [supabase, page, search, selectedCategory, selectedTagIds, tagsMap, getContactDue, t]);
-
+  // 1. Initial background loaders on mount (Tags, Dues, Distributor sync) - runs ONCE
   useEffect(() => {
-    fetchTags();
-    fetchLiveDues().then((dues) => {
-      fetchCategoryCounts(dues);
-    });
+    fetchTags().catch((err) => console.warn('[fetchTags] Non-blocking warning:', err));
+    fetchLiveDues()
+      .then((dues) => fetchCategoryCounts(dues))
+      .catch((err) => console.warn('[fetchLiveDues] Non-blocking warning:', err));
 
-    // Auto-sync existing and future distributors & wholesalers into contacts
-    syncDistributorsAndWholesalers(supabase).then((res) => {
-      if (res.inserted > 0 || res.updated > 0) {
-        fetchContacts();
-        fetchCategoryCounts();
-      }
-    });
-  }, [fetchTags, fetchCategoryCounts, fetchLiveDues, fetchContacts, supabase]);
+    syncDistributorsAndWholesalers(supabase)
+      .then((res) => {
+        if (res.inserted > 0 || res.updated > 0) {
+          fetchContacts();
+          fetchCategoryCounts();
+        }
+      })
+      .catch((err) => console.warn('[syncDistributors] Non-blocking warning:', err));
+  }, []); // Run ONCE on mount without triggering re-render cascades!
 
+  // 2. Fetch contacts when page, search, or filters change
   useEffect(() => {
     fetchContacts();
   }, [fetchContacts]);
