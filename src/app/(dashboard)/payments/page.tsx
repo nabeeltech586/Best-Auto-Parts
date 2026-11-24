@@ -309,7 +309,11 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold text-foreground sm:text-2xl">
-              {formatCurrency(metrics.totalCollected)}
+              {loading && !links.length ? (
+                <div className="h-7 w-24 bg-muted/60 rounded animate-pulse" />
+              ) : (
+                formatCurrency(metrics.totalCollected)
+              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {metrics.paidCount} successful {metrics.paidCount === 1 ? 'payment' : 'payments'}
@@ -328,7 +332,11 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold text-foreground sm:text-2xl">
-              {formatCurrency(metrics.pendingAmount)}
+              {loading && !links.length ? (
+                <div className="h-7 w-24 bg-muted/60 rounded animate-pulse" />
+              ) : (
+                formatCurrency(metrics.pendingAmount)
+              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {metrics.pendingCount} awaiting customer payment
@@ -347,9 +355,13 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold text-foreground sm:text-2xl">
-              {metrics.totalCount > 0
-                ? `${Math.round((metrics.paidCount / metrics.totalCount) * 100)}%`
-                : '100%'}
+              {loading && !links.length ? (
+                <div className="h-7 w-16 bg-muted/60 rounded animate-pulse" />
+              ) : metrics.totalCount > 0 ? (
+                `${Math.round((metrics.paidCount / metrics.totalCount) * 100)}%`
+              ) : (
+                '100%'
+              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {metrics.paidCount} of {metrics.totalCount} completed
@@ -368,7 +380,11 @@ export default function PaymentsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold text-foreground sm:text-2xl">
-              {metrics.totalCount}
+              {loading && !links.length ? (
+                <div className="h-7 w-16 bg-muted/60 rounded animate-pulse" />
+              ) : (
+                metrics.totalCount
+              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               Active ledger entries
@@ -419,14 +435,34 @@ export default function PaymentsPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
-                  <div className="flex flex-col items-center justify-center gap-2">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                    <span>Loading payment records...</span>
-                  </div>
-                </TableCell>
-              </TableRow>
+              Array.from({ length: 5 }).map((_, idx) => (
+                <TableRow key={`skeleton-row-${idx}`} className="border-b border-border animate-pulse">
+                  <TableCell>
+                    <div className="h-4 bg-muted/60 rounded w-28 mb-1" />
+                    <div className="h-3 bg-muted/40 rounded w-20" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 bg-muted/60 rounded w-36 mb-1" />
+                    <div className="h-3 bg-muted/40 rounded w-24" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 bg-muted/60 rounded w-16" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-6 bg-muted/50 rounded-full w-20" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 bg-muted/60 rounded w-20 mb-1" />
+                    <div className="h-3 bg-muted/40 rounded w-24" />
+                  </TableCell>
+                  <TableCell>
+                    <div className="h-4 bg-muted/50 rounded w-24" />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="h-8 bg-muted/50 rounded-md w-24 ml-auto" />
+                  </TableCell>
+                </TableRow>
+              ))
             ) : links.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">

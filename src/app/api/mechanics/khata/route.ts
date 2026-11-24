@@ -203,11 +203,69 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
+    // 4. Auto-sync to BestPay Collections & Ledger (payment_links)
+    try {
+      const ledgerTxnId = `LEDGER_${contactId}`;
+      const ledgerOrderId = `LEDGER_${contactId.slice(0, 8).toUpperCase()}`;
+      const partnerName = contact.name || 'Workshop Partner';
+      const partnerPhone = contact.phone || '';
+      const nowIso = new Date().toISOString();
+
+      if (newBalance > 0) {
+        const { data: existingLink } = await supabase
+          .from('payment_links')
+          .select('id, status')
+          .eq('merchant_transaction_id', ledgerTxnId)
+          .maybeSingle();
+
+        if (existingLink) {
+          await supabase
+            .from('payment_links')
+            .update({
+              amount: newBalance,
+              status: 'PENDING',
+              customer_name: partnerName,
+              customer_phone: partnerPhone,
+              part_details: `Monthly Partner Ledger Clearance (${partnerName})`,
+              updated_at: nowIso,
+            })
+            .eq('id', existingLink.id);
+        } else {
+          await supabase
+            .from('payment_links')
+            .insert({
+              order_id: ledgerOrderId,
+              merchant_transaction_id: ledgerTxnId,
+              customer_name: partnerName,
+              customer_phone: partnerPhone,
+              part_details: `Monthly Partner Ledger Clearance (${partnerName})`,
+              amount: newBalance,
+              status: 'PENDING',
+              payment_mode: 'UPI / QR',
+              created_at: nowIso,
+              updated_at: nowIso,
+            });
+        }
+      } else {
+        await supabase
+          .from('payment_links')
+          .update({
+            status: 'PAID',
+            paid_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq('merchant_transaction_id', ledgerTxnId)
+          .eq('status', 'PENDING');
+      }
+    } catch (syncErr) {
+      console.warn('[mechanics/khata POST] Payment link sync warning:', syncErr);
+    }
+
     return NextResponse.json({
       success: true,
       message:
         entryType === 'credit_udhaar'
-          ? `Added ₹${amount.toFixed(2)} Udhaar. New Balance: ₹${newBalance.toFixed(2)}`
+          ? `Added ₹${amount.toFixed(2)} Ledger Entry. New Balance: ₹${newBalance.toFixed(2)}`
           : `Recorded ₹${amount.toFixed(2)} Settlement. Remaining Balance: ₹${newBalance.toFixed(2)}`,
       entry: entryRecord,
       contact: updatedContact,

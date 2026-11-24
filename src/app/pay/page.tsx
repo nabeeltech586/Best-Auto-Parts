@@ -57,6 +57,36 @@ function PayCheckoutContent() {
   // 5-Minute Live Session Countdown Timer (300 seconds)
   const [secondsLeft, setSecondsLeft] = useState(300);
 
+  // Auto-redirect countdown (2.5s) back to CRM after payment confirmation
+  const [redirectCountdown, setRedirectCountdown] = useState(2);
+
+  useEffect(() => {
+    if (paymentStage !== 'completed') return;
+
+    let seconds = 2;
+    setRedirectCountdown(2);
+
+    const interval = setInterval(() => {
+      seconds -= 1;
+      if (seconds >= 0) {
+        setRedirectCountdown(seconds);
+      }
+      if (seconds <= 0) {
+        clearInterval(interval);
+        router.push('/payments');
+      }
+    }, 1000);
+
+    const timer = setTimeout(() => {
+      router.push('/payments');
+    }, 2500);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timer);
+    };
+  }, [paymentStage, router]);
+
   useEffect(() => {
     if (secondsLeft <= 0 || paymentStage === 'completed') return;
     const interval = setInterval(() => {
@@ -261,9 +291,12 @@ function PayCheckoutContent() {
                 onClick={() => {
                   router.push('/payments');
                 }}
-                className="w-full h-11 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md"
+                className="w-full h-11 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md flex items-center justify-center gap-2"
               >
-                Back to CRM / Done
+                <span>Back to CRM / Done</span>
+                <span className="text-xs font-normal text-emerald-100">
+                  (Redirecting in {redirectCountdown}s...)
+                </span>
               </Button>
             </div>
           </div>

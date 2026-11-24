@@ -338,7 +338,7 @@ export function MechanicKhataBoard() {
         <Card className="border-border bg-card/70">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-muted-foreground">Total Udhaar Pending</span>
+              <span className="text-xs font-medium text-muted-foreground">Total Ledger Receivable</span>
               <div className="rounded-lg p-1.5 bg-rose-500/10 text-rose-500">
                 <IndianRupee className="size-4" />
               </div>
@@ -422,9 +422,19 @@ export function MechanicKhataBoard() {
 
       {/* Kanban Board with 5 Stages */}
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-xs text-muted-foreground gap-2">
-          <Loader2 className="size-4 animate-spin text-primary" />
-          Loading Partner Ledger & Loyalty Board...
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 items-start pb-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className="flex flex-col rounded-xl border border-border bg-card/40 p-3 min-w-[260px] space-y-3 animate-pulse"
+            >
+              <div className="h-4 bg-muted/60 rounded w-2/3" />
+              <div className="space-y-2">
+                <div className="h-24 bg-muted/30 rounded-lg" />
+                <div className="h-24 bg-muted/30 rounded-lg" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 items-start overflow-x-auto pb-4">
@@ -517,7 +527,7 @@ export function MechanicKhataBoard() {
 
                             {/* 3 Interactive Action Buttons */}
                             <div className="grid grid-cols-3 gap-1 pt-0.5">
-                              {/* 1. + Udhaar */}
+                              {/* 1. + Add Ledger Entry */}
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -526,11 +536,11 @@ export function MechanicKhataBoard() {
                                   setUdhaarAmount('');
                                   setUdhaarDesc('');
                                 }}
-                                className="h-7 text-[11px] px-1 border-border text-foreground hover:bg-muted font-medium"
-                                title="Add Credit Udhaar purchase"
+                                className="h-7 text-[10px] px-1 border-border text-foreground hover:bg-muted font-medium"
+                                title="Add ledger entry / credit purchase"
                               >
                                 <Plus className="size-3 mr-0.5 text-primary" />
-                                Udhaar
+                                + Add Ledger Entry
                               </Button>
 
                               {/* 2. Settle */}
@@ -586,7 +596,7 @@ export function MechanicKhataBoard() {
                 </div>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
-                    Add Credit Purchase (Udhaar)
+                    Add Ledger Entry (Credit Purchase)
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground">
                     Record parts taken on credit for {udhaarMechanic.name}.
@@ -690,7 +700,7 @@ export function MechanicKhataBoard() {
                   <span className="font-semibold text-foreground">{settleMechanic.name}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total Pending Udhaar:</span>
+                  <span className="text-muted-foreground">Total Ledger Receivable:</span>
                   <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
                     {formatCurrency(settleMechanic.pending_balance)}
                   </span>
@@ -764,7 +774,7 @@ export function MechanicKhataBoard() {
       {/* MODAL 3: WhatsApp Partner Ledger Statement */}
       {statementData && (
         <Dialog open={Boolean(statementData)} onOpenChange={(v) => !v && setStatementData(null)}>
-          <DialogContent className="sm:max-w-md bg-card border-border">
+          <DialogContent className="sm:max-w-lg max-w-lg w-full overflow-hidden bg-card border-border mx-auto p-4 sm:p-6">
             <DialogHeader>
               <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -782,26 +792,26 @@ export function MechanicKhataBoard() {
             </DialogHeader>
 
             <div className="space-y-3 py-2">
-              <div className="rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] whitespace-pre-wrap break-words break-all overflow-x-hidden max-h-60 overflow-y-auto leading-relaxed text-foreground select-text">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] whitespace-pre-wrap break-words break-all overflow-x-hidden max-h-60 overflow-y-auto leading-relaxed text-foreground select-text min-w-0">
                 {statementData.statementText}
               </div>
 
               {statementData.paymentLink && (
-                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2 overflow-hidden">
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-3 overflow-hidden">
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="font-semibold text-emerald-800 dark:text-emerald-200 truncate">
                       Direct UPI Payment Link (9761224004-2@ybl)
                     </span>
-                    <span className="text-[10px] text-muted-foreground font-mono break-all truncate">
+                    <span className="text-[10px] text-muted-foreground font-mono break-all whitespace-pre-wrap min-w-0">
                       {statementData.paymentLink}
                     </span>
                   </div>
-                  <Badge className="bg-emerald-600 text-white text-[10px] shrink-0">UPI READY</Badge>
+                  <Badge className="bg-emerald-600 text-white text-[10px] shrink-0 font-medium">UPI READY</Badge>
                 </div>
               )}
             </div>
 
-            <DialogFooter className="flex-col sm:flex-row gap-2 pt-1">
+            <DialogFooter className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-border/50">
               <Button
                 variant="outline"
                 size="sm"

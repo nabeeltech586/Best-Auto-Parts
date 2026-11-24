@@ -391,7 +391,7 @@ export default function PipelinesPage() {
                 <div>
                   <div className="font-semibold">Partner Ledger & Loyalty Board (Default)</div>
                   <p className="text-[10px] text-muted-foreground font-normal">
-                    5-Stage workshop ledger, Udhaar, and settlement board
+                    5-Stage workshop ledger and settlement board
                   </p>
                 </div>
               </DropdownMenuItem>

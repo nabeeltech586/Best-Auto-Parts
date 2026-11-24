@@ -9,9 +9,92 @@ export async function GET(request: Request) {
 
     const db = supabaseAdmin();
 
+    // 1. Initial / On-Load Sync: Auto-sync any Pipeline partner with balance_due > 0 (Mohd ali ₹250, etc.)
+    try {
+      const { data: debtContacts } = await db
+        .from('contacts')
+        .select('id, name, phone, company, pending_balance')
+        .gt('pending_balance', 0);
+
+      if (debtContacts && debtContacts.length > 0) {
+        const nowIso = new Date().toISOString();
+        const ledgerTxnIds = debtContacts.map((c: { id: string }) => `LEDGER_${c.id}`);
+
+        const { data: existingLinks } = await db
+          .from('payment_links')
+          .select('id, merchant_transaction_id, amount, status')
+          .in('merchant_transaction_id', ledgerTxnIds);
+
+        const linkMap = new Map((existingLinks || []).map((l: { merchant_transaction_id: string }) => [l.merchant_transaction_id, l]));
+        const toInsert: Record<string, unknown>[] = [];
+        const toUpdate: PromiseLike<unknown>[] = [];
+
+        for (const contact of debtContacts) {
+          const txnId = `LEDGER_${contact.id}`;
+          const balance = Number(contact.pending_balance) || 0;
+          const partnerName = contact.name || contact.company || 'Workshop Partner';
+          const partnerPhone = contact.phone || '';
+          const existing = linkMap.get(txnId) as { id: string; status: string; amount: number } | undefined;
+
+          if (!existing) {
+            toInsert.push({
+              order_id: `LEDGER_${contact.id.slice(0, 8).toUpperCase()}`,
+              merchant_transaction_id: txnId,
+              customer_name: partnerName,
+              customer_phone: partnerPhone,
+              part_details: `Monthly Partner Ledger Clearance (${partnerName})`,
+              amount: balance,
+              status: 'PENDING',
+              payment_mode: 'UPI / QR',
+              created_at: nowIso,
+              updated_at: nowIso,
+            });
+          } else if (existing.status === 'PENDING' && Number(existing.amount) !== balance) {
+            toUpdate.push(
+              db
+                .from('payment_links')
+                .update({
+                  amount: balance,
+                  customer_name: partnerName,
+                  customer_phone: partnerPhone,
+                  part_details: `Monthly Partner Ledger Clearance (${partnerName})`,
+                  updated_at: nowIso,
+                })
+                .eq('id', existing.id)
+            );
+          }
+        }
+
+        if (toInsert.length > 0) {
+          await db.from('payment_links').insert(toInsert);
+        }
+        if (toUpdate.length > 0) {
+          await Promise.all(toUpdate);
+        }
+      }
+
+      // Also ensure contacts with 0 balance have any pending ledger link marked PAID
+      const { data: clearedContacts } = await db
+        .from('contacts')
+        .select('id')
+        .lte('pending_balance', 0);
+
+      if (clearedContacts && clearedContacts.length > 0) {
+        const clearedTxnIds = clearedContacts.map((c: { id: string }) => `LEDGER_${c.id}`);
+        await db
+          .from('payment_links')
+          .update({ status: 'PAID', updated_at: new Date().toISOString() })
+          .in('merchant_transaction_id', clearedTxnIds)
+          .eq('status', 'PENDING');
+      }
+    } catch (syncErr) {
+      console.warn('[API /api/payments/links] Auto-sync pipeline partners warning:', syncErr);
+    }
+
+    // 2. Query payment links and metrics in parallel
     let query = db
       .from('payment_links')
-      .select('*')
+      .select('id, order_id, merchant_transaction_id, customer_name, customer_phone, part_details, amount, status, phonepe_redirect_url, phonepe_transaction_id, payment_mode, paid_at, created_at')
       .order('created_at', { ascending: false });
 
     if (status && status !== 'ALL') {
@@ -24,48 +107,33 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: links, error } = await query.limit(100);
+    const [linksRes, metricsRes] = await Promise.all([
+      query.limit(100),
+      db.from('payment_links').select('amount, status'),
+    ]);
 
-    if (error) {
-      console.warn('[API /api/payments/links] DB error:', error.message);
-      return NextResponse.json({
-        links: [],
-        metrics: {
-          totalCollected: 0,
-          pendingAmount: 0,
-          paidCount: 0,
-          pendingCount: 0,
-          totalCount: 0,
-        },
-      });
-    }
-
-    // Calculate metrics
-    const { data: allRows } = await db
-      .from('payment_links')
-      .select('amount, status');
+    const links = linksRes.data || [];
+    const allRows = metricsRes.data || [];
 
     let totalCollected = 0;
     let pendingAmount = 0;
     let paidCount = 0;
     let pendingCount = 0;
-    const totalCount = allRows?.length || 0;
+    const totalCount = allRows.length;
 
-    if (allRows) {
-      for (const row of allRows) {
-        const amt = Number(row.amount) || 0;
-        if (row.status === 'PAID') {
-          totalCollected += amt;
-          paidCount++;
-        } else if (row.status === 'PENDING') {
-          pendingAmount += amt;
-          pendingCount++;
-        }
+    for (const row of allRows) {
+      const amt = Number(row.amount) || 0;
+      if (row.status === 'PAID') {
+        totalCollected += amt;
+        paidCount++;
+      } else if (row.status === 'PENDING') {
+        pendingAmount += amt;
+        pendingCount++;
       }
     }
 
     return NextResponse.json({
-      links: links || [],
+      links,
       metrics: {
         totalCollected,
         pendingAmount,
