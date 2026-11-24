@@ -158,7 +158,7 @@ export class PhonePeClient {
       return {
         orderId: `MOCK_ORD_${params.merchantOrderId}`,
         state: 'PENDING',
-        redirectUrl: `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(params.merchantOrderId)}&mock=true`,
+        redirectUrl: `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(params.merchantOrderId)}&amount=${(payload.amount / 100).toFixed(2)}`,
         expireAt: Date.now() + (payload.expireAfter || 900) * 1000,
       };
     }

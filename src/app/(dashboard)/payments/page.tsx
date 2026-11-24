@@ -11,7 +11,6 @@ import {
   Copy,
   CheckCircle2,
   Clock,
-  AlertCircle,
   ArrowUpRight,
   ShieldCheck,
   Check,
@@ -34,6 +33,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SendPaymentLinkDialog } from '@/components/inbox/send-payment-link-dialog';
 import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 import { formatCurrency } from '@/lib/currency';
+import { cn } from '@/lib/utils';
 
 interface PaymentLinkItem {
   id?: string;
@@ -74,6 +74,7 @@ export default function PaymentsPage() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [verifyingTxnId, setVerifyingTxnId] = useState<string | null>(null);
+  const [updatingStatusTxnId, setUpdatingStatusTxnId] = useState<string | null>(null);
   const [copiedTxnId, setCopiedTxnId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkItem | null>(null);
@@ -146,13 +147,81 @@ export default function PaymentsPage() {
     }
   };
 
-  // Copy payment URL
-  const handleCopyLink = async (merchantTransactionId: string) => {
+  // Generate customer payment URL
+  const getPayUrl = (item: PaymentLinkItem) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const payUrl = `${origin}/pay/${merchantTransactionId}`;
+    const params = new URLSearchParams({
+      order: item.order_id,
+      name: item.customer_name || 'Customer',
+      phone: item.customer_phone || '',
+      item: item.part_details || 'Auto Parts Order',
+      amount: item.amount.toString(),
+    });
+    return `${origin}/pay?${params.toString()}`;
+  };
+
+  // Handle manual status change (PENDING / PAID / FAILED)
+  const handleStatusChange = async (item: PaymentLinkItem, newStatus: 'PENDING' | 'PAID' | 'FAILED') => {
+    if (item.status === newStatus) return;
+    const oldStatus = item.status;
+    setUpdatingStatusTxnId(item.merchant_transaction_id);
+
+    // Optimistic UI update
+    setLinks((prev) =>
+      prev.map((l) =>
+        l.merchant_transaction_id === item.merchant_transaction_id
+          ? {
+              ...l,
+              status: newStatus,
+              paid_at: newStatus === 'PAID' ? new Date().toISOString() : l.paid_at,
+            }
+          : l
+      )
+    );
+
+    try {
+      const res = await fetch('/api/payments/links', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchant_transaction_id: item.merchant_transaction_id,
+          status: newStatus,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update payment status');
+      }
+
+      if (data.metrics) {
+        setMetrics(data.metrics);
+      }
+
+      toast.success(`Order #${item.order_id} marked as ${newStatus}!`);
+    } catch (err) {
+      // Rollback on error
+      setLinks((prev) =>
+        prev.map((l) =>
+          l.merchant_transaction_id === item.merchant_transaction_id
+            ? { ...l, status: oldStatus }
+            : l
+        )
+      );
+      const msg = err instanceof Error ? err.message : 'Failed to update status';
+      toast.error(msg);
+    } finally {
+      setUpdatingStatusTxnId(null);
+    }
+  };
+
+  // Copy payment URL
+  const handleCopyLink = async (item: PaymentLinkItem) => {
+    const payUrl = getPayUrl(item);
     try {
       await navigator.clipboard.writeText(payUrl);
-      setCopiedTxnId(merchantTransactionId);
+      setCopiedTxnId(item.merchant_transaction_id);
       toast.success('Payment link copied to clipboard!');
       setTimeout(() => setCopiedTxnId(null), 2500);
     } catch {
@@ -406,24 +475,45 @@ export default function PaymentsPage() {
                   </TableCell>
 
                   <TableCell>
-                    {item.status === 'PAID' && (
-                      <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
-                        <CheckCircle2 className="mr-1 h-3 w-3" />
-                        PAID
-                      </Badge>
-                    )}
-                    {item.status === 'PENDING' && (
-                      <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30">
-                        <Clock className="mr-1 h-3 w-3" />
-                        PENDING
-                      </Badge>
-                    )}
-                    {item.status === 'FAILED' && (
-                      <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30">
-                        <AlertCircle className="mr-1 h-3 w-3" />
-                        FAILED
-                      </Badge>
-                    )}
+                    <div className="relative inline-flex items-center">
+                      <select
+                        value={item.status}
+                        disabled={updatingStatusTxnId === item.merchant_transaction_id}
+                        onChange={(e) =>
+                          handleStatusChange(
+                            item,
+                            e.target.value as 'PENDING' | 'PAID' | 'FAILED'
+                          )
+                        }
+                        className={cn(
+                          'appearance-none text-xs font-semibold px-2.5 py-1 pr-6 rounded-md border cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary disabled:opacity-50',
+                          item.status === 'PAID' &&
+                            'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
+                          item.status === 'PENDING' &&
+                            'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+                          item.status === 'FAILED' &&
+                            'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30'
+                        )}
+                        aria-label={`Update payment status for order ${item.order_id}`}
+                      >
+                        <option value="PENDING" className="bg-background text-foreground">
+                          ⏳ PENDING
+                        </option>
+                        <option value="PAID" className="bg-background text-foreground">
+                          ✓ PAID
+                        </option>
+                        <option value="FAILED" className="bg-background text-foreground">
+                          ✕ FAILED
+                        </option>
+                      </select>
+                      {updatingStatusTxnId === item.merchant_transaction_id ? (
+                        <Loader2 className="pointer-events-none absolute right-2 h-3 w-3 animate-spin text-muted-foreground" />
+                      ) : (
+                        <span className="pointer-events-none absolute right-2 text-[10px] text-muted-foreground">
+                          ▼
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
 
                   <TableCell>
@@ -484,7 +574,7 @@ export default function PaymentsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleCopyLink(item.merchant_transaction_id)}
+                        onClick={() => handleCopyLink(item)}
                         className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                         title="Copy payment link"
                       >
@@ -498,7 +588,7 @@ export default function PaymentsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => window.open(`/pay/${item.merchant_transaction_id}`, '_blank')}
+                        onClick={() => window.open(getPayUrl(item), '_blank')}
                         className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
                         title="Open Pay Page"
                       >

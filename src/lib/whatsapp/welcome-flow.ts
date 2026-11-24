@@ -1094,7 +1094,7 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_RETRY ||
     /^(online\s*payment|pay\s*online|online\s*pay)$/i.test(rawText)
   ) {
-    let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER'
+    let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=690'
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1109,8 +1109,12 @@ export async function handleWelcomeFlowInbound(
         preferredLanguage: isHinglish ? 'hinglish' : 'en',
         paymentMethod: 'CHECKOUT_LINK',
       })
-      if (initResult.checkoutUrl) {
+      if (initResult.checkoutUrl && !initResult.checkoutUrl.includes('mock=true')) {
         checkoutLink = initResult.checkoutUrl
+      } else {
+        const orderId = initResult.merchantTransactionId || 'BAP-ORDER'
+        const amt = initResult.totalAmount || 690
+        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(orderId)}&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=${amt}`
       }
     } catch {
       // Fallback
@@ -1224,9 +1228,9 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_UPI_ID ||
     /^(upi\s*id|upi\s*id\s*payment|pay\s*via\s*upi)$/i.test(rawText)
   ) {
-    let checkoutLink = 'https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER'
     let orderRef = 'BAP-9634'
     let totalAmt = 690
+    let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(orderRef)}&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=${totalAmt}`
     try {
       const initResult = await PaymentService.initiatePayment({
         db,
@@ -1241,8 +1245,12 @@ export async function handleWelcomeFlowInbound(
         preferredLanguage: isHinglish ? 'hinglish' : 'en',
         paymentMethod: 'CHECKOUT_LINK',
       })
-      if (initResult.checkoutUrl) {
+      if (initResult.checkoutUrl && !initResult.checkoutUrl.includes('mock=true')) {
         checkoutLink = initResult.checkoutUrl
+      } else {
+        const orderId = initResult.merchantTransactionId || orderRef
+        const amt = initResult.totalAmount || totalAmt
+        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(orderId)}&item=Bajaj%20Pulsar%20150%20Clutch%20Plate%20Set&amount=${amt}`
       }
       orderRef = initResult.merchantTransactionId
       totalAmt = initResult.totalAmount

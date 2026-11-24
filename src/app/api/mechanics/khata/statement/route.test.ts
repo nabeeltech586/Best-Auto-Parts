@@ -62,12 +62,14 @@ describe('Partner Ledger Statement Module', () => {
       expect(text).toContain('• *Net Balance Due:* ₹3,200.00');
       expect(text).toContain('• *Statement Date:* 24 Nov 2026');
 
-      // 3. Clear call to action and direct UPI URI (NO crm.example.com dummy link)
+      // 3. Clear call to action and direct UPI URI (NO crm.example.com dummy link, NO mock=true)
       expect(text).toContain('Kindly clear your outstanding ledger balance at your earliest convenience.');
       expect(text).toContain('👉 *Pay Online via PhonePe / UPI:*');
+      expect(text).toContain('https://best-auto-parts-one.vercel.app/pay?order=');
       expect(text).toContain('upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=3200&cu=INR');
       expect(text).toContain('(UPI ID: 9761224004-2@ybl)');
       expect(text).not.toContain('crm.example.com');
+      expect(text).not.toContain('&mock=true');
       expect(text).not.toContain('Khata');
       expect(text).not.toContain('Partner Partner');
     });
@@ -170,7 +172,13 @@ describe('Partner Ledger Statement Module', () => {
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(json.upiId).toBe('9761224004-2@ybl');
-      expect(json.paymentLink).toBe(
+      expect(json.paymentLink).toContain(
+        'https://best-auto-parts-one.vercel.app/pay?order='
+      );
+      expect(json.payUrl).toContain(
+        'https://best-auto-parts-one.vercel.app/pay?order='
+      );
+      expect(json.upiUri).toBe(
         'upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=1850&cu=INR'
       );
       expect(json.statementText).toContain('• *Partner / Workshop:* Saleem Ustad');

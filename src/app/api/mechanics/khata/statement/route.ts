@@ -15,6 +15,7 @@ export function generatePartnerStatementText({
   monthlyVolume,
   balanceDue,
   formattedDate,
+  orderId,
 }: {
   name: string;
   phone: string;
@@ -22,6 +23,7 @@ export function generatePartnerStatementText({
   monthlyVolume: number;
   balanceDue: number;
   formattedDate: string;
+  orderId?: string;
 }): string {
   const accountTier = formatAccountTier(tier);
   const formattedMonthly = monthlyVolume.toLocaleString('en-IN', {
@@ -32,13 +34,21 @@ export function generatePartnerStatementText({
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  const upiAmount =
+  const ord = orderId || `LEDGER_${Date.now().toString().slice(-6)}`;
+  const cleanAmount =
     balanceDue > 0
       ? Number.isInteger(balanceDue)
         ? String(balanceDue)
         : balanceDue.toFixed(2)
       : '0';
-  const directUpiUri = `upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=${upiAmount}&cu=INR`;
+
+  const payUrl = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+    ord
+  )}&name=${encodeURIComponent(name)}&phone=${encodeURIComponent(
+    phone
+  )}&item=${encodeURIComponent('Partner Ledger Clearance')}&amount=${cleanAmount}`;
+
+  const directUpiUri = `upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=${cleanAmount}&cu=INR`;
 
   let text =
     `🏍️ *BEST AUTO PARTS — PARTNER LEDGER STATEMENT* 🔧\n` +
@@ -55,6 +65,7 @@ export function generatePartnerStatementText({
     text +=
       `Kindly clear your outstanding ledger balance at your earliest convenience.\n\n` +
       `👉 *Pay Online via PhonePe / UPI:*\n` +
+      `${payUrl}\n` +
       `${directUpiUri}\n` +
       `(UPI ID: 9761224004-2@ybl)\n\n` +
       `📍 *Store:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001 | +91 96347 22174`;
@@ -98,13 +109,24 @@ export async function POST(request: Request) {
       year: 'numeric',
     });
 
-    const upiAmount =
+    const orderId = `LEDGER_${
+      contact.id ? contact.id.slice(0, 6).toUpperCase() : Date.now().toString().slice(-6)
+    }`;
+
+    const cleanAmount =
       pendingBalance > 0
         ? Number.isInteger(pendingBalance)
           ? String(pendingBalance)
           : pendingBalance.toFixed(2)
         : '0';
-    const directUpiUri = `upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=${upiAmount}&cu=INR`;
+
+    const payUrl = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+      orderId
+    )}&name=${encodeURIComponent(mechanicName)}&phone=${encodeURIComponent(
+      contact.phone
+    )}&item=${encodeURIComponent('Partner Ledger Clearance')}&amount=${cleanAmount}`;
+
+    const directUpiUri = `upi://pay?pa=9761224004-2@ybl&pn=Best%20Auto%20Parts&am=${cleanAmount}&cu=INR`;
 
     const statementText = generatePartnerStatementText({
       name: mechanicName,
@@ -113,12 +135,14 @@ export async function POST(request: Request) {
       monthlyVolume,
       balanceDue: pendingBalance,
       formattedDate,
+      orderId,
     });
 
     return NextResponse.json({
       success: true,
       statementText,
-      paymentLink: pendingBalance > 0 ? directUpiUri : '',
+      paymentLink: pendingBalance > 0 ? payUrl : '',
+      payUrl: pendingBalance > 0 ? payUrl : '',
       upiUri: pendingBalance > 0 ? directUpiUri : '',
       upiId: '9761224004-2@ybl',
       contact,
