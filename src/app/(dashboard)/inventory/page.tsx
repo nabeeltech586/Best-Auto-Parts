@@ -161,7 +161,8 @@ export default function InventoryPage() {
       const res = await fetch('/api/inventory/parts/sync-photos', { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
-        toast.success(data.message || `Successfully synced ${data.updated} part photos!`);
+        const count = data.updated_count ?? data.updated ?? 0;
+        toast.success(data.message || `Successfully synced ${count} part photos!`);
         fetchParts();
       } else {
         throw new Error(data.error || 'Failed to sync photos');
@@ -177,13 +178,15 @@ export default function InventoryPage() {
   // Auto-sync photos if any loaded parts have missing images
   useEffect(() => {
     if (!loading && parts.length > 0 && !hasAutoSynced.current) {
-      const hasMissingImages = parts.some((p) => !p.image_url);
+      const hasMissingImages = parts.some(
+        (p) => !p.image_url && (!Array.isArray(p.image_urls) || p.image_urls.length === 0)
+      );
       if (hasMissingImages) {
         hasAutoSynced.current = true;
         fetch('/api/inventory/parts/sync-photos', { method: 'POST' })
           .then((res) => res.json())
           .then((data) => {
-            if (data?.updated > 0) {
+            if (Number(data?.updated_count ?? data?.updated ?? 0) > 0) {
               fetchParts();
             }
           })
