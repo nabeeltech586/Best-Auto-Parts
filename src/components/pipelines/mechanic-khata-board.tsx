@@ -782,21 +782,21 @@ export function MechanicKhataBoard() {
             </DialogHeader>
 
             <div className="space-y-3 py-2">
-              <div className="rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed text-foreground">
+              <div className="rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] whitespace-pre-wrap break-words break-all overflow-x-hidden max-h-60 overflow-y-auto leading-relaxed text-foreground select-text">
                 {statementData.statementText}
               </div>
 
               {statementData.paymentLink && (
-                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-emerald-800 dark:text-emerald-200">
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 flex items-center justify-between gap-2 overflow-hidden">
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="font-semibold text-emerald-800 dark:text-emerald-200 truncate">
                       Direct UPI Payment Link (9761224004-2@ybl)
                     </span>
-                    <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[280px]">
+                    <span className="text-[10px] text-muted-foreground font-mono break-all truncate">
                       {statementData.paymentLink}
                     </span>
                   </div>
-                  <Badge className="bg-emerald-600 text-white text-[10px]">UPI READY</Badge>
+                  <Badge className="bg-emerald-600 text-white text-[10px] shrink-0">UPI READY</Badge>
                 </div>
               )}
             </div>
