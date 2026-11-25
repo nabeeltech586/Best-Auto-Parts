@@ -53,8 +53,18 @@ const STOCK_PRIVACY_REPLACEMENTS = [
 ];
 
 /**
+ * Normalizes Markdown bold to WhatsApp bold:
+ * Replaces **text** with *text* to prevent broken double-asterisk markdown in WhatsApp chats.
+ */
+export function normalizeWhatsAppMarkdown(text: string): string {
+  if (!text) return text;
+  return text.replace(/\*\*(.*?)\*\*/g, '*$1*');
+}
+
+/**
  * Programmatic sanitization of customer-facing AI responses to enforce
- * strict stock privacy. Strips exact counts while preserving smooth grammar.
+ * strict stock privacy and clean WhatsApp formatting.
+ * Strips exact counts while preserving smooth grammar and single-asterisk bold.
  */
 export function sanitizeCustomerStockPrivacy(text: string): string {
   if (!text) return text;
@@ -64,6 +74,8 @@ export function sanitizeCustomerStockPrivacy(text: string): string {
   }
   // Strip packaging quantity suffixes like (5 pcs) or (5 Pcs) from customer text
   result = result.replace(/\s*\(\s*\d+\s*(?:pcs|pieces?|units?|nag|सेट|पीस|set)\s*\)/gi, '');
+  // Normalize double-asterisk markdown to single-asterisk WhatsApp bold
+  result = normalizeWhatsAppMarkdown(result);
   // Clean up horizontal whitespace and repeated periods without modifying newlines
   result = result
     .replace(/[^\S\r\n]{2,}/g, ' ')

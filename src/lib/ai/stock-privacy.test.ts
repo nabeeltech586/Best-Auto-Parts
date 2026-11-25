@@ -4,6 +4,7 @@ import {
   containsStockQuantityLeak,
   toCustomerSafePart,
   cleanCustomerFacingPartName,
+  normalizeWhatsAppMarkdown,
 } from './stock-privacy';
 import { formatInventoryContext, type InventoryContextResult } from './inventory-context';
 import { parseGeneration } from './generate';
@@ -436,6 +437,19 @@ describe('Customer Stock Privacy & AI Reply Upgrade', () => {
       };
       const safe = toCustomerSafePart(internalPart);
       expect(safe.part_name).toBe('Bajaj Pulsar 150 Clutch Plate Set');
+    });
+  });
+
+  describe('normalizeWhatsAppMarkdown', () => {
+    it('converts double asterisks to single asterisks for clean WhatsApp bolding', () => {
+      expect(normalizeWhatsAppMarkdown('**Best Auto Parts**')).toBe('*Best Auto Parts*');
+      expect(normalizeWhatsAppMarkdown('Price is **₹690** for **Bajaj Pulsar 150**')).toBe(
+        'Price is *₹690* for *Bajaj Pulsar 150*'
+      );
+    });
+
+    it('leaves single asterisks unchanged', () => {
+      expect(normalizeWhatsAppMarkdown('*Best Auto Parts*')).toBe('*Best Auto Parts*');
     });
   });
 });

@@ -801,6 +801,8 @@ async function processMessage(
       contactId: contactRecord.id,
       inboundText,
       interactiveReplyId,
+      senderName: contact?.profile?.name || contactRecord.name || null,
+      senderPhone: contactRecord.phone || message.from || null,
     }).catch((err) => {
       console.error('[scratch-offer] dispatch error:', err)
       return { handled: false }
