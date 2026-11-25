@@ -71,7 +71,7 @@ export default function PrivacyPage() {
             <p>
               If you have questions regarding this Privacy Policy or wish to request deletion of your contact data, contact us at:
               <br />
-              <strong>Best Auto Parts</strong> — Attention: Nabeel Khan
+              <strong>Best Auto Parts</strong> — Attention: Saud Khan
               <br />
               Phone: +91 9761224004 | Email: support@bestautoparts.in
             </p>

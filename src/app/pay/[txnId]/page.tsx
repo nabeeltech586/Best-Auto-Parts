@@ -164,13 +164,13 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
                 <Phone className="w-3.5 h-3.5 text-emerald-600" />
                 WhatsApp Support
               </a>
-              <Link
+              <a
                 href="/payments"
-                className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition"
+                className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition cursor-pointer select-none"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                Return to CRM
-              </Link>
+                ← Back to CRM
+              </a>
             </div>
           </div>
         </div>

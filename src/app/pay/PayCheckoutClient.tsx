@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   Wrench,
@@ -45,7 +45,6 @@ interface LivePaymentStatus {
 }
 
 export default function PayCheckoutClient() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   // Query Parameters Fallbacks
@@ -94,8 +93,16 @@ export default function PayCheckoutClient() {
   // 5-Minute Live Session Countdown Timer (300 seconds)
   const [secondsLeft, setSecondsLeft] = useState(300);
 
-  // Auto-redirect countdown (3s) back to CRM after new payment confirmation
-  const [redirectCountdown, setRedirectCountdown] = useState(3);
+  // Auto-redirect countdown (8s) back to CRM on completed / already paid view
+  const [redirectCountdown, setRedirectCountdown] = useState(8);
+  const [isRedirectPaused, setIsRedirectPaused] = useState(false);
+
+  // Dedicated navigation to CRM /payments using window.location.assign
+  const navigateToCrm = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.location.assign('/payments');
+    }
+  }, []);
 
   // Fetch Live Order/Ledger Record on mount from Supabase via zero-cache endpoint
   const checkLiveStatus = useCallback(async () => {
@@ -187,33 +194,33 @@ export default function PayCheckoutClient() {
     return `${minutes}:${seconds}`;
   }, [secondsLeft]);
 
-  // Auto-redirect only after an immediate fresh user confirmation (not for previously paid links)
+  // Auto-redirect timer (8s) on the Completed / Already Paid view
+  // Calls window.location.assign('/payments') when countdown reaches 0
+  // Pauses automatically if paused by user or if the receipt preview modal is open
   useEffect(() => {
-    if (paymentStage !== 'completed' || isAlreadyPaid) return;
+    const isCompletedView = isAlreadyPaid || paymentStage === 'completed';
+    if (!isCompletedView || isRedirectPaused || showReceiptModal) {
+      return;
+    }
 
-    let seconds = 3;
-    setRedirectCountdown(3);
+    if (redirectCountdown <= 0) {
+      navigateToCrm();
+      return;
+    }
 
-    const interval = setInterval(() => {
-      seconds -= 1;
-      if (seconds >= 0) {
-        setRedirectCountdown(seconds);
-      }
-      if (seconds <= 0) {
-        clearInterval(interval);
-        router.push('/payments');
-      }
+    const timer = setInterval(() => {
+      setRedirectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          navigateToCrm();
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
-    const timer = setTimeout(() => {
-      router.push('/payments');
-    }, 3500);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(timer);
-    };
-  }, [paymentStage, isAlreadyPaid, router]);
+    return () => clearInterval(timer);
+  }, [isAlreadyPaid, paymentStage, isRedirectPaused, showReceiptModal, redirectCountdown, navigateToCrm]);
 
   // UPI Configuration bound STRICTLY to payableAmount (remainingAmount if partial)
   const upiId = '9761224004-2@ybl';
@@ -437,11 +444,14 @@ export default function PayCheckoutClient() {
             </div>
 
             {/* Action Buttons: High Visibility View/Download Receipt & WhatsApp Support */}
-            <div className="space-y-2.5 pt-2">
+            <div className="space-y-2.5 pt-2 relative z-10">
               <Button
                 type="button"
-                onClick={() => setShowReceiptModal(true)}
-                className="w-full h-11 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-md flex items-center justify-center gap-2 transition"
+                onClick={() => {
+                  setIsRedirectPaused(true);
+                  setShowReceiptModal(true);
+                }}
+                className="w-full h-11 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl shadow-md flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <FileCheck2 className="h-4 w-4" />
                 <span>📄 View / Download Digital Receipt</span>
@@ -456,28 +466,45 @@ export default function PayCheckoutClient() {
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition"
+                  className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
                 >
                   <Phone className="h-3.5 w-3.5 text-emerald-600" />
                   <span>WhatsApp Support</span>
                 </a>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.push('/payments')}
-                  className="w-full h-10 text-xs font-semibold border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl"
+                <a
+                  href="/payments"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigateToCrm();
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer select-none shadow-sm"
                 >
                   <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-                  <span>Back to CRM</span>
-                </Button>
+                  <span>← Back to CRM</span>
+                </a>
               </div>
 
-              {!isAlreadyPaid && (
-                <p className="text-center text-[10px] text-slate-400">
-                  Redirecting to CRM in {redirectCountdown}s...
-                </p>
-              )}
+              {/* 8-Second Auto-Redirect Indicator with Pause/Resume */}
+              <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 pt-1">
+                <span>
+                  {isRedirectPaused || showReceiptModal ? (
+                    <span className="text-amber-700 font-medium">Auto-redirect paused</span>
+                  ) : (
+                    <>
+                      Auto-redirecting to CRM in{' '}
+                      <strong className="font-mono text-emerald-700 font-bold">{redirectCountdown}s</strong>...
+                    </>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsRedirectPaused((p) => !p)}
+                  className="text-[10px] text-slate-400 hover:text-slate-600 underline font-medium cursor-pointer"
+                >
+                  {isRedirectPaused ? 'Resume' : 'Pause'}
+                </button>
+              </div>
             </div>
           </div>
         )}
