@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import {
+  encodePartialMetadata,
+  stripPartialMetadataTag,
+  parsePaymentAmountsAndStatus,
+} from '@/lib/payments/partial-metadata';
 
 /**
  * Helper to fetch all supplier (Distributor & Wholesaler) phone numbers and contact IDs
@@ -291,21 +296,17 @@ export async function GET(request: Request) {
       if (!cat) continue; // Excluded supplier
 
       totalCount++;
-      const amt = Number(row.amount) || 0;
-      const paidAmt = row.paid_amount !== undefined && row.paid_amount !== null ? Number(row.paid_amount) : 0;
-      const remAmt = row.remaining_amount !== undefined && row.remaining_amount !== null
-        ? Number(row.remaining_amount)
-        : Math.max(0, amt - paidAmt);
+      const parsed = parsePaymentAmountsAndStatus(row);
 
-      if (row.status === 'PAID') {
-        totalCollected += amt;
+      if (parsed.status === 'PAID') {
+        totalCollected += parsed.paidAmount;
         paidCount++;
-      } else if (row.status === 'PARTIAL') {
-        totalCollected += paidAmt;
-        pendingAmount += remAmt;
+      } else if (parsed.status === 'PARTIAL') {
+        totalCollected += parsed.paidAmount;
+        pendingAmount += parsed.remainingAmount;
         pendingCount++;
-      } else if (row.status === 'PENDING') {
-        pendingAmount += amt;
+      } else if (parsed.status === 'PENDING') {
+        pendingAmount += parsed.remainingAmount;
         pendingCount++;
       }
 
@@ -327,23 +328,15 @@ export async function GET(request: Request) {
         if (categoryParam.toLowerCase() === 'customer' && cat !== 'Customer') continue;
       }
 
-      const totalAmt = Number(link.amount) || 0;
-      const paidAmt =
-        link.paid_amount !== undefined && link.paid_amount !== null
-          ? Number(link.paid_amount)
-          : link.status === 'PAID'
-          ? totalAmt
-          : 0;
-      const remAmt =
-        link.remaining_amount !== undefined && link.remaining_amount !== null
-          ? Number(link.remaining_amount)
-          : Math.max(0, totalAmt - paidAmt);
+      const parsed = parsePaymentAmountsAndStatus(link);
 
       filteredLinks.push({
         ...link,
-        amount: totalAmt,
-        paid_amount: paidAmt,
-        remaining_amount: remAmt,
+        amount: parsed.totalAmount,
+        paid_amount: parsed.paidAmount,
+        remaining_amount: parsed.remainingAmount,
+        status: parsed.status,
+        part_details: stripPartialMetadataTag(link.part_details),
         contact_category: cat,
       });
     }
@@ -399,16 +392,47 @@ export async function PATCH(request: Request) {
     const previousStatus = currentLink.status;
     const totalAmount = Number(currentLink.amount) || 0;
 
+    const currentParsed = parsePaymentAmountsAndStatus(currentLink);
+    const bodyPaidAmt =
+      body.paid_amount !== undefined && body.paid_amount !== null
+        ? Number(body.paid_amount)
+        : currentParsed.paidAmount;
+    const bodyRemAmt =
+      body.remaining_amount !== undefined && body.remaining_amount !== null
+        ? Number(body.remaining_amount)
+        : Math.max(0, totalAmount - bodyPaidAmt);
+
+    const nowIso = new Date().toISOString();
+    const cleanItemDetails = stripPartialMetadataTag(currentLink.part_details);
+    const updatedPartDetails =
+      status === 'PARTIAL'
+        ? `${cleanItemDetails} ${encodePartialMetadata({
+            paidAmount: bodyPaidAmt,
+            remainingAmount: bodyRemAmt,
+            mode: body.payment_mode || currentLink.payment_mode,
+            utr: body.utr || currentLink.phonepe_transaction_id,
+          })}`.trim()
+        : cleanItemDetails;
+
+    const fallbackTxnId =
+      status === 'PARTIAL'
+        ? `PARTIAL:${bodyPaidAmt}:${bodyRemAmt}:${body.utr || currentLink.phonepe_transaction_id || ''}`
+        : currentLink.phonepe_transaction_id;
+
     // 2. Prepare update payload
     const updatePayload: Record<string, unknown> = {
       status,
-      paid_at: status === 'PAID' ? currentLink.paid_at || new Date().toISOString() : currentLink.paid_at,
-      updated_at: new Date().toISOString(),
+      paid_at: status === 'PAID' ? currentLink.paid_at || nowIso : currentLink.paid_at,
+      updated_at: nowIso,
+      part_details: updatedPartDetails,
     };
 
     if (status === 'PAID') {
       updatePayload.paid_amount = totalAmount;
       updatePayload.remaining_amount = 0;
+    } else if (status === 'PARTIAL') {
+      updatePayload.paid_amount = bodyPaidAmt;
+      updatePayload.remaining_amount = bodyRemAmt;
     } else if (status === 'PENDING') {
       updatePayload.paid_amount = 0;
       updatePayload.remaining_amount = totalAmount;
@@ -423,23 +447,36 @@ export async function PATCH(request: Request) {
       .single();
 
     if (updateErr) {
-      // Fallback update without new columns if needed
+      // Fallback update without new columns if needed (using 'PENDING' in DB column if constraint rejects 'PARTIAL')
+      const fallbackStatus = status === 'PAID' ? 'PAID' : status === 'FAILED' ? 'FAILED' : 'PENDING';
       const { data: fbData, error: fbErr } = await db
         .from('payment_links')
         .update({
-          status,
-          paid_at: status === 'PAID' ? currentLink.paid_at || new Date().toISOString() : currentLink.paid_at,
-          updated_at: new Date().toISOString(),
+          status: fallbackStatus,
+          part_details: updatedPartDetails,
+          phonepe_transaction_id: fallbackTxnId,
+          paid_at: status === 'PAID' ? currentLink.paid_at || nowIso : currentLink.paid_at,
+          updated_at: nowIso,
         })
         .eq('merchant_transaction_id', merchant_transaction_id)
         .select()
         .single();
+
       if (fbErr) {
         return NextResponse.json({ error: fbErr.message }, { status: 500 });
       }
-      updatedLink = fbData;
+      updatedLink = {
+        ...fbData,
+        status,
+        paid_amount: status === 'PAID' ? totalAmount : status === 'PARTIAL' ? bodyPaidAmt : 0,
+        remaining_amount: status === 'PAID' ? 0 : status === 'PARTIAL' ? bodyRemAmt : totalAmount,
+        part_details: cleanItemDetails,
+      };
     } else {
-      updatedLink = updData;
+      updatedLink = {
+        ...updData,
+        part_details: cleanItemDetails,
+      };
     }
 
     // 3. Deduct from Partner Ledger (contacts.pending_balance) when marked PAID
@@ -493,7 +530,7 @@ export async function PATCH(request: Request) {
 
     // 4. Recalculate metrics strictly across customer/mechanic rows
     const { supplierIds, supplierPhones } = await getSupplierIdentifiers(db);
-    const { data: allRows } = await db.from('payment_links').select('amount, status');
+    const { data: allRows } = await db.from('payment_links').select('amount, status, part_details, phonepe_transaction_id');
 
     let totalCollected = 0;
     let pendingAmount = 0;
@@ -514,21 +551,17 @@ export async function PATCH(request: Request) {
         if (cleanDigits && supplierPhones.has(cleanDigits)) continue;
 
         totalCount++;
-        const amt = Number(row.amount) || 0;
-        const paidAmt = row.paid_amount !== undefined && row.paid_amount !== null ? Number(row.paid_amount) : 0;
-        const remAmt = row.remaining_amount !== undefined && row.remaining_amount !== null
-          ? Number(row.remaining_amount)
-          : Math.max(0, amt - paidAmt);
+        const parsed = parsePaymentAmountsAndStatus(row);
 
-        if (row.status === 'PAID') {
-          totalCollected += amt;
+        if (parsed.status === 'PAID') {
+          totalCollected += parsed.paidAmount;
           paidCount++;
-        } else if (row.status === 'PARTIAL') {
-          totalCollected += paidAmt;
-          pendingAmount += remAmt;
+        } else if (parsed.status === 'PARTIAL') {
+          totalCollected += parsed.paidAmount;
+          pendingAmount += parsed.remainingAmount;
           pendingCount++;
-        } else if (row.status === 'PENDING') {
-          pendingAmount += amt;
+        } else if (parsed.status === 'PENDING') {
+          pendingAmount += parsed.remainingAmount;
           pendingCount++;
         }
       }

@@ -299,4 +299,104 @@ describe('POST /api/payments/confirm', () => {
     expect(json.paid_amount).toBe(500);
     expect(json.remaining_amount).toBe(700);
   });
+
+  it('resiliently falls back to structured metadata when DB lacks dedicated columns', async () => {
+    let updateCallCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'payment_links') {
+        return {
+          select: vi.fn().mockReturnValue({
+            or: vi.fn().mockReturnValue({
+              order: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: {
+                      id: 'link-fallback-1',
+                      order_id: 'ORD-7615',
+                      merchant_transaction_id: 'BAP-ORD-7615-1234',
+                      customer_name: 'NABEEL PATHAN',
+                      customer_phone: '+919634722174',
+                      part_details: 'Bajaj Pulsar 150 Clutch Plate Set',
+                      amount: 2550,
+                      status: 'PENDING',
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: vi.fn().mockImplementation((payload) => {
+            updateCallCount++;
+            if (payload.paid_amount !== undefined) {
+              // Simulate missing column or check constraint error on Attempt 1
+              return {
+                eq: vi.fn().mockReturnValue({
+                  select: vi.fn().mockReturnValue({
+                    single: vi.fn().mockResolvedValue({
+                      data: null,
+                      error: { message: 'column "paid_amount" of relation "payment_links" does not exist' },
+                    }),
+                  }),
+                }),
+              };
+            }
+            // Attempt 2 (fallback) succeeds
+            return {
+              eq: vi.fn().mockReturnValue({
+                select: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue({
+                    data: {
+                      id: 'link-fallback-1',
+                      order_id: 'ORD-7615',
+                      merchant_transaction_id: 'BAP-ORD-7615-1234',
+                      customer_name: 'NABEEL PATHAN',
+                      customer_phone: '+919634722174',
+                      part_details: payload.part_details,
+                      phonepe_transaction_id: payload.phonepe_transaction_id,
+                      amount: 2550,
+                      status: 'PENDING',
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }),
+        };
+      }
+      if (table === 'contacts') {
+        return {
+          select: vi.fn().mockReturnValue({
+            or: vi.fn().mockResolvedValue({ data: [] }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const req = new Request('http://localhost:3000/api/payments/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: 'ORD-7615',
+        amount: 1500,
+        customer_name: 'NABEEL PATHAN',
+        customer_phone: '+919634722174',
+        payment_mode: 'UPI / QR',
+        utr: 'UPI Ref 4123891024',
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.status).toBe('PARTIAL');
+    expect(json.amount).toBe(1500);
+    expect(json.total_amount).toBe(2550);
+    expect(json.paid_amount).toBe(1500);
+    expect(json.remaining_amount).toBe(1050);
+    expect(updateCallCount).toBe(2);
+  });
 });

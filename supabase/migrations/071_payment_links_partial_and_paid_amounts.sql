@@ -14,7 +14,7 @@ EXCEPTION
   WHEN undefined_table THEN NULL;
 END $$;
 
--- 2. Add paid_amount and remaining_amount columns if not present
+-- 2. Add paid_amount, remaining_amount, and metadata columns if not present
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -30,4 +30,32 @@ BEGIN
   ) THEN
     ALTER TABLE payment_links ADD COLUMN remaining_amount NUMERIC(12, 2);
   END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'payment_links' AND column_name = 'notes'
+  ) THEN
+    ALTER TABLE payment_links ADD COLUMN notes TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'payment_links' AND column_name = 'metadata'
+  ) THEN
+    ALTER TABLE payment_links ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+  END IF;
 END $$;
+
+-- 3. Backfill existing PAID rows to have accurate paid_amount and 0 remaining
+UPDATE payment_links
+SET 
+  paid_amount = amount,
+  remaining_amount = 0.00
+WHERE status = 'PAID' AND (paid_amount IS NULL OR paid_amount = 0.00);
+
+-- 4. Backfill existing PENDING rows to have 0 paid_amount and full remaining_amount
+UPDATE payment_links
+SET 
+  paid_amount = 0.00,
+  remaining_amount = amount
+WHERE status = 'PENDING' AND (remaining_amount IS NULL);

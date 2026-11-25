@@ -122,7 +122,7 @@ describe('/api/payments/links Route', () => {
         if (table === 'payment_links') {
           return {
             select: vi.fn((fields: string) => {
-              if (fields === 'amount, status') {
+              if (fields !== '*') {
                 return Promise.resolve({ data: mockAllRows, error: null });
               }
               return {

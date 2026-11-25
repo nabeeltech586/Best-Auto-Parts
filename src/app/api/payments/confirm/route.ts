@@ -3,6 +3,11 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { sendTextMessage } from '@/lib/whatsapp/meta-api';
 import { loadAccountMetaCredentials } from '@/lib/flows/meta-send';
 import { formatCurrency } from '@/lib/currency';
+import {
+  encodePartialMetadata,
+  stripPartialMetadataTag,
+  parsePaymentAmountsAndStatus,
+} from '@/lib/payments/partial-metadata';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,13 +61,15 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
+    // Parse existing link status and amounts (supports both dedicated columns and fallback tags)
+    const existingParsed = existingLink ? parsePaymentAmountsAndStatus(existingLink) : null;
+
     // Idempotency Guard: If already marked PAID or remaining_amount is 0, return success immediately
     if (
       existingLink &&
-      (existingLink.status === 'PAID' ||
-        (existingLink.remaining_amount !== null &&
-          existingLink.remaining_amount !== undefined &&
-          Number(existingLink.remaining_amount) <= 0))
+      (existingParsed?.status === 'PAID' ||
+        existingLink.status === 'PAID' ||
+        (existingParsed !== null && existingParsed.remainingAmount <= 0))
     ) {
       return NextResponse.json({
         success: true,
@@ -73,8 +80,7 @@ export async function POST(request: Request) {
         utr: existingLink.phonepe_transaction_id || cleanUtr,
         amount: Number(existingLink.amount) || rawAmt,
         total_amount: Number(existingLink.amount) || rawAmt,
-        paid_amount:
-          Number(existingLink.paid_amount) || Number(existingLink.amount) || rawAmt,
+        paid_amount: Number(existingLink.amount) || rawAmt,
         remaining_amount: 0,
         payment_mode: existingLink.payment_mode || mode,
         paid_at: existingLink.paid_at || nowIso,
@@ -84,7 +90,7 @@ export async function POST(request: Request) {
 
     // Calculate partial vs full payment
     const totalAmount = existingLink ? Number(existingLink.amount) || rawAmt : rawAmt;
-    const prevPaid = existingLink && existingLink.paid_amount ? Number(existingLink.paid_amount) : 0;
+    const prevPaid = existingParsed ? existingParsed.paidAmount : 0;
     let newPaid = prevPaid + rawAmt;
     let newRemaining = Math.max(0, totalAmount - newPaid);
     let newStatus: 'PAID' | 'PARTIAL' = newRemaining <= 0 ? 'PAID' : 'PARTIAL';
@@ -95,19 +101,34 @@ export async function POST(request: Request) {
       newStatus = 'PAID';
     }
 
+    // Prepare clean details and partial metadata tag for resilient storage
+    const cleanItemDetails = stripPartialMetadataTag(existingLink?.part_details || item);
+    const updatedPartDetails =
+      newStatus === 'PARTIAL'
+        ? `${cleanItemDetails} ${encodePartialMetadata({
+            paidAmount: newPaid,
+            remainingAmount: newRemaining,
+            mode,
+            utr: cleanUtr,
+          })}`.trim()
+        : cleanItemDetails;
+
+    const fallbackTxnId =
+      newStatus === 'PARTIAL' ? `PARTIAL:${newPaid}:${newRemaining}:${cleanUtr}` : cleanUtr;
+
     let savedLink = null;
     if (existingLink) {
+      // Primary Attempt: Update with dedicated columns and native 'PARTIAL' status
       const updatePayload: Record<string, unknown> = {
         status: newStatus,
         payment_mode: mode,
         phonepe_transaction_id: cleanUtr,
+        part_details: updatedPartDetails,
         paid_at: nowIso,
         updated_at: nowIso,
+        paid_amount: newPaid,
+        remaining_amount: newRemaining,
       };
-
-      // Safely attach paid_amount and remaining_amount
-      updatePayload.paid_amount = newPaid;
-      updatePayload.remaining_amount = newRemaining;
 
       const { data: updated, error: updErr } = await db
         .from('payment_links')
@@ -117,21 +138,36 @@ export async function POST(request: Request) {
         .single();
 
       if (updErr) {
-        console.warn('[POST /api/payments/confirm] Link update warning:', updErr.message);
-        // Fallback update without new columns if schema migration not yet applied
-        const { data: fallbackUpdated } = await db
+        console.warn('[POST /api/payments/confirm] Dedicated columns update warning:', updErr.message);
+        // Resilient Fallback: If DB lacks columns or constraint rejects 'PARTIAL', use 'PENDING' in DB column + structured metadata
+        const { data: fallbackUpdated, error: fbErr } = await db
           .from('payment_links')
           .update({
-            status: newStatus,
+            status: newStatus === 'PAID' ? 'PAID' : 'PENDING',
             payment_mode: mode,
-            phonepe_transaction_id: cleanUtr,
+            phonepe_transaction_id: fallbackTxnId,
+            part_details: updatedPartDetails,
             paid_at: nowIso,
             updated_at: nowIso,
           })
           .eq('id', existingLink.id)
           .select()
           .single();
-        savedLink = fallbackUpdated || existingLink;
+
+        if (fbErr) {
+          console.error('[POST /api/payments/confirm] Both primary and fallback updates failed:', fbErr.message);
+          return NextResponse.json(
+            { error: `Failed to record payment in database: ${fbErr.message}` },
+            { status: 500 }
+          );
+        }
+
+        savedLink = {
+          ...fallbackUpdated,
+          status: newStatus,
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+        };
       } else {
         savedLink = updated;
       }
@@ -142,7 +178,7 @@ export async function POST(request: Request) {
         merchant_transaction_id: merchantTxnId,
         customer_name: name,
         customer_phone: phone,
-        part_details: item,
+        part_details: updatedPartDetails,
         amount: totalAmount,
         status: newStatus,
         payment_mode: mode,
@@ -160,26 +196,40 @@ export async function POST(request: Request) {
         .single();
 
       if (insErr) {
-        console.warn('[POST /api/payments/confirm] Link insert warning:', insErr.message);
-        // Fallback insert without new columns
-        const { data: fallbackInserted } = await db
+        console.warn('[POST /api/payments/confirm] Dedicated columns insert warning:', insErr.message);
+        // Resilient Fallback Insert
+        const { data: fallbackInserted, error: fbInsErr } = await db
           .from('payment_links')
           .insert({
             order_id: ord,
             merchant_transaction_id: merchantTxnId,
             customer_name: name,
             customer_phone: phone,
-            part_details: item,
+            part_details: updatedPartDetails,
             amount: totalAmount,
-            status: newStatus,
+            status: newStatus === 'PAID' ? 'PAID' : 'PENDING',
             payment_mode: mode,
-            phonepe_transaction_id: cleanUtr,
+            phonepe_transaction_id: fallbackTxnId,
             paid_at: nowIso,
             created_at: nowIso,
           })
           .select()
           .single();
-        savedLink = fallbackInserted;
+
+        if (fbInsErr) {
+          console.error('[POST /api/payments/confirm] Fallback insert failed:', fbInsErr.message);
+          return NextResponse.json(
+            { error: `Failed to create payment record in database: ${fbInsErr.message}` },
+            { status: 500 }
+          );
+        }
+
+        savedLink = {
+          ...fallbackInserted,
+          status: newStatus,
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+        };
       } else {
         savedLink = inserted;
       }
@@ -295,6 +345,16 @@ export async function POST(request: Request) {
       }
     }
 
+    const sanitizedLink = savedLink
+      ? {
+          ...savedLink,
+          status: newStatus,
+          paid_amount: newPaid,
+          remaining_amount: newRemaining,
+          part_details: stripPartialMetadataTag(savedLink.part_details),
+        }
+      : savedLink;
+
     return NextResponse.json({
       success: true,
       message:
@@ -310,7 +370,7 @@ export async function POST(request: Request) {
       status: newStatus,
       payment_mode: mode,
       paid_at: nowIso,
-      link: savedLink,
+      link: sanitizedLink,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

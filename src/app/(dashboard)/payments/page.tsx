@@ -40,6 +40,7 @@ import { SendPaymentLinkDialog } from '@/components/inbox/send-payment-link-dial
 import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 import { RecordCustomerPaymentDialog } from '@/components/payments/record-customer-payment-dialog';
 import { formatCurrency } from '@/lib/currency';
+import { stripPartialMetadataTag } from '@/lib/payments/partial-metadata';
 import { cn } from '@/lib/utils';
 
 export interface PaymentLinkItem {
@@ -323,7 +324,7 @@ function PaymentsPageInner() {
 
   const cleanPartDetails = (details?: string) => {
     if (!details) return 'Motorcycle Spare Parts Order';
-    return details
+    return stripPartialMetadataTag(details)
       .replace(/Monthly\s+Khata\s+Ledger\s+Clearance/gi, 'Monthly Partner Ledger Clearance')
       .replace(/Khata\s+Statement/gi, 'Partner Ledger Statement')
       .replace(/Mechanic\s+Khata/gi, 'Partner Ledger')
@@ -643,28 +644,37 @@ function PaymentsPageInner() {
 
                   <TableCell>
                     <div className="flex flex-col">
-                      <span
-                        className={cn(
-                          'font-semibold text-xs sm:text-sm',
-                          item.status === 'PAID'
-                            ? 'text-emerald-700 dark:text-emerald-400'
-                            : 'text-foreground'
-                        )}
-                      >
-                        {formatCurrency(item.amount)}
-                      </span>
-                      {item.status === 'PARTIAL' && (
-                        <Badge
-                          variant="outline"
-                          className="w-fit text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-400/40 font-mono mt-0.5 px-1 py-0 font-medium"
-                        >
-                          Due:{' '}
-                          {formatCurrency(
-                            item.remaining_amount !== undefined
-                              ? item.remaining_amount
-                              : Math.max(0, item.amount - (item.paid_amount || 0))
+                      {item.status === 'PARTIAL' ? (
+                        <>
+                          <span className="font-semibold text-xs sm:text-sm text-foreground">
+                            Total: {formatCurrency(item.amount)}
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <span className="text-[11px] font-mono font-medium text-emerald-600 dark:text-emerald-400">
+                              Paid: {formatCurrency(item.paid_amount || 0)}
+                            </span>
+                            <span className="text-muted-foreground/40 text-[10px]">•</span>
+                            <span className="text-[11px] font-mono font-bold text-amber-600 dark:text-amber-400">
+                              Due:{' '}
+                              {formatCurrency(
+                                item.remaining_amount !== undefined
+                                  ? item.remaining_amount
+                                  : Math.max(0, item.amount - (item.paid_amount || 0))
+                              )}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <span
+                          className={cn(
+                            'font-semibold text-xs sm:text-sm',
+                            item.status === 'PAID'
+                              ? 'text-emerald-700 dark:text-emerald-400'
+                              : 'text-foreground'
                           )}
-                        </Badge>
+                        >
+                          {formatCurrency(item.amount)}
+                        </span>
                       )}
                     </div>
                   </TableCell>
@@ -676,10 +686,7 @@ function PaymentsPageInner() {
                         disabled={updatingStatusTxnId === item.merchant_transaction_id}
                         onChange={(e) => {
                           const nextVal = e.target.value as 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
-                          if (
-                            (nextVal === 'PARTIAL' || nextVal === 'PAID') &&
-                            item.status !== 'PAID'
-                          ) {
+                          if (nextVal === 'PARTIAL') {
                             setPayingRecord(item);
                           } else {
                             handleStatusChange(item, nextVal);

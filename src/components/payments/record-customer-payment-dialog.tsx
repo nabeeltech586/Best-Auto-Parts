@@ -23,6 +23,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/currency';
+import { stripPartialMetadataTag } from '@/lib/payments/partial-metadata';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { PaymentLinkItem } from '@/app/(dashboard)/payments/page';
@@ -120,7 +121,7 @@ export function RecordCustomerPaymentDialog({
           amount: enteredAmt,
           customer_name: customerName,
           customer_phone: order.customer_phone,
-          item_description: order.part_details,
+          item_description: stripPartialMetadataTag(order.part_details),
           payment_mode: payMode,
           utr: payRefId || undefined,
           notes: payNotes || undefined,
