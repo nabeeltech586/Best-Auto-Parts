@@ -24,9 +24,9 @@ export async function POST(request: Request, context: Params) {
       return NextResponse.json({ error: 'Purchase order not found' }, { status: 404 });
     }
 
-    if (po.status === 'RECEIVED') {
+    if (po.status === 'RECEIVED' || (po as any).stock_synced === true) {
       return NextResponse.json(
-        { error: 'This purchase order has already been marked as received' },
+        { error: 'This purchase order has already been marked as received and stocked' },
         { status: 400 },
       );
     }
@@ -55,7 +55,7 @@ export async function POST(request: Request, context: Params) {
             part_id: fallbackPartId || '',
             part_name: fallbackPartName || 'Auto Spare Part',
             sku: fallbackSku || '',
-            quantity: Math.max(1, Number((po as any).quantity || po.total_units) || 10),
+            quantity: Math.max(1, Number((po as any).quantity || po.total_units) || 1),
             cost_price: Number((po as any).cost_price) || 0,
             total_cost: Number(po.total_estimated_cost) || 0,
           },
@@ -92,12 +92,13 @@ export async function POST(request: Request, context: Params) {
       const itemName = (item.part_name || (item as any).name || (item as any).title || '').trim();
       const itemOem = (item.oem_number || '').trim();
 
-      const orderedQty = Math.max(
-        1,
-        Number(item.quantity ?? (item as any).qty ?? (item as any).stock_level ?? (item as any).stock) ||
-          Number(po.total_units) ||
-          10,
-      );
+      const rawQty = item.quantity ?? (item as any).qty ?? (item as any).stock_level ?? (item as any).stock;
+      const parsedQty = Number(rawQty);
+      const orderedQty = !isNaN(parsedQty) && parsedQty > 0
+        ? parsedQty
+        : Number(po.total_units) > 0
+        ? Number(po.total_units)
+        : 1;
 
       let matchedPart: { id: string; part_name: string; sku: string; quantity_in_stock: number } | null = null;
 
@@ -250,19 +251,36 @@ export async function POST(request: Request, context: Params) {
     }
 
     // 3. Mark PO as RECEIVED & CONFIRMED with updated items containing inward details
-    const { data: updatedPo, error: poUpdateError } = await supabase
+    const poPayload: Record<string, any> = {
+      status: 'RECEIVED',
+      confirmed_at: nowIso,
+      received_at: nowIso,
+      items: updatedItems,
+      updated_at: nowIso,
+    };
+
+    let { data: updatedPo, error: poUpdateError } = await supabase
       .from('purchase_orders')
       .update({
-        status: 'RECEIVED',
-        confirmed_at: nowIso,
-        received_at: nowIso,
-        items: updatedItems,
-        updated_at: nowIso,
+        ...poPayload,
+        stock_synced: true,
       })
       .eq('id', id)
       .eq('account_id', accountId)
       .select()
       .single();
+
+    if (poUpdateError && (poUpdateError.message?.includes('stock_synced') || poUpdateError.code === '42703')) {
+      const fallbackPo = await supabase
+        .from('purchase_orders')
+        .update(poPayload)
+        .eq('id', id)
+        .eq('account_id', accountId)
+        .select()
+        .single();
+      updatedPo = fallbackPo.data;
+      poUpdateError = fallbackPo.error;
+    }
 
     if (poUpdateError) {
       console.error('[inventory/purchase-orders/[id]/receive] Update failed:', poUpdateError);

@@ -8,6 +8,7 @@ import {
   stripPartialMetadataTag,
   parsePaymentAmountsAndStatus,
 } from '@/lib/payments/partial-metadata';
+import { deductStockForSale } from '@/lib/inventory/stock-deduction';
 
 export const dynamic = 'force-dynamic';
 
@@ -247,6 +248,18 @@ export async function POST(request: Request) {
           .or(`id.eq.${ord},metadata->>order_id.eq.${ord}`);
       } catch {
         // Best-effort order status update
+      }
+
+      // Auto-deduct inventory stock for confirmed sale
+      try {
+        await deductStockForSale(db, {
+          orderId: ord,
+          itemDescription: cleanItemDetails,
+          referenceId: cleanUtr || mTxnId || ord,
+          reason: `Customer Sale (Order #${ord} confirmed via ${mode})`,
+        });
+      } catch (stockDeductErr) {
+        console.warn('[POST /api/payments/confirm] Stock deduction warning:', stockDeductErr);
       }
     }
 

@@ -232,6 +232,60 @@ export async function GET(request: Request) {
           return pending ? { ...part, pending_po: pending } : part;
         });
       }
+
+      // Single source of truth: Cross-reference RECEIVED Purchase Orders to ensure exact last_restocked details
+      const { data: receivedOrders } = await supabase
+        .from('purchase_orders')
+        .select('po_number, received_at, confirmed_at, created_at, items')
+        .eq('account_id', accountId)
+        .eq('status', 'RECEIVED')
+        .order('received_at', { ascending: false });
+
+      if (receivedOrders && receivedOrders.length > 0) {
+        const restockMap = new Map<string, { po_number: string; date: string; quantity: number }>();
+        const restockSkuMap = new Map<string, { po_number: string; date: string; quantity: number }>();
+        const restockNameMap = new Map<string, { po_number: string; date: string; quantity: number }>();
+
+        for (const po of receivedOrders) {
+          const poDate = po.received_at || po.confirmed_at || po.created_at;
+          const poItems = Array.isArray(po.items) ? po.items : [];
+          for (const it of poItems) {
+            const qty = Number(it?.quantity_added || it?.quantity || 0);
+            const info = { po_number: po.po_number, date: poDate, quantity: qty };
+            if (it?.part_id && !restockMap.has(it.part_id)) {
+              restockMap.set(it.part_id, info);
+            }
+            if (it?.sku && !restockSkuMap.has(it.sku.toLowerCase().trim())) {
+              restockSkuMap.set(it.sku.toLowerCase().trim(), info);
+            }
+            if (it?.part_name && !restockNameMap.has(it.part_name.toLowerCase().trim())) {
+              restockNameMap.set(it.part_name.toLowerCase().trim(), info);
+            }
+          }
+        }
+
+        items = items.map((part) => {
+          const restock =
+            restockMap.get(part.id) ||
+            (part.sku ? restockSkuMap.get(part.sku.toLowerCase().trim()) : null) ||
+            (part.part_name ? restockNameMap.get(part.part_name.toLowerCase().trim()) : null);
+
+          if (restock) {
+            return {
+              ...part,
+              last_restocked_at: part.last_restocked_at || restock.date,
+              last_po_number: part.last_po_number || restock.po_number,
+              last_restocked_quantity:
+                part.last_restocked_quantity && Number(part.last_restocked_quantity) > 0
+                  ? Number(part.last_restocked_quantity)
+                  : restock.quantity > 0
+                  ? restock.quantity
+                  : null,
+            };
+          }
+          return part;
+        });
+      }
     } catch {
       // Non-fatal if purchase_orders is unavailable
     }

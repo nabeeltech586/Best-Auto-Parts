@@ -5,6 +5,7 @@ import {
   findOrCreateContactAndConversation,
   logOutboundMessageToInbox,
 } from '@/lib/whatsapp/inbox-logger';
+import { deductStockForSale } from '@/lib/inventory/stock-deduction';
 
 interface SendReceiptPayload {
   recipientName?: string;
@@ -261,6 +262,20 @@ export async function POST(request: Request) {
           messageId: metaMessageId,
           status: 'sent',
         });
+      }
+
+      // Auto-deduct inventory stock for customer/mechanic sale if status is PAID
+      if (statusStr === 'PAID' && !isSupplierFirm) {
+        try {
+          await deductStockForSale(db, {
+            orderId: idStr,
+            itemDescription: detailsStr,
+            referenceId: idStr,
+            reason: `Customer / Mechanic Sale (Receipt #${idStr})`,
+          });
+        } catch (stockErr) {
+          console.warn('[send-receipt] Non-fatal stock deduction warning:', stockErr);
+        }
       }
     } catch (crmLogErr) {
       console.warn('[send-receipt] CRM conversation logging non-fatal warning:', crmLogErr);

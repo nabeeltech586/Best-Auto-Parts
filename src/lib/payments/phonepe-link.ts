@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { normalizePhone, sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils'
+import { deductStockForSale } from '@/lib/inventory/stock-deduction'
 
 export interface CreatePaymentLinkInput {
   orderId?: string
@@ -381,124 +382,23 @@ export async function deductStockForPaidOrder(
     const rawName = record.part_details?.trim() || ''
     if (!rawName) return { deducted: false }
 
-    interface CatalogPartRow {
-      id: string
-      account_id?: string
-      part_name: string
-      oem_number?: string
-      quantity_in_stock?: number
-      low_stock_threshold?: number
-    }
-    let matchedPart: CatalogPartRow | null = null
-
-    // Extract clean name before any parenthesis or brackets
-    const cleanName = rawName.split(/[([/]/)[0].trim()
-
-    let query = db
-      .from('parts_catalog')
-      .select('id, account_id, part_name, oem_number, quantity_in_stock, low_stock_threshold')
-      .eq('is_active', true)
-
-    if (record.account_id) {
-      query = query.eq('account_id', record.account_id)
-    }
-
-    // 1. Attempt match by part_name
-    if (cleanName.length >= 2) {
-      const { data: exactMatches } = await query.ilike('part_name', `%${cleanName}%`).limit(1)
-      if (exactMatches && exactMatches.length > 0) {
-        matchedPart = exactMatches[0]
-      }
-    }
-
-    // 2. Fallback: match by OEM candidate if present in raw string
-    if (!matchedPart) {
-      const oemCandidate = rawName.match(/[A-Z0-9]{5,}/i)?.[0]
-      if (oemCandidate) {
-        let oemQuery = db
-          .from('parts_catalog')
-          .select('id, account_id, part_name, oem_number, quantity_in_stock, low_stock_threshold')
-          .eq('is_active', true)
-          .ilike('oem_number', `%${oemCandidate}%`)
-          .limit(1)
-
-        if (record.account_id) {
-          oemQuery = oemQuery.eq('account_id', record.account_id)
-        }
-
-        const { data: oemMatches } = await oemQuery
-        if (oemMatches && oemMatches.length > 0) {
-          matchedPart = oemMatches[0]
-        }
-      }
-    }
-
-    if (!matchedPart) {
-      console.log('[PhonePe] No matching catalog part found for:', rawName)
-      return { deducted: false }
-    }
-
-    const currentStock = typeof matchedPart.quantity_in_stock === 'number' ? matchedPart.quantity_in_stock : 0
-    const newStock = Math.max(0, currentStock - 1)
-    const threshold = typeof matchedPart.low_stock_threshold === 'number' ? matchedPart.low_stock_threshold : 5
-    const accountId = matchedPart.account_id || record.account_id
-
-    // Update quantity in parts_catalog
-    const { error: updateErr } = await db
-      .from('parts_catalog')
-      .update({
-        quantity_in_stock: newStock,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', matchedPart.id)
-
-    if (updateErr) {
-      console.warn('[PhonePe] Failed to update parts_catalog stock:', updateErr.message)
-      return { deducted: false }
-    }
-
-    // Record audit trail in stock_movements
-    await db.from('stock_movements').insert({
-      account_id: accountId,
-      part_id: matchedPart.id,
-      movement_type: 'decrease',
-      quantity_delta: -1,
-      quantity_before: currentStock,
-      quantity_after: newStock,
+    const res = await deductStockForSale(db, {
+      accountId: record.account_id,
+      orderId: record.order_id,
+      itemDescription: rawName,
+      referenceId: record.merchant_transaction_id,
       reason: `Customer Sale (Order #${record.order_id} via PhonePe)`,
-      reference_id: record.merchant_transaction_id,
     })
 
-    // Low-stock alert notification if at or below threshold
-    if (newStock <= threshold && accountId) {
-      try {
-        const { data: acc } = await db
-          .from('accounts')
-          .select('owner_user_id')
-          .eq('id', accountId)
-          .maybeSingle()
-
-        const targetUserId = acc?.owner_user_id
-        if (targetUserId) {
-          await db.from('notifications').insert({
-            account_id: accountId,
-            user_id: targetUserId,
-            type: 'conversation_assigned',
-            title: `⚠️ Low Stock Alert: ${matchedPart.part_name}`,
-            body: `Stock for ${matchedPart.part_name} is down to ${newStock} unit(s) remaining (threshold: ${threshold}). Restock recommended.`,
-            created_at: new Date().toISOString(),
-          })
-        }
-      } catch (notifErr) {
-        console.warn('[PhonePe] Low stock notification insert skipped:', notifErr)
+    if (res.details && res.details.length > 0) {
+      return {
+        partId: res.details[0].partId,
+        deducted: true,
+        remainingStock: res.details[0].newStock,
       }
     }
 
-    return {
-      partId: matchedPart.id,
-      deducted: true,
-      remainingStock: newStock,
-    }
+    return { deducted: res.alreadyDeducted || res.deductedCount > 0 }
   } catch (err) {
     console.warn('[PhonePe] deductStockForPaidOrder error:', err)
     return { deducted: false }

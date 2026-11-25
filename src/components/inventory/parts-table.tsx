@@ -364,7 +364,12 @@ export function PartsTable({
                               }
                             >
                               <Check className="size-2.5 text-emerald-600 dark:text-emerald-400" />
-                              ✓ Delivered: {formatDeliveryDate(part.last_restocked_at)} (+{part.last_restocked_quantity || 10} Added)
+                              ✓ Delivered: {formatDeliveryDate(part.last_restocked_at)}
+                              {part.last_restocked_quantity !== undefined &&
+                              part.last_restocked_quantity !== null &&
+                              Number(part.last_restocked_quantity) > 0
+                                ? ` (+${part.last_restocked_quantity} Added)`
+                                : ''}
                             </Badge>
                           </div>
                         )}
