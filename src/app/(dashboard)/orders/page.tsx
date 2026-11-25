@@ -58,6 +58,8 @@ import {
 import { formatCurrency } from '@/lib/currency';
 import type { PurchaseOrder, PurchaseOrderPaymentStatus } from '@/types/inventory';
 import { SupplierReceiptDialog } from '@/components/orders/supplier-receipt-dialog';
+import { SendPoDialog } from '@/components/orders/send-po-dialog';
+import { StockReceivedDialog } from '@/components/orders/stock-received-dialog';
 
 export default function OrderHistoryPage() {
   return (
@@ -91,6 +93,8 @@ function OrderHistoryPageInner() {
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [updatingStatusPoId, setUpdatingStatusPoId] = useState<string | null>(null);
   const [selectedPoReceipt, setSelectedPoReceipt] = useState<PurchaseOrder | null>(null);
+  const [selectedPoToSend, setSelectedPoToSend] = useState<PurchaseOrder | null>(null);
+  const [selectedPoToThank, setSelectedPoToThank] = useState<PurchaseOrder | null>(null);
 
   // Record Payment Dialog State for Purchase Orders
   const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
@@ -180,6 +184,7 @@ function OrderHistoryPageInner() {
       toast.success(
         `PO #${po.po_number} marked as RECEIVED. Added +${addedUnits} units to live inventory stock!`
       );
+      setSelectedPoToThank({ ...po, status: 'RECEIVED', total_units: addedUnits });
       fetchData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error receiving order');
@@ -782,6 +787,20 @@ function OrderHistoryPageInner() {
                         <span>Receipt</span>
                       </Button>
 
+                      {/* Stock Received Thank You Confirmation */}
+                      {isReceived && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedPoToThank(po)}
+                          className="text-xs gap-1 h-8 border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-medium"
+                          title="Send official Stock Received Thank You confirmation via WhatsApp"
+                        >
+                          <PackageCheck className="size-3.5" />
+                          <span>Thank You</span>
+                        </Button>
+                      )}
+
                       {!isReceived && (
                         <Button
                           size="sm"
@@ -799,17 +818,17 @@ function OrderHistoryPageInner() {
                         </Button>
                       )}
 
-                      {waLink && (
-                        <a
-                          href={waLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-8 text-xs gap-1 border-border')}
-                        >
-                          <MessageCircle className="size-3 text-emerald-500" />
-                          WhatsApp
-                        </a>
-                      )}
+                      {/* Send PO via WhatsApp */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedPoToSend(po)}
+                        className="h-8 text-xs gap-1 border-border text-foreground hover:bg-muted"
+                        title="Send Purchase Order via WhatsApp Cloud API & Log to CRM Inbox"
+                      >
+                        <MessageCircle className="size-3 text-emerald-500" />
+                        <span>WhatsApp</span>
+                      </Button>
 
                       <Button
                         variant="ghost"
@@ -1068,6 +1087,22 @@ function OrderHistoryPageInner() {
         open={Boolean(selectedPoReceipt)}
         onOpenChange={(v) => !v && setSelectedPoReceipt(null)}
         order={selectedPoReceipt}
+      />
+
+      {/* Send Purchase Order via WhatsApp Modal */}
+      <SendPoDialog
+        open={Boolean(selectedPoToSend)}
+        onOpenChange={(v) => !v && setSelectedPoToSend(null)}
+        order={selectedPoToSend}
+        onSentSuccess={fetchData}
+      />
+
+      {/* Send Stock Received Thank You Confirmation Modal */}
+      <StockReceivedDialog
+        open={Boolean(selectedPoToThank)}
+        onOpenChange={(v) => !v && setSelectedPoToThank(null)}
+        order={selectedPoToThank}
+        onSentSuccess={fetchData}
       />
     </div>
   );

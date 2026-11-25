@@ -1,0 +1,253 @@
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { decrypt } from '@/lib/whatsapp/encryption';
+import {
+  normalizePhone10,
+  findOrCreateContactAndConversation,
+  logOutboundMessageToInbox,
+} from '@/lib/whatsapp/inbox-logger';
+
+export interface SendStockReceivedPayload {
+  poId?: string;
+  poNumber?: string;
+  supplierName: string;
+  supplierPhone: string;
+  salutation?: 'Sir Ji' | 'Assalamu Alaikum' | 'Aadab' | string;
+  itemsSummary?: string;
+  totalUnits?: number;
+  customMessage?: string;
+}
+
+export async function POST(request: Request) {
+  try {
+    const body: SendStockReceivedPayload = await request.json();
+    const {
+      poId,
+      poNumber,
+      supplierName,
+      supplierPhone,
+      salutation = 'Sir Ji',
+      itemsSummary,
+      totalUnits,
+      customMessage,
+    } = body;
+
+    if (!supplierPhone || !supplierName) {
+      return NextResponse.json(
+        { error: 'supplierPhone and supplierName are required' },
+        { status: 400 }
+      );
+    }
+
+    const phone10 = normalizePhone10(supplierPhone);
+    if (!phone10 || phone10.length !== 10) {
+      return NextResponse.json(
+        { error: 'Valid 10-digit wholesaler mobile number required' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedPhone = `91${phone10}`;
+    const cleanSalutation = salutation.trim() || 'Sir Ji';
+    const cleanSupplier = supplierName.trim();
+    const poNumStr = poNumber ? `#${poNumber.replace(/^#/, '')}` : 'Shipment';
+
+    const formattedFallbackText =
+      customMessage?.trim() ||
+      `✅ *${cleanSalutation} ${cleanSupplier}!* 📦\n\n` +
+      `We have successfully received, counted, and verified the stock for *${poNumStr}* at our shop.` +
+      (totalUnits ? ` (Total Units: *${totalUnits} pcs*)` : '') +
+      `\n\nAll items have been inspected and taken into inventory. Thank you for the prompt dispatch and cooperation!` +
+      `\n\n📍 *Best Auto Parts*, Kailashpur, Saharanpur, UP 247001\n` +
+      `📞 Saud Khan • +91 96347 22174`;
+
+    const previewTitle = `✅ Stock Received (${cleanSalutation}) — ${cleanSupplier} (${poNumStr})`;
+
+    const db = supabaseAdmin();
+
+    // Load WhatsApp configuration
+    const { data: config } = await db
+      .from('whatsapp_config')
+      .select('id, account_id, phone_number_id, access_token')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let metaMessageId: string | null = null;
+    let methodUsed: 'template' | 'text' = 'template';
+    let metaWarning: string | null = null;
+
+    if (config?.access_token && config?.phone_number_id) {
+      try {
+        const accessToken = decrypt(config.access_token);
+        const phoneNumberId = config.phone_number_id;
+
+        // 1. Helper to send Meta approved template distributor_stock_received
+        const sendTemplate = async (langCode: 'en' | 'en_US') => {
+          const templatePayload = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedPhone,
+            type: 'template',
+            template: {
+              name: 'distributor_stock_received',
+              language: { code: langCode },
+              components: [
+                {
+                  type: 'body',
+                  parameters: [
+                    { type: 'text', text: cleanSalutation },
+                    { type: 'text', text: cleanSupplier },
+                  ],
+                },
+              ],
+            },
+          };
+
+          const metaRes = await fetch(
+            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+              },
+              body: JSON.stringify(templatePayload),
+            }
+          );
+          const metaData = await metaRes.json().catch(() => ({}));
+          return { ok: metaRes.ok, status: metaRes.status, data: metaData };
+        };
+
+        // 2. Helper to send fallback text
+        const sendText = async () => {
+          const textPayload = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedPhone,
+            type: 'text',
+            text: { body: formattedFallbackText },
+          };
+
+          const metaRes = await fetch(
+            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+              },
+              body: JSON.stringify(textPayload),
+            }
+          );
+          const metaData = await metaRes.json().catch(() => ({}));
+          return { ok: metaRes.ok, status: metaRes.status, data: metaData };
+        };
+
+        // Try template send with 'en' first, retry 'en_US' on language error
+        let attempt = await sendTemplate('en');
+        if (!attempt.ok) {
+          const subcode = attempt.data?.error?.error_subcode;
+          const errMsg = attempt.data?.error?.message || '';
+          if (
+            subcode === 132000 ||
+            subcode === 132001 ||
+            errMsg.toLowerCase().includes('language') ||
+            errMsg.toLowerCase().includes('does not exist in')
+          ) {
+            attempt = await sendTemplate('en_US');
+          }
+        }
+
+        if (attempt.ok && attempt.data?.messages?.[0]?.id) {
+          metaMessageId = attempt.data.messages[0].id;
+          methodUsed = 'template';
+        } else {
+          console.warn('[send-stock-received] Template distributor_stock_received failed, attempting text fallback:', attempt.data);
+          const textAttempt = await sendText();
+          if (textAttempt.ok && textAttempt.data?.messages?.[0]?.id) {
+            metaMessageId = textAttempt.data.messages[0].id;
+            methodUsed = 'text';
+          } else {
+            metaWarning = textAttempt.data?.error?.message || attempt.data?.error?.message;
+          }
+        }
+      } catch (metaErr) {
+        metaWarning = metaErr instanceof Error ? metaErr.message : 'Meta dispatch failed';
+        console.warn('[send-stock-received] Meta API call error:', metaErr);
+      }
+    } else {
+      metaWarning = 'WhatsApp configuration not active. Message logged to CRM Inbox only.';
+    }
+
+    if (!metaMessageId) {
+      metaMessageId = `crm_sr_${Date.now()}`;
+    }
+
+    // 3. Category: Distributor if name has AGENCY, otherwise Wholesaler
+    const category: 'Distributor' | 'Wholesaler' =
+      cleanSupplier.toUpperCase().includes('AGENCY') ? 'Distributor' : 'Wholesaler';
+
+    // 4. Find or create matching contact and conversation thread in CRM Inbox
+    const resolution = await findOrCreateContactAndConversation(db, {
+      accountId: config?.account_id,
+      phone: supplierPhone,
+      name: cleanSupplier,
+      category,
+      company: cleanSupplier,
+    });
+
+    let conversationId: string | null = null;
+    let contactId: string | null = null;
+
+    if (resolution.success && resolution.conversationId) {
+      conversationId = resolution.conversationId;
+      contactId = resolution.contactId || null;
+
+      // Log outbound message to CRM Inbox thread
+      await logOutboundMessageToInbox(db, {
+        conversationId: resolution.conversationId,
+        contentText: formattedFallbackText,
+        previewTitle,
+        contentType: methodUsed === 'template' ? 'template' : 'text',
+        templateName: methodUsed === 'template' ? 'distributor_stock_received' : null,
+        messageId: metaMessageId,
+        status: 'sent',
+      });
+    }
+
+    // 5. Update purchase_orders received confirmation if poId provided
+    if (poId) {
+      try {
+        await db
+          .from('purchase_orders')
+          .update({
+            confirmed_at: new Date().toISOString(),
+          })
+          .eq('id', poId);
+      } catch (poErr) {
+        console.warn('[send-stock-received] Non-fatal purchase order update notice:', poErr);
+      }
+    }
+
+    const waLink = `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(formattedFallbackText)}`;
+
+    return NextResponse.json({
+      success: true,
+      messageId: metaMessageId,
+      method: methodUsed,
+      recipientPhone: normalizedPhone,
+      conversationId,
+      contactId,
+      waLink,
+      warning: metaWarning,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[send-stock-received] Unhandled error:', message);
+    return NextResponse.json(
+      { error: message || 'Internal server error while sending stock received confirmation' },
+      { status: 500 }
+    );
+  }
+}

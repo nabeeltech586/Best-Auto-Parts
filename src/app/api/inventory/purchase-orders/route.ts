@@ -3,6 +3,10 @@ import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/acco
 import { sendTextMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { syncSupplierToContact } from '@/lib/contacts/distributor-sync';
+import {
+  findOrCreateContactAndConversation,
+  logOutboundMessageToInbox,
+} from '@/lib/whatsapp/inbox-logger';
 import type { PurchaseOrderItem } from '@/types/inventory';
 
 export async function GET() {
@@ -162,13 +166,39 @@ export async function POST(request: Request) {
           const messageText = lines.join('\n');
           const cleanTo = supplierPhone.replace(/[^0-9]/g, '');
 
-          await sendTextMessage({
+          const sendResult = await sendTextMessage({
             phoneNumberId,
             accessToken,
             to: cleanTo,
             text: messageText,
           });
           whatsappDispatched = true;
+
+          // Log PO message into CRM Inbox conversation thread
+          try {
+            const category: 'Distributor' | 'Wholesaler' =
+              supplierName.toUpperCase().includes('AGENCY') ? 'Distributor' : 'Wholesaler';
+            const resolution = await findOrCreateContactAndConversation(supabase, {
+              accountId,
+              phone: supplierPhone,
+              name: supplierName,
+              category,
+              company: supplierName,
+            });
+
+            if (resolution.success && resolution.conversationId) {
+              await logOutboundMessageToInbox(supabase, {
+                conversationId: resolution.conversationId,
+                contentText: messageText,
+                previewTitle: `📦 PO #${poNumber} (${totalUnits} pcs) — ${supplierName}`,
+                contentType: 'text',
+                messageId: sendResult?.messageId || `crm_po_${Date.now()}`,
+                status: 'sent',
+              });
+            }
+          } catch (crmLogErr) {
+            console.warn('[inventory/purchase-orders] CRM inbox logging non-fatal notice:', crmLogErr);
+          }
         }
       } catch (err: unknown) {
         console.warn('[inventory/purchase-orders] WhatsApp direct dispatch notice:', err);

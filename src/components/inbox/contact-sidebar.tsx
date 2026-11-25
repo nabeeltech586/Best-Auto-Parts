@@ -13,6 +13,7 @@ import {
   IndianRupee,
   StickyNote,
   Plus,
+  Handshake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -20,6 +21,7 @@ import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { contactHandle } from "@/lib/whatsapp/wa-identity";
 import { formatCurrency } from "@/lib/currency";
+import { SendVipGreetingDialog } from "@/components/contacts/send-vip-greeting-dialog";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -31,6 +33,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
   const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
+  const [vipGreetingOpen, setVipGreetingOpen] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
@@ -181,6 +184,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                 <span className="truncate">{contact.email}</span>
               </div>
             )}
+
+            {/* Send VIP Greeting Quick Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setVipGreetingOpen(true)}
+              className="w-full text-xs gap-1.5 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-medium h-8"
+              title="Send official VIP Greeting via Meta WhatsApp Cloud API"
+            >
+              <Handshake className="size-3.5" />
+              <span>Send VIP Greeting</span>
+            </Button>
           </div>
 
           {/* Divider */}
@@ -302,6 +317,13 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Send VIP Greeting Dialog */}
+      <SendVipGreetingDialog
+        open={vipGreetingOpen}
+        onOpenChange={setVipGreetingOpen}
+        contact={contact}
+      />
     </div>
   );
 }

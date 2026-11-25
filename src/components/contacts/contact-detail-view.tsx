@@ -37,12 +37,14 @@ import {
   IndianRupee,
   LayoutTemplate,
   Lock,
+  Handshake,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { planCustomValueWrites } from '@/lib/contacts/custom-value-writes';
 import { contactHandle } from '@/lib/whatsapp/wa-identity';
 import { parseInternationalPhone } from '@/lib/whatsapp/phone-utils';
 import { OwnerPinModal } from '@/components/auth/owner-pin-modal';
+import { SendVipGreetingDialog } from '@/components/contacts/send-vip-greeting-dialog';
 
 interface ContactDetailViewProps {
   open: boolean;
@@ -70,6 +72,7 @@ export function ContactDetailView({
   // find-or-creates the conversation, so no inbound message is required.
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [vipGreetingOpen, setVipGreetingOpen] = useState(false);
 
   // Details tab
   const [editName, setEditName] = useState('');
@@ -482,7 +485,7 @@ export function ContactDetailView({
                   </div>
                 </div>
               </div>
-              <div className="mt-3">
+              <div className="mt-3 flex items-center gap-2">
                 <Button
                   size="sm"
                   onClick={() => setTemplatePickerOpen(true)}
@@ -495,6 +498,15 @@ export function ContactDetailView({
                     <LayoutTemplate className="size-4" />
                   )}
                   {t('sendTemplateBtn')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setVipGreetingOpen(true)}
+                  className="gap-1.5 border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
+                >
+                  <Handshake className="size-4" />
+                  <span>Send VIP Greeting</span>
                 </Button>
               </div>
             </SheetHeader>
@@ -813,6 +825,11 @@ export function ContactDetailView({
       title={ownerPinConfig.title}
       description={ownerPinConfig.description}
       onSuccess={ownerPinConfig.action}
+    />
+    <SendVipGreetingDialog
+      open={vipGreetingOpen}
+      onOpenChange={setVipGreetingOpen}
+      contact={contact}
     />
     </>
   );

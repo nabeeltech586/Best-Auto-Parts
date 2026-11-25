@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { formatCurrency } from '@/lib/currency';
+import {
+  findOrCreateContactAndConversation,
+  logOutboundMessageToInbox,
+} from '@/lib/whatsapp/inbox-logger';
 
 export interface CartItemPayload {
   name: string;
@@ -180,88 +184,27 @@ export async function POST(request: Request) {
 
     // 4. Log the sent quote into CRM contacts, conversations & messages so it appears in /inbox immediately
     let conversationId: string | null = null;
+    let contactId: string | null = null;
     try {
-      const accountId = config?.account_id || null;
+      const resolution = await findOrCreateContactAndConversation(db, {
+        accountId: config?.account_id,
+        phone: customerPhone,
+        name: cleanName,
+        category: 'Customer',
+      });
 
-      // Find or create Contact
-      let contactId: string | null = null;
-      let contactQuery = db
-        .from('contacts')
-        .select('id, name')
-        .or(`phone.eq.${normalizedPhone},phone.ilike.%${phone10}%`);
+      if (resolution.success && resolution.conversationId) {
+        conversationId = resolution.conversationId;
+        contactId = resolution.contactId || null;
 
-      if (accountId) {
-        contactQuery = contactQuery.eq('account_id', accountId);
-      }
-
-      const { data: existingContact } = await contactQuery.limit(1).maybeSingle();
-
-      if (existingContact) {
-        contactId = existingContact.id;
-      } else {
-        const { data: newContact } = await db
-          .from('contacts')
-          .insert({
-            account_id: accountId,
-            name: cleanName,
-            phone: normalizedPhone,
-            category: 'Customer',
-          })
-          .select('id')
-          .single();
-        contactId = newContact?.id || null;
-      }
-
-      // Find or create Conversation
-      if (contactId) {
-        let convQuery = db
-          .from('conversations')
-          .select('id')
-          .eq('contact_id', contactId);
-
-        if (accountId) {
-          convQuery = convQuery.eq('account_id', accountId);
-        }
-
-        const { data: existingConv } = await convQuery.maybeSingle();
-
-        if (existingConv) {
-          conversationId = existingConv.id;
-        } else {
-          const { data: newConv } = await db
-            .from('conversations')
-            .insert({
-              account_id: accountId,
-              contact_id: contactId,
-              status: 'open',
-            })
-            .select('id')
-            .single();
-          conversationId = newConv?.id || null;
-        }
-      }
-
-      // Insert outbound message row
-      if (conversationId) {
-        await db.from('messages').insert({
-          conversation_id: conversationId,
-          sender_type: 'agent',
-          content_type: 'text',
-          content_text: formattedMessage,
-          message_id: metaMessageId,
+        await logOutboundMessageToInbox(db, {
+          conversationId: resolution.conversationId,
+          contentText: formattedMessage,
+          previewTitle,
+          contentType: 'text',
+          messageId: metaMessageId,
           status: 'sent',
-          created_at: new Date().toISOString(),
         });
-
-        await db
-          .from('conversations')
-          .update({
-            last_message_text: previewTitle,
-            last_message_at: new Date().toISOString(),
-            last_reply_at: new Date().toISOString(),
-            status: 'open',
-          })
-          .eq('id', conversationId);
       }
     } catch (crmLogErr) {
       console.warn('[send-quote] CRM conversation logging error:', crmLogErr);

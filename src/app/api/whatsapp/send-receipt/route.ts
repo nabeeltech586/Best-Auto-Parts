@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { decrypt } from '@/lib/whatsapp/encryption';
+import {
+  findOrCreateContactAndConversation,
+  logOutboundMessageToInbox,
+} from '@/lib/whatsapp/inbox-logger';
 
 interface SendReceiptPayload {
   recipientName?: string;
@@ -224,83 +228,39 @@ export async function POST(request: Request) {
 
     // 5. Log the sent receipt into CRM messages & conversations so it appears in /inbox immediately
     let conversationId: string | null = null;
+    let contactId: string | null = null;
     try {
-      // Find or create Contact
-      let contactId: string | null = null;
-      const { data: existingContact } = await db
-        .from('contacts')
-        .select('id, name')
-        .or(`phone.eq.${normalizedPhone},phone.ilike.%${phone10}%`)
-        .limit(1)
-        .maybeSingle();
+      const isSupplierFirm =
+        nameStr.toUpperCase().includes('AGENCY') ||
+        nameStr.toUpperCase().includes('ENTERPRISE') ||
+        nameStr.toUpperCase().includes('TRADERS');
+      const category = isSupplierFirm ? 'Wholesaler' : 'Customer';
 
-      if (existingContact) {
-        contactId = existingContact.id;
-      } else {
-        const { data: newContact } = await db
-          .from('contacts')
-          .insert({
-            account_id: accountId,
-            name: nameStr,
-            phone: normalizedPhone,
-            category: 'Customer',
-          })
-          .select('id')
-          .single();
-        contactId = newContact?.id || null;
-      }
+      const resolution = await findOrCreateContactAndConversation(db, {
+        accountId,
+        phone: recipientPhone,
+        name: nameStr,
+        category,
+        company: isSupplierFirm ? nameStr : undefined,
+      });
 
-      // Find or create Conversation
-      if (contactId) {
-        const { data: existingConv } = await db
-          .from('conversations')
-          .select('id')
-          .eq('account_id', accountId)
-          .eq('contact_id', contactId)
-          .maybeSingle();
+      if (resolution.success && resolution.conversationId) {
+        conversationId = resolution.conversationId;
+        contactId = resolution.contactId || null;
 
-        if (existingConv) {
-          conversationId = existingConv.id;
-        } else {
-          const { data: newConv } = await db
-            .from('conversations')
-            .insert({
-              account_id: accountId,
-              contact_id: contactId,
-              status: 'open',
-            })
-            .select('id')
-            .single();
-          conversationId = newConv?.id || null;
-        }
-      }
-
-      // Insert outbound message row
-      if (conversationId) {
         const previewContent =
           formattedReceiptText ||
           `🧾 Digital Payment Receipt & Voucher #${idStr} sent for ₹${amountStr} (${statusStr}).`;
 
-        await db.from('messages').insert({
-          conversation_id: conversationId,
-          sender_type: 'agent',
-          content_type: methodUsed === 'template' ? 'template' : 'text',
-          content_text: previewContent,
-          template_name: methodUsed === 'template' ? 'payment_receipt_voucher' : null,
-          message_id: metaMessageId,
+        await logOutboundMessageToInbox(db, {
+          conversationId: resolution.conversationId,
+          contentText: previewContent,
+          previewTitle: `🧾 Receipt #${idStr} (₹${amountStr})`,
+          contentType: methodUsed === 'template' ? 'template' : 'text',
+          templateName: methodUsed === 'template' ? 'payment_receipt_voucher' : null,
+          messageId: metaMessageId,
           status: 'sent',
-          created_at: new Date().toISOString(),
         });
-
-        await db
-          .from('conversations')
-          .update({
-            last_message_text: `🧾 Receipt #${idStr} (₹${amountStr})`,
-            last_message_at: new Date().toISOString(),
-            last_reply_at: new Date().toISOString(),
-            status: 'open',
-          })
-          .eq('id', conversationId);
       }
     } catch (crmLogErr) {
       console.warn('[send-receipt] CRM conversation logging non-fatal warning:', crmLogErr);
