@@ -218,7 +218,7 @@ function PaymentStatusContent() {
             <p className="font-semibold text-slate-800 flex items-center gap-1">
               <Package className="w-3.5 h-3.5 text-emerald-600" /> Best Auto Parts
             </p>
-            <p>Main Market, Auto Parts Hub • Timing: 09:00 AM – 08:00 PM</p>
+            <p>Kailashpur, Saharanpur, UP 247001 • Timing: 09:00 AM – 09:00 PM</p>
             <p className="text-slate-500">Saud Bhai: +91 96347 22174</p>
           </div>
 

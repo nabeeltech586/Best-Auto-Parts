@@ -846,7 +846,7 @@ export default function PayCheckoutClient() {
                 </p>
                 <div className="rounded-xl bg-white border border-slate-200 p-3 space-y-1 text-slate-600">
                   <p className="font-semibold text-slate-800">Best Auto Parts — Workshop & Hub</p>
-                  <p>Main Market Road, Kailashpur, Saharanpur, UP 247001</p>
+                  <p>Kailashpur, Saharanpur, UP 247001</p>
                   <p className="text-slate-500 font-mono mt-1">Open Daily: 9:00 AM – 9:00 PM</p>
                 </div>
 
@@ -913,7 +913,7 @@ export default function PayCheckoutClient() {
               <div className="text-center pb-3 border-b border-slate-200">
                 <h4 className="font-extrabold text-base text-slate-900">BEST AUTO PARTS</h4>
                 <p className="text-[11px] text-slate-500">
-                  Main Market Road, Kailashpur, Saharanpur, UP 247001
+                  Kailashpur, Saharanpur, UP 247001
                 </p>
                 <p className="text-[10px] text-slate-400">Helpline & WhatsApp: +91 96347 22174</p>
                 <div className="inline-flex items-center gap-1 mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">

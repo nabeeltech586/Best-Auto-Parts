@@ -321,12 +321,12 @@ describe('formatInventoryContext & Strict Accuracy Grounding', () => {
     const prompt = buildSystemPrompt({
       userPrompt: 'You are Best Auto Spare Parts assistant.',
       mode: 'auto_reply',
-      knowledge: ['Store is open 9am to 8pm'],
+      knowledge: ['Store is open 9am to 9pm'],
       inventoryContext,
     });
 
     expect(prompt).toContain('VERIFIED PART: Brake Pads ₹450 (Availability: AVAILABLE)');
-    expect(prompt).toContain('Store is open 9am to 8pm');
+    expect(prompt).toContain('Store is open 9am to 9pm');
     expect(prompt).toContain('Best Auto Spare Parts assistant');
     expect(prompt).toContain('[[HANDOFF]]');
     expect(prompt).toContain('=== REAL-TIME INVENTORY GROUNDING & AUTHORIZATION ===');

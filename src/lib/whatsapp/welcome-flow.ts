@@ -12,6 +12,8 @@ import {
   extractInventoryKeywords,
   hasInventoryIntent,
   searchInventoryForAi,
+  isUnsupportedVehicleQuery,
+  UNSUPPORTED_BRAND_REPLY,
   type InventoryContextResult,
 } from '@/lib/ai/inventory-context'
 import { cleanCustomerFacingPartName } from '@/lib/ai/stock-privacy'
@@ -485,21 +487,20 @@ export const PAYMENT_CLAIM_REGEX =
 // In a production setup, this checks verified database records or delivery APIs.
 // If not found in verified database, returns 'unknown' to prompt human verification.
 const VERIFIED_DELIVERY_PINCODES = new Set([
-  '110001',
-  '110002',
-  '110006',
-  '110025',
-  '201301',
-  '122001',
+  '247001',
+  '247002',
+  '247121',
+  '247554',
 ])
 
 const VERIFIED_DELIVERY_AREAS = [
-  'delhi',
-  'ncr',
-  'noida',
-  'gurgaon',
-  'ghaziabad',
-  'faridabad',
+  'saharanpur',
+  'kailashpur',
+  'behat',
+  'deoband',
+  'nakur',
+  'gangoh',
+  'rampur maniharan',
 ]
 
 const EXCLUDED_DELIVERY_PINCODES = new Set(['190001', '790001', '682001'])
@@ -570,13 +571,17 @@ export async function sendMainMenu(args: {
   contactId: string
   lang: CustomerLanguage
   greetingPrefix?: string
+  overrideBodyText?: string
 }): Promise<{ whatsapp_message_id: string }> {
   const isHinglish = args.lang === 'hinglish'
 
-  const prefix = args.greetingPrefix ? `${args.greetingPrefix}\n\n` : ''
-  const bodyText = isHinglish
-    ? `${prefix}Aapko kis cheez mein madad chahiye?\n\nKripya shuru karne ke liye niche diye gaye menu se ek option chunein:`
-    : `${prefix}How can we help you?\n\nPlease choose an option from the menu below to get started:`
+  let bodyText = args.overrideBodyText
+  if (!bodyText) {
+    const prefix = args.greetingPrefix ? `${args.greetingPrefix}\n\n` : ''
+    bodyText = isHinglish
+      ? `${prefix}Aapko kis cheez mein madad chahiye?\n\nKripya shuru karne ke liye niche diye gaye menu se ek option chunein:`
+      : `${prefix}How can we help you?\n\nPlease choose an option from the menu below to get started:`
+  }
 
   const sectionTitle = isHinglish ? 'Hamari Suvidhayein' : 'Customer Services'
 
@@ -673,9 +678,9 @@ export async function sendMainMenu(args: {
     userId: args.userId,
     conversationId: args.conversationId,
     contactId: args.contactId,
-    headerText: 'Best Auto Parts',
+    headerText: 'Best Auto Parts 🏍️',
     bodyText,
-    footerText: 'Best Auto Parts • Quality & Trust',
+    footerText: 'Kailashpur, Saharanpur • 9 AM – 9 PM',
     buttonLabel: 'View Menu',
     sections: [
       {
@@ -875,10 +880,9 @@ export async function handleWelcomeFlowInbound(
   if (isSelectingLanguage) {
     await setContactLanguage(db, accountId, contactId, selectedLang, userId)
 
-    const isHinglish = selectedLang === 'hinglish'
-    const confirmation = isHinglish
-      ? 'Aapne Hinglish select kiya hai. Best Auto Parts mein aapka swagat hai! 😊'
-      : "You have selected English. Welcome to Best Auto Parts! We're here to help you find the right parts! 😊"
+    const firstTimeBody =
+      `Welcome to *Best Auto Parts*! 😊 Glad to have you here.\n\n` +
+      `Type any *Bajaj, Hero, or Honda* spare part name to check live prices & availability, or tap *View Menu* below:`
 
     const res = await sendMainMenu({
       accountId,
@@ -886,12 +890,12 @@ export async function handleWelcomeFlowInbound(
       conversationId,
       contactId,
       lang: selectedLang,
-      greetingPrefix: confirmation,
+      overrideBodyText: firstTimeBody,
     })
 
     return {
       consumed: true,
-      responseSent: confirmation,
+      responseSent: firstTimeBody,
       messageId: res.whatsapp_message_id,
     }
   }
@@ -969,12 +973,27 @@ export async function handleWelcomeFlowInbound(
   // ------------------------------------------------------------
   // 6. Returning Customer Greeting
   // If returning customer with saved language sends greeting:
-  // Greet warmly in saved language and display Main Menu.
+  // Greet warmly with returning customer body and display Main Menu.
   // ------------------------------------------------------------
   if (!interactiveReplyId && (isGreeting(rawText) || rawText === '')) {
-    const welcomeBack = isHinglish
-      ? 'Best Auto Parts mein aapka phir se swagat hai! 😊 Aaj hum aapki kya madad kar sakte hain?'
-      : 'Welcome back to Best Auto Parts! 😊 Great to see you again. How can we help you today?'
+    let customerFirstName = ''
+    try {
+      const { data: contact } = await db
+        .from('contacts')
+        .select('name')
+        .eq('id', contactId)
+        .maybeSingle()
+      if (contact?.name && contact.name.trim()) {
+        const rawFirst = contact.name.trim().split(/\s+/)[0]
+        if (rawFirst && !/^\+?\d+$/.test(rawFirst)) {
+          customerFirstName = `, ${rawFirst}`
+        }
+      }
+    } catch {}
+
+    const returningBody =
+      `Welcome back${customerFirstName}! 😊 Hope you're doing well.\n\n` +
+      `Just type the name of any *Bajaj, Hero, or Honda* spare part to check live prices & availability, or tap *View Menu* below:`
 
     const res = await sendMainMenu({
       accountId,
@@ -982,11 +1001,11 @@ export async function handleWelcomeFlowInbound(
       conversationId,
       contactId,
       lang: savedLang,
-      greetingPrefix: welcomeBack,
+      overrideBodyText: returningBody,
     })
     return {
       consumed: true,
-      responseSent: welcomeBack,
+      responseSent: returningBody,
       messageId: res.whatsapp_message_id,
     }
   }
@@ -1025,9 +1044,8 @@ export async function handleWelcomeFlowInbound(
   }
 
   if (interactiveReplyId === WELCOME_CALLBACKS.MENU_SEARCH_BIKE) {
-    const text = isHinglish
-      ? 'Aapke paas kaunsi bike hai? Hamare paas Bajaj, Hero, Honda, TVS aur Yamaha ke genuine parts available hain. Apni bike ka model aur zaroori part ka naam bhejein! 🏍️'
-      : 'Which bike do you ride? We stock genuine parts for Bajaj, Hero, Honda, TVS, and Yamaha. Send us your bike model and the part you need! 🏍️'
+    const text =
+      '🏍️ Which bike model do you ride? We stock genuine & aftermarket spare parts for *Bajaj, Hero, and Honda* two-wheelers (such as *Splendor, HF Deluxe, Pulsar, Platina, Activa, Shine*). Just reply with your bike model and the part you need!'
 
     const res = await engineSendText({
       accountId,
@@ -1060,9 +1078,14 @@ export async function handleWelcomeFlowInbound(
   }
 
   if (interactiveReplyId === WELCOME_CALLBACKS.MENU_SHOP_LOCATION) {
-    const bodyText = isHinglish
-      ? '📍 *Best Auto Parts*\nShop Timing: 09:00 AM – 08:00 PM (Somwar se Itwar)\n*(Juma Namaz Break: 12:30 PM – 02:30 PM)*\n\nStore visit kijiye aur genuine spare parts best rates par payein! 🏍️'
-      : '📍 *Best Auto Parts*\nShop Timing: 09:00 AM – 08:00 PM (Monday – Sunday)\n*(Friday Juma Break: 12:30 PM – 02:30 PM)*\n\nVisit our store for genuine spare parts at the best rates! 🏍️'
+    const bodyText =
+      '📍 *Best Auto Parts*\n' +
+      'Kailashpur, Saharanpur, Uttar Pradesh 247001\n' +
+      '*(Serving Saharanpur & nearby local areas)*\n\n' +
+      '🕒 *Timings:* 09:00 AM – 09:00 PM (Daily)\n' +
+      '🕌 *Friday Juma Break:* 12:30 PM – 02:30 PM\n' +
+      '📞 *Contact:* Saud Bhai • *Call Customer Care: +91 96347 22174*\n\n' +
+      'Visit our counter in *Kailashpur, Saharanpur* to pick up your order! 🏍️'
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -1760,8 +1783,8 @@ async function checkCustomerOrderPaymentStatus(
     interactiveReplyId === WELCOME_CALLBACKS.PICKUP_LATER
   ) {
     const bodyText = isHinglish
-      ? 'Aap kaunse time par aana pasand karenge?\n\nStore timing: 09:00 AM – 08:00 PM\n(Friday Juma break: 12:30 PM – 02:30 PM)'
-      : 'What time would you prefer to visit?\n\nStore timing: 09:00 AM – 08:00 PM\n(Friday Juma break: 12:30 PM – 02:30 PM)'
+      ? 'Aap kaunse time par aana pasand karenge?\n\nStore timing: 09:00 AM – 09:00 PM\n(Friday Juma break: 12:30 PM – 02:30 PM)'
+      : 'What time would you prefer to visit?\n\nStore timing: 09:00 AM – 09:00 PM\n(Friday Juma break: 12:30 PM – 02:30 PM)'
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -1784,8 +1807,8 @@ async function checkCustomerOrderPaymentStatus(
     interactiveReplyId === WELCOME_CALLBACKS.PICKUP_TIME_EVENING
   ) {
     const bodyText = isHinglish
-      ? 'Bahut badhiya! 😊 Aapka preferred pickup time note ho gaya hai.\n\nStore timing: 09:00 AM – 08:00 PM (Friday Juma break: 12:30 PM – 02:30 PM).\nNote: Counter par part inspection ke baad final confirm hoga.\n\nKya aapko store address chahiye?'
-      : 'Great! 😊 Your preferred pickup time has been noted.\n\nStore timing: 09:00 AM – 08:00 PM (Friday Juma break: 12:30 PM – 02:30 PM).\nNote: Part availability will be confirmed at the counter.\n\nWould you like store location details?'
+      ? 'Bahut badhiya! 😊 Aapka preferred pickup time note ho gaya hai.\n\nStore timing: 09:00 AM – 09:00 PM (Friday Juma break: 12:30 PM – 02:30 PM).\nNote: Counter par part inspection ke baad final confirm hoga.\n\nKya aapko store address chahiye?'
+      : 'Great! 😊 Your preferred pickup time has been noted.\n\nStore timing: 09:00 AM – 09:00 PM (Friday Juma break: 12:30 PM – 02:30 PM).\nNote: Part availability will be confirmed at the counter.\n\nWould you like store location details?'
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -1803,9 +1826,14 @@ async function checkCustomerOrderPaymentStatus(
   }
 
   if (interactiveReplyId === WELCOME_CALLBACKS.STORE_SHARE_DETAILS) {
-    const bodyText = isHinglish
-      ? '📍 *Best Auto Parts*\nMain Market, Auto Parts Hub, Delhi/NCR\n⏰ Timings: 09:00 AM – 08:00 PM (Daily)\n🕌 Friday Juma Break: 12:30 PM – 02:30 PM\n📞 Contact: Saud Bhai\n\nCounter par aakar apna order collect karein! 🏍️'
-      : '📍 *Best Auto Parts*\nMain Market, Auto Parts Hub, Delhi/NCR\n⏰ Timings: 09:00 AM – 08:00 PM (Daily)\n🕌 Friday Juma Break: 12:30 PM – 02:30 PM\n📞 Contact: Saud Bhai\n\nVisit our counter to pick up your order! 🏍️'
+    const bodyText =
+      '📍 *Best Auto Parts*\n' +
+      'Kailashpur, Saharanpur, Uttar Pradesh 247001\n' +
+      '*(Serving Saharanpur & nearby local areas)*\n\n' +
+      '🕒 *Timings:* 09:00 AM – 09:00 PM (Daily)\n' +
+      '🕌 *Friday Juma Break:* 12:30 PM – 02:30 PM\n' +
+      '📞 *Contact:* Saud Bhai • *Call Customer Care: +91 96347 22174*\n\n' +
+      'Visit our counter in *Kailashpur, Saharanpur* to pick up your order! 🏍️'
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -2017,9 +2045,14 @@ async function checkCustomerOrderPaymentStatus(
     ) {
       if (isYes) {
         // Return store location details
-        const bodyText = isHinglish
-          ? '📍 *Best Auto Parts*\nMain Market, Auto Parts Hub, Delhi/NCR\n⏰ Timings: 09:00 AM – 08:00 PM (Daily)\n🕌 Friday Juma Break: 12:30 PM – 02:30 PM\n📞 Contact: Saud Bhai\n\nCounter par aakar apna order collect karein! 🏍️'
-          : '📍 *Best Auto Parts*\nMain Market, Auto Parts Hub, Delhi/NCR\n⏰ Timings: 09:00 AM – 08:00 PM (Daily)\n🕌 Friday Juma Break: 12:30 PM – 02:30 PM\n📞 Contact: Saud Bhai\n\nVisit our counter to pick up your order! 🏍️'
+        const bodyText =
+          '📍 *Best Auto Parts*\n' +
+          'Kailashpur, Saharanpur, Uttar Pradesh 247001\n' +
+          '*(Serving Saharanpur & nearby local areas)*\n\n' +
+          '🕒 *Timings:* 09:00 AM – 09:00 PM (Daily)\n' +
+          '🕌 *Friday Juma Break:* 12:30 PM – 02:30 PM\n' +
+          '📞 *Contact:* Saud Bhai • *Call Customer Care: +91 96347 22174*\n\n' +
+          'Visit our counter in *Kailashpur, Saharanpur* to pick up your order! 🏍️'
 
         const res = await engineSendInteractiveButtons({
           accountId,
@@ -2157,6 +2190,53 @@ async function checkCustomerOrderPaymentStatus(
       ],
     })
     return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+  }
+
+  // ------------------------------------------------------------
+  // 13B. Gratitude & Courteous Acknowledgment Handling
+  // ("ok", "okay", "thanks", "thank you", "shukriya", "thik hai", "dhanyawad")
+  // ------------------------------------------------------------
+  const isGratitude =
+    /^(ok|okay|thx|thanks|thank\s*you|thank\s*u|shukriya|dhanyawad|dhanyavaad|thik\s*hai|theek\s*hai|accha|achha|sahi\s*hai|ji\s*shukriya|bahut\s*shukriya)[.!?\s]*$/i.test(
+      rawText,
+    )
+
+  if (!interactiveReplyId && isGratitude) {
+    const gratitudeReply = isHinglish
+      ? 'Shukriya ji! 🙏 Kabhi bhi kisi *Bajaj, Hero ya Honda* ke spare part ki zaroorat ho toh batayein. Have a great day! 🏍️'
+      : 'Thank you! 🙏 Whenever you need any *Bajaj, Hero, or Honda* two-wheeler spare parts, feel free to reach out. Have a wonderful day! 🏍️'
+
+    const res = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text: gratitudeReply,
+    })
+    return {
+      consumed: true,
+      responseSent: gratitudeReply,
+      messageId: res.whatsapp_message_id,
+    }
+  }
+
+  // ------------------------------------------------------------
+  // 13C. Unsupported Vehicle Brand / Four-Wheeler Refusal
+  // Deals EXCLUSIVELY in Bajaj, Hero, and Honda two-wheelers.
+  // ------------------------------------------------------------
+  if (!interactiveReplyId && rawText && isUnsupportedVehicleQuery(rawText)) {
+    const res = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text: UNSUPPORTED_BRAND_REPLY,
+    })
+    return {
+      consumed: true,
+      responseSent: UNSUPPORTED_BRAND_REPLY,
+      messageId: res.whatsapp_message_id,
+    }
   }
 
   // ------------------------------------------------------------

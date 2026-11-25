@@ -388,7 +388,7 @@ export function VehicleFitmentSection({
                   </Label>
                   <Input
                     id="custom_make"
-                    placeholder="e.g. TVS, Royal Enfield, Yamaha"
+                    placeholder="e.g. Bajaj, Hero, Honda"
                     value={customMake}
                     onChange={(e) => setCustomMake(e.target.value)}
                     required

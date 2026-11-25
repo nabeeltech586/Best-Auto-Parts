@@ -23,23 +23,23 @@ export default function ContactPage() {
             <div>
               <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">Business Legal Entity</h2>
               <p className="text-lg font-bold text-slate-900 dark:text-white mt-1">Best Auto Parts</p>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Proprietor: Nabeel Khan</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Proprietor: Saud Khan</p>
             </div>
 
             <div>
               <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">Store & Workshop Address</h2>
               <p className="text-sm text-slate-800 dark:text-slate-200 mt-1 leading-relaxed">
-                Main Automobile Market, GT Road,<br />
-                Aligarh, Uttar Pradesh — 202001, India
+                Kailashpur, Saharanpur,<br />
+                Uttar Pradesh — 247001, India
               </p>
             </div>
 
             <div>
               <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">Business Hours (IST)</h2>
               <p className="text-sm text-slate-800 dark:text-slate-200 mt-1">
-                <strong>Monday – Thursday, Saturday – Sunday:</strong> 9:00 AM – 8:00 PM<br />
-                <strong>Friday:</strong> 9:00 AM – 12:30 PM &amp; 2:30 PM – 8:00 PM<br />
-                <em>(Friday prayer break: 12:30 PM – 2:30 PM)</em>
+                <strong>Monday – Sunday:</strong> 09:00 AM – 09:00 PM<br />
+                <strong>Friday Juma Break:</strong> 12:30 PM – 02:30 PM<br />
+                <em>(Counter pickup & dispatch daily during business hours)</em>
               </p>
             </div>
           </div>
@@ -51,20 +51,20 @@ export default function ContactPage() {
                 Message us directly for instant stock inquiries, price quotes, fitment verification, or online payment support:
               </p>
               <a
-                href="https://wa.me/919761224004"
+                href="https://wa.me/919634722174"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm transition"
               >
-                Chat on WhatsApp (+91 9761224004)
+                Chat on WhatsApp (+91 96347 22174)
               </a>
             </div>
 
             <div>
               <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">Phone & Email</h2>
               <p className="text-sm text-slate-800 dark:text-slate-200 mt-1">
-                <strong>Primary Contact:</strong> +91 9761224004<br />
-                <strong>Alternate Contact:</strong> +91 9634224004<br />
+                <strong>Customer Care & Owner:</strong> Saud Khan (+91 96347 22174)<br />
+                <strong>WhatsApp Helpline:</strong> +91 9761224004<br />
                 <strong>Email:</strong> support@bestautoparts.in
               </p>
             </div>
@@ -72,8 +72,8 @@ export default function ContactPage() {
             <div>
               <h2 className="text-xs uppercase tracking-wider font-semibold text-slate-500 dark:text-slate-400">UPI Payee Details</h2>
               <p className="text-sm text-slate-800 dark:text-slate-200 mt-1 font-mono text-xs bg-slate-100 dark:bg-slate-800 p-2 rounded">
-                Verified UPI ID: 9761224004-2@axl<br />
-                Payee Name: Nabeel Khan (Best Auto Parts)
+                Verified UPI ID: 9761224004-2@ybl<br />
+                Payee Name: Saud Khan (Best Auto Parts)
               </p>
             </div>
           </div>

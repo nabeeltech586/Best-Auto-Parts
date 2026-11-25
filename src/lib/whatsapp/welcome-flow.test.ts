@@ -215,8 +215,8 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     // Expect Main Menu list sent
     expect(sentLists.length).toBe(1)
     const list = sentLists[0]
-    expect(list.bodyText).toContain('You have selected English')
-    expect(list.bodyText).toContain('Please choose an option from the menu below to get started:')
+    expect(list.bodyText).toContain('Welcome to *Best Auto Parts*!')
+    expect(list.bodyText).toContain('Bajaj, Hero, or Honda')
     expect(list.sections[0].rows.length).toBe(6)
 
     // Validate interactive list payload against Meta Cloud API limits
@@ -258,9 +258,9 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     // Expect Main Menu list sent in Hinglish
     expect(sentLists.length).toBe(1)
     const list = sentLists[0]
-    expect(list.bodyText).toContain('Aapne Hinglish select kiya hai')
-    expect(list.bodyText).toContain('Aapko kis cheez mein madad chahiye?')
-    expect(list.bodyText).toContain('Kripya shuru karne ke liye niche diye gaye menu se ek option chunein:')
+    expect(list.bodyText).toContain('Welcome to *Best Auto Parts*!')
+    expect(list.bodyText).toContain('Bajaj, Hero, or Honda')
+    expect(list.bodyText).toContain('View Menu')
 
     // Localized menu rows in Hinglish per Section 4
     const rowTitles = list.sections[0].rows.map((r: any) => r.title)
@@ -373,7 +373,8 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(sentButtons.length).toBe(0)
     // Sends welcome back + Main Menu list
     expect(sentLists.length).toBe(1)
-    expect(sentLists[0].bodyText).toContain('Best Auto Parts mein aapka phir se swagat hai! 😊')
+    expect(sentLists[0].bodyText).toContain('Welcome back')
+    expect(sentLists[0].bodyText).toContain('Bajaj, Hero, or Honda')
   })
 
   // ------------------------------------------------------------
@@ -552,8 +553,9 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(res.consumed).toBe(true)
     expect(sentButtons.length).toBe(1)
     const btnCall = sentButtons[0]
-    expect(btnCall.bodyText).toContain('09:00 AM – 08:00 PM')
-    expect(btnCall.bodyText).toContain('Juma Namaz Break: 12:30 PM – 02:30 PM')
+    expect(btnCall.bodyText).toContain('09:00 AM – 09:00 PM')
+    expect(btnCall.bodyText).toContain('Friday Juma Break')
+    expect(btnCall.bodyText).toContain('12:30 PM – 02:30 PM')
     expect(btnCall.buttons).toEqual([
       { id: 'STORE_SHARE_DETAILS', title: 'Yes, Share Details' },
       { id: 'MENU_TALK_HUMAN', title: 'Talk to Human' },
@@ -610,7 +612,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     expect(res.consumed).toBe(true)
     expect(sentLists.length).toBe(1)
-    expect(sentLists[0].headerText).toBe('Best Auto Parts')
+    expect(sentLists[0].headerText).toBe('Best Auto Parts 🏍️')
     expect(sentLists[0].sections[0].rows.length).toBe(6)
   })
 
@@ -695,7 +697,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       interactiveReplyId: WELCOME_CALLBACKS.PICKUP_TIME_AFTERNOON,
     })
     expect(res3.consumed).toBe(true)
-    expect(sentButtons[2].bodyText).toContain('09:00 AM – 08:00 PM')
+    expect(sentButtons[2].bodyText).toContain('09:00 AM – 09:00 PM')
     expect(sentButtons[2].bodyText).toContain('Friday Juma break: 12:30 PM – 02:30 PM')
     expect(sentButtons[2].buttons).toEqual([
       { id: 'STORE_SHARE_DETAILS', title: 'Yes, Share Details' },
@@ -709,7 +711,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
   // ------------------------------------------------------------
   it('19. Delivery verification and unknown delivery status: handles available, unavailable, and offers human verification for unknown areas', async () => {
     // Verification function
-    expect(verifyDeliveryArea('110001').status).toBe('available')
+    expect(verifyDeliveryArea('247001').status).toBe('available')
     expect(verifyDeliveryArea('190001').status).toBe('unavailable')
     expect(verifyDeliveryArea('400001').status).toBe('unknown')
 
@@ -811,7 +813,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     const sampleResponses = [
       'Good Morning! Welcome to Best Auto Parts. 😊 Please choose your preferred language to continue.',
       'Ji! 😊 Bajaj Pulsar 150 ka Clutch Plate Set available hai. Price: ₹690',
-      'Bahut badhiya! 😊 Store timing: 09:00 AM – 08:00 PM (Friday Juma break: 12:30 PM – 02:30 PM).',
+      'Bahut badhiya! 😊 Store timing: 09:00 AM – 09:00 PM (Friday Juma break: 12:30 PM – 02:30 PM).',
       'Aapka area/PIN code note kar liya gaya hai. Delivery availability verify karenge.',
     ]
 
@@ -1076,7 +1078,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
           id: 'msg-1',
           conversation_id: conversationId,
           sender_type: 'bot',
-          content_text: 'Store timing: 09:00 AM – 08:00 PM. Kya aapko store address chahiye?',
+          content_text: 'Store timing: 09:00 AM – 09:00 PM. Kya aapko store address chahiye?',
           created_at: '2026-01-15T10:00:00Z',
         },
       ],
@@ -1092,7 +1094,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     })
     expect(resYesStore.consumed).toBe(true)
     expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Best Auto Parts')
-    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Main Market')
+    expect(sentButtons[sentButtons.length - 1].bodyText).toContain('Kailashpur, Saharanpur')
 
     // Context B: Bare Yes with no pending question
     const dbEmpty = createFakeDb({
@@ -1403,7 +1405,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       inboundText: 'Hinglish',
     })
     expect(res1.consumed).toBe(true)
-    expect(res1.responseSent).toContain('Aapne Hinglish select kiya hai')
+    expect(res1.responseSent).toContain('Welcome to *Best Auto Parts*!')
     expect(await getContactLanguage(db1 as any, accountId, 'c-typed-1')).toBe('hinglish')
 
     // 36b: Typed "hindi"
@@ -1419,7 +1421,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       inboundText: 'hindi',
     })
     expect(res2.consumed).toBe(true)
-    expect(res2.responseSent).toContain('Aapne Hinglish select kiya hai')
+    expect(res2.responseSent).toContain('Welcome to *Best Auto Parts*!')
     expect(await getContactLanguage(db2 as any, accountId, 'c-typed-2')).toBe('hinglish')
 
     // 36c: Typed "2"
@@ -1435,7 +1437,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       inboundText: '2',
     })
     expect(res3.consumed).toBe(true)
-    expect(res3.responseSent).toContain('Aapne Hinglish select kiya hai')
+    expect(res3.responseSent).toContain('Welcome to *Best Auto Parts*!')
     expect(await getContactLanguage(db3 as any, accountId, 'c-typed-3')).toBe('hinglish')
 
     // 36d: Typed "English"
@@ -1451,7 +1453,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       inboundText: 'English',
     })
     expect(res4.consumed).toBe(true)
-    expect(res4.responseSent).toContain('You have selected English')
+    expect(res4.responseSent).toContain('Welcome to *Best Auto Parts*!')
     expect(await getContactLanguage(db4 as any, accountId, 'c-typed-4')).toBe('en')
 
     // 36e: Typed "1"
@@ -1467,7 +1469,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       inboundText: '1',
     })
     expect(res5.consumed).toBe(true)
-    expect(res5.responseSent).toContain('You have selected English')
+    expect(res5.responseSent).toContain('Welcome to *Best Auto Parts*!')
     expect(await getContactLanguage(db5 as any, accountId, 'c-typed-5')).toBe('en')
   })
 
@@ -1507,7 +1509,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     })
 
     expect(resTurn2.consumed).toBe(true)
-    expect(resTurn2.responseSent).toContain('Best Auto Parts mein aapka phir se swagat hai')
+    expect(resTurn2.responseSent).toContain('Welcome back')
   })
 
   // ------------------------------------------------------------
@@ -2480,6 +2482,48 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     // Verify returning customer greeting and main menu were sent
     expect(sentLists.length).toBe(1)
-    expect(sentLists[0].bodyText).toContain('Best Auto Parts mein aapka phir se swagat hai! 😊')
+    expect(sentLists[0].bodyText).toContain('Welcome back')
+    expect(sentLists[0].bodyText).toContain('Bajaj, Hero, or Honda')
+  })
+
+  // Test 68: Gratitude acknowledgment
+  it('68. Gratitude acknowledgment: warms customers and never triggers fallback on thanks/shukriya/ok', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const resOk = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'shukriya',
+    })
+
+    expect(resOk.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+    expect(sentTexts[0].text).toContain('Shukriya ji!')
+    expect(sentTexts[0].text).toContain('Bajaj, Hero ya Honda')
+  })
+
+  // Test 69: Unsupported vehicle brand refusal
+  it('69. Unsupported brand refusal: polite standard refusal for TVS, Yamaha, Royal Enfield or car inquiries', async () => {
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+    })
+
+    const resTvs = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'TVS Apache brake shoe chahiye',
+    })
+
+    expect(resTvs.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+    expect(sentTexts[0].text).toContain('exclusively in *Bajaj, Hero, and Honda*')
   })
 })

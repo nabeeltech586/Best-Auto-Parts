@@ -33,7 +33,7 @@ export default function ShippingPage() {
               <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
                 <h3 className="font-semibold text-slate-900 dark:text-white mb-1">🚚 Doorstep Delivery</h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
-                  Delivery across Delhi-NCR and Western Uttar Pradesh via reliable courier partners. Dispatch is initiated within 24 hours.
+                  Delivery across Saharanpur and nearby local areas via reliable courier partners. Dispatch is initiated within 24 hours.
                 </p>
               </div>
             </div>
@@ -50,9 +50,9 @@ export default function ShippingPage() {
           <section>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">3. Estimated Delivery Times</h2>
             <ul className="list-disc pl-5 space-y-1">
-              <li><strong>Local Service Area (Aligarh & Vicinity):</strong> Same-day or next-day delivery (12 to 24 hours).</li>
-              <li><strong>Delhi-NCR / Western Uttar Pradesh:</strong> 1 to 2 business days.</li>
-              <li><strong>Rest of North India:</strong> 2 to 4 business days.</li>
+              <li><strong>Local Service Area (Saharanpur & Kailashpur):</strong> Same-day local delivery or immediate store counter pickup.</li>
+              <li><strong>Nearby Local Areas (Western Uttar Pradesh):</strong> 1 to 2 business days.</li>
+              <li><strong>Regional Transport Hubs:</strong> 2 to 3 business days.</li>
             </ul>
           </section>
 

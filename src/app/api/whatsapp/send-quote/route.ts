@@ -94,7 +94,7 @@ export async function POST(request: Request) {
         `• Total Amount: ${priceStr}\n` +
         `• Availability: In Stock ✅\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📍 Best Auto Parts, Main Market, Kailashpur, Saharanpur, UP 247001\n` +
+        `📍 Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
         `⏰ Shop Timing: 9:00 AM – 9:00 PM (Daily)\n` +
         `📞 Customer Care & Support: +91 96347 22174\n\n` +
         `Reply here to confirm your order or request an instant BestPay checkout link.`;

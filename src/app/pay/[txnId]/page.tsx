@@ -29,7 +29,7 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
           <div className="bg-slate-50 rounded-xl p-4 text-left border border-slate-200 mb-6">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Best Auto Parts</h2>
             <p className="text-sm text-slate-800 font-medium">Saud Bhai / Store Team</p>
-            <p className="text-xs text-slate-600">Main Market, Auto Parts Hub</p>
+            <p className="text-xs text-slate-600">Kailashpur, Saharanpur, UP 247001</p>
             <p className="text-xs text-slate-600 mt-1">📞 +91 96347 22174</p>
           </div>
 
@@ -139,7 +139,7 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
 
           <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-xs text-slate-600 mt-2 space-y-1">
             <p className="font-semibold text-slate-800">Best Auto Parts</p>
-            <p>Main Market Road, Kailashpur, Saharanpur • Timing: 09:00 AM – 09:00 PM</p>
+            <p>Kailashpur, Saharanpur, UP 247001 • Timing: 09:00 AM – 09:00 PM</p>
             <p className="text-emerald-700 font-medium">Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.</p>
           </div>
 

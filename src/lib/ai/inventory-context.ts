@@ -33,10 +33,14 @@ export interface InventoryContextResult {
 }
 
 // Known motorcycle & scooter brands and popular two-wheeler models in Best Auto Parts catalog
+// Exclusively two-wheelers for Bajaj, Hero, and Honda.
 const KNOWN_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] }> = [
   { make: 'Bajaj', models: ['Pulsar', 'Pulsar 150', 'Pulsar 180', 'Pulsar 220', 'Platina', 'Avenger', 'Discover', 'CT 100', 'Dominar', 'Chetak', 'Pulsr', 'Pulser', 'Plsr', 'Pulsur', 'Pulsr 150', 'Pulser 150', 'Platna'], aliases: ['बजाज', 'पल्सर', 'pulsr', 'pulser'] },
   { make: 'Hero', models: ['Splendor', 'Super Splendor', 'Splendor Plus', 'HF Deluxe', 'Glamour', 'Passion', 'Passion Pro', 'Xtreme', 'Xpulse', 'Pleasure', 'Maestro', 'Splendr', 'Slendor', 'Splender', 'Splendr Plus', 'Passn'], aliases: ['हीरो', 'स्प्लेंडर', 'ग्लैमर', 'splendr', 'slendor'] },
   { make: 'Honda', models: ['Activa', 'Activa 3G', 'Activa 4G', 'Activa 5G', 'Activa 6G', 'Shine', 'CB Shine', 'Unicorn', 'SP 125', 'Dio', 'Hornet', 'CD 110 Dream', 'Livo', 'Actva', 'Aktiva', 'Acteva'], aliases: ['होंडा', 'एक्टिवा', 'actva', 'aktiva'] },
+];
+
+export const UNSUPPORTED_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] }> = [
   { make: 'TVS', models: ['Apache', 'RTR 160', 'RTR 200', 'Jupiter', 'XL100', 'Raider', 'Ntorq', 'Sport', 'Star City'], aliases: ['टीवीएस', 'अपाचे', 'जुपिटर'] },
   { make: 'Royal Enfield', models: ['Bullet', 'Bullet 350', 'Classic 350', 'Meteor', 'Hunter', 'Himalayan', 'Continental GT'], aliases: ['रॉयल एनफील्ड', 'बुलेट', 'क्लासिक'] },
   { make: 'Yamaha', models: ['R15', 'MT 15', 'FZ', 'FZ-S', 'Fascino', 'RayZR', 'Aerox'], aliases: ['यामाहा'] },
@@ -44,16 +48,46 @@ const KNOWN_VEHICLES: Array<{ make: string; models: string[]; aliases: string[] 
   { make: 'KTM', models: ['Duke', 'Duke 200', 'Duke 250', 'Duke 390', 'RC 200', 'RC 390', 'Adventure'], aliases: ['ड्यूक'] },
 ];
 
+export const UNSUPPORTED_BRAND_REPLY =
+  '🙏 Sorry, *Best Auto Parts* deals exclusively in *Bajaj, Hero, and Honda* two-wheeler spare parts. Please let me know if you ever need any part for these bikes! 🏍️';
+
+export function isUnsupportedVehicleQuery(customerText: string): boolean {
+  if (!customerText) return false;
+  const lower = customerText.toLowerCase();
+
+  // If the query already explicitly mentions supported brands, do not block
+  const hasSupportedMake = KNOWN_VEHICLES.some(
+    (v) =>
+      lower.includes(v.make.toLowerCase()) ||
+      v.models.some((m) => new RegExp(`\\b${m.toLowerCase()}\\b`, 'i').test(lower))
+  );
+  if (hasSupportedMake) return false;
+
+  // Car / four-wheeler inquiry check
+  if (/\b(car|cars|four[- ]?wheeler|gadi|gaadi|maruti|hyundai|tata|mahindra|toyota|kia|creta|swift|i20|baleno|scorpio|bolero|innova)\b/i.test(lower)) {
+    return true;
+  }
+
+  // Unsupported bike brands / models check
+  return UNSUPPORTED_VEHICLES.some(
+    (v) =>
+      new RegExp(`\\b${v.make.toLowerCase()}\\b`, 'i').test(lower) ||
+      v.models.some((m) => new RegExp(`\\b${m.toLowerCase()}\\b`, 'i').test(lower)) ||
+      v.aliases.some((a) => lower.includes(a.toLowerCase()))
+  );
+}
+
 // Common automotive parts and spare components in English, Hindi, and Hinglish
 const COMPONENT_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
-  { key: 'clutch', patterns: [/\bclutch\b/i, /\bclutch\s*plate\b/i, /\bcluch\b/i, /\bcluch\s*plate\b/i, /\bclutchplate\b/i, /\bclach\b/i, /क्लच/i, /क्लच\s*प्लेट/i] },
-  { key: 'brake', patterns: [/\bbrake\b/i, /\bbrake\s*pad\b/i, /\bbrake\s*shoe\b/i, /\bbreak\b/i, /\bbreak\s*pad\b/i, /\bbreak\s*shoe\b/i, /\bbrek\b/i, /\bdisc\b/i, /\bdiscpad\b/i, /\bdisc\s*pad\b/i, /\brotor\b/i, /ब्रेक/i, /ब्रेक\s*पैड/i, /ब्रेक\s*शू/i] },
+  { key: 'clutch', patterns: [/\bclutch\b/i, /\bclutch\s*plate\b/i, /\bcluch\b/i, /\bcluch\s*plate\b/i, /\bcluch\s*plet\b/i, /\bclutchplate\b/i, /\bclach\b/i, /क्लच/i, /क्लच\s*प्लेट/i] },
+  { key: 'brake', patterns: [/\bbrake\b/i, /\bbrake\s*pad\b/i, /\bbrake\s*shoe\b/i, /\bbreak\b/i, /\bbreak\s*pad\b/i, /\bbreak\s*shoe\b/i, /\bbrek\b/i, /\bbrek\s*su\b/i, /\bbreak\s*su\b/i, /\bbrake\s*su\b/i, /\bdisc\b/i, /\bdiscpad\b/i, /\bdisc\s*pad\b/i, /\brotor\b/i, /ब्रेक/i, /ब्रेक\s*पैड/i, /ब्रेक\s*शू/i] },
   { key: 'oil filter', patterns: [/\boil\s*filter\b/i, /ऑयल\s*फिल्टर/i, /ऑइल\s*फिल्टर/i] },
   { key: 'air filter', patterns: [/\bair\s*filter\b/i, /एयर\s*फिल्टर/i, /हवा\s*फिल्टर/i] },
   { key: 'filter', patterns: [/\bfilter\b/i, /\bfiltor\b/i, /\bfliter\b/i, /फिल्टर/i] },
   { key: 'spark plug', patterns: [/\bspark\s*plug\b/i, /\bplug\b/i, /\bplag\b/i, /स्पार्क\s*प्लग/i, /प्लग/i] },
   { key: 'piston', patterns: [/\bpiston\b/i, /\bcylinder\b/i, /पिस्टन/i, /सिलेंडर/i] },
-  { key: 'chain sprocket', patterns: [/\bchain\b/i, /\bsprocket\b/i, /\bchin\b/i, /\bsproket\b/i, /\bchane\b/i, /\bdrive\s*chain\b/i, /चेन/i, /स्प्रोकेट/i] },
+  { key: 'chain sprocket', patterns: [/\bchain\b/i, /\bsprocket\b/i, /\bchin\b/i, /\bsproket\b/i, /\bchane\b/i, /\bchain\s*set\b/i, /\bchain\s*seth\b/i, /\bdrive\s*chain\b/i, /चेन/i, /स्प्रोकेट/i] },
+  { key: 'shock absorber', patterns: [/\bshocker\b/i, /\bsoker\b/i, /\bshock\s*absorber\b/i, /\bshok\b/i, /शॉकर/i] },
   { key: 'battery', patterns: [/\bbattery\b/i, /बैटरी/i] },
   { key: 'horn', patterns: [/\bhorn\b/i, /हॉर्न/i] },
   { key: 'tyre', patterns: [/\btyre\b/i, /\btire\b/i, /टायर/i] },
@@ -61,7 +95,7 @@ const COMPONENT_PATTERNS: Array<{ key: string; patterns: RegExp[] }> = [
   { key: 'seat cover', patterns: [/\bseat\s*cover\b/i, /सीट\s*कवर/i] },
   { key: 'carburetor', patterns: [/\bcarburetor\b/i, /\bcarb\b/i, /कार्बोरेटर/i] },
   { key: 'alternator', patterns: [/\balternator\b/i, /अल्टरनेटर/i] },
-  { key: 'engine oil', patterns: [/\bengine\s*oil\b/i, /\b20w[- ]?50\b/i, /\b10w[- ]?40\b/i, /इंजन\s*ऑयल/i] },
+  { key: 'engine oil', patterns: [/\bengine\s*oil\b/i, /\bmobil\b/i, /\bmobil\s*oil\b/i, /\b20w[- ]?50\b/i, /\b10w[- ]?40\b/i, /इंजन\s*ऑयल/i, /मोबिल/i] },
 ];
 
 // Common auto parts brands
@@ -537,7 +571,16 @@ export function formatInventoryContext(res: InventoryContextResult): string {
     '8. WHEN TO HAND OFF: Output [[HANDOFF]] ONLY if: (a) the customer explicitly asks to talk to a real person / human agent / manager / owner, (b) the customer is angry, abusive, or filing a serious dispute/complaint, or (c) the customer is negotiating bulk discounts or wholesale credit that cannot be answered from the catalog.',
   );
   sections.push(
-    '9. STORE HOURS & OFF-HOURS: Store business hours are Monday–Sunday 9:00 AM – 8:00 PM IST (Friday Juma break: 12:30 PM – 2:30 PM). If responding outside business hours, quote verified product name and price, confirm availability without disclosing quantity, and state that parts are available for in-store pickup when the shop opens at 9:00 AM. If handing off outside business hours, assure the customer that Saud Bhai will follow up once the store opens at 9:00 AM.',
+    '9. STORE HOURS & OFF-HOURS: Store business hours are Monday–Sunday 9:00 AM – 9:00 PM IST (Friday Juma break: 12:30 PM – 2:30 PM). If responding outside business hours, quote verified product name and price, confirm availability without disclosing quantity, and state that parts are available for in-store pickup when the shop opens at 9:00 AM. If handing off outside business hours, assure the customer that Saud Bhai will follow up once the store opens at 9:00 AM.',
+  );
+  sections.push(
+    '10. EXCLUSIVE TWO-WHEELER BRANDS (BAJAJ, HERO, HONDA ONLY): Best Auto Parts deals exclusively in genuine & aftermarket two-wheeler spare parts for Bajaj, Hero, and Honda motorcycles and scooters. If the customer asks for car/four-wheeler parts or any other bike brand (e.g. TVS, Yamaha, Royal Enfield, Suzuki, KTM, etc.), politely decline with the exact message: "🙏 Sorry, *Best Auto Parts* deals exclusively in *Bajaj, Hero, and Honda* two-wheeler spare parts. Please let me know if you ever need any part for these bikes! 🏍️"',
+  );
+  sections.push(
+    '11. SELECTIVE CUSTOMER CARE CONTACT: Include "📞 Call Customer Care: *9634722174*" (Saud Bhai) ONLY for: (1) Out-of-stock or special-order Bajaj/Hero/Honda parts, (2) Shop Location & Timings card, (3) 2-strike unrecognized fallback, or (4) After-hours/Friday Juma break notice. Do NOT append the phone number to routine price or in-stock inquiries.',
+  );
+  sections.push(
+    '12. POLITE BESTAI DESK TONE & TYPO TOLERANCE: Always address customers with warm, respectful Hindi/Hinglish honorifics ("Aap / Ji"). Gracefully recognize phonetic spellings and common typos ("cluch plet", "brek su", "chain set", "shocker", "plug", "mobil"). Never disclose exact numerical inventory units; confirm only "✅ In Stock" or "⚠️ Limited Stock".',
   );
 
   return sections.join('\n');

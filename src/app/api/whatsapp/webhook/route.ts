@@ -21,6 +21,7 @@ import {
 import { readCappedBody } from '@/lib/whatsapp/webhook-body'
 import { resumeAwaitingReply, runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
+import { engineSendText } from '@/lib/flows/meta-send'
 import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
 import { matchIcebreaker, executeIcebreaker } from '@/lib/whatsapp/icebreakers'
 import { isScratchOfferTrigger, handleScratchOfferFlow } from '@/lib/whatsapp/scratch-offer'
@@ -837,6 +838,38 @@ async function processMessage(
   }
 
   // ============================================================
+  // Media Messages Acknowledgment & Human Takeover Respect
+  // Warmly acknowledge part photos and voice notes without AI fallback,
+  // respecting active human agent takeover.
+  // ============================================================
+  let mediaConsumed = false
+  if (!scratchConsumed && !icebreakerConsumed && (message.type === 'image' || message.type === 'audio')) {
+    const { data: convState } = await supabaseAdmin()
+      .from('conversations')
+      .select('ai_autoreply_disabled, assigned_agent_id')
+      .eq('id', conversation.id)
+      .maybeSingle()
+
+    const isHumanTakeover = Boolean(convState?.assigned_agent_id || convState?.ai_autoreply_disabled)
+    if (!isHumanTakeover) {
+      const ackText = message.type === 'image'
+        ? '📸 Got your photo! Our counter team is reviewing it and will share exact price & availability shortly.'
+        : '🎙️ Got your voice note! Our counter team is listening to it and will share exact price & availability shortly.'
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        text: ackText,
+      }).catch((err) => {
+        console.error('[webhook] media ack error:', err)
+      })
+    }
+    mediaConsumed = true
+  }
+
+  // ============================================================
   // Welcome & Language Flow dispatch.
   //
   // Handles:
@@ -847,7 +880,7 @@ async function processMessage(
   //
   // If consumed: takes precedence over generic flows, automations, and AI.
   // ============================================================
-  const welcomeResult = (scratchConsumed || icebreakerConsumed)
+  const welcomeResult = (scratchConsumed || icebreakerConsumed || mediaConsumed)
     ? { consumed: true }
     : await handleWelcomeFlowInbound({
         db: supabaseAdmin(),
@@ -862,7 +895,7 @@ async function processMessage(
         console.error('[welcome-flow] dispatch error:', err)
         return { consumed: false }
       })
-  const welcomeConsumed = scratchConsumed || icebreakerConsumed || welcomeResult.consumed
+  const welcomeConsumed = scratchConsumed || icebreakerConsumed || mediaConsumed || welcomeResult.consumed
 
   // ============================================================
   // Flow runner dispatch.

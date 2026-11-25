@@ -31,8 +31,8 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">2. Genuine Products & Vehicle Fitment</h2>
             <p>
-              We specialize in genuine OEM and verified aftermarket two-wheeler and four-wheeler spare parts (including Bajaj, Hero, Honda, TVS, Yamaha,
-              and other major manufacturers). While we provide compatibility guidance, customers are advised to verify vehicle model, manufacture year,
+              We specialize in genuine OEM and verified aftermarket two-wheeler spare parts for Bajaj, Hero, and Honda motorcycles and scooters.
+              While we provide compatibility guidance, customers are advised to verify vehicle model, manufacture year,
               and engine variant before finalizing an order.
             </p>
           </section>
@@ -52,7 +52,7 @@ export default function TermsPage() {
             </p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li><strong>Store Pickup:</strong> Free self-pickup from our retail outlet during business hours.</li>
-              <li><strong>Delivery:</strong> Express courier / local dispatch across Delhi-NCR and Western Uttar Pradesh.</li>
+              <li><strong>Delivery:</strong> Express courier / local dispatch across Saharanpur and nearby local areas.</li>
             </ul>
           </section>
 

@@ -441,8 +441,8 @@ export class PaymentService {
           `• Status: Confirmed & Packing Shuru\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
           `📍 *Store Address:*\n` +
-          `Best Auto Parts, Main Market Shop.\n` +
-          `Timing: 09:00 AM – 08:00 PM (Friday Juma break: 12:30 PM – 02:30 PM)\n\n` +
+          `Best Auto Parts, Kailashpur, Saharanpur, Uttar Pradesh 247001.\n` +
+          `Timing: 09:00 AM – 09:00 PM (Friday Juma break: 12:30 PM – 02:30 PM)\n\n` +
           `Aapka order confirm ho chuka hai. Best Auto Parts par bharosa karne ke liye shukriya! 🙏`
         : `🎉 *Payment Received Successfully!*\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -452,8 +452,8 @@ export class PaymentService {
           `• Status: Confirmed & Preparing for Dispatch\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
           `📍 *Store Address:*\n` +
-          `Best Auto Parts, Main Market Shop.\n` +
-          `Timing: 09:00 AM – 08:00 PM (Friday Juma break: 12:30 PM – 02:30 PM)\n\n` +
+          `Best Auto Parts, Kailashpur, Saharanpur, Uttar Pradesh 247001.\n` +
+          `Timing: 09:00 AM – 09:00 PM (Friday Juma break: 12:30 PM – 02:30 PM)\n\n` +
           `Your order has been verified. Thank you for shopping with Best Auto Parts! 🙏`;
 
       await engineSendText({

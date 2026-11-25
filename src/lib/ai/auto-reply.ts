@@ -194,9 +194,11 @@ export async function dispatchInboundToAiReply(
     )
 
     const languageInstruction =
-      'CRITICAL: All customer-facing WhatsApp messages, quotes, and receipts must be in clean, professional English, regardless of whether the customer asked in English, Hindi, or Hinglish. ' +
-      'When quoting a verified spare part from the catalog, state the exact Part Name, Brand (Genuine OEM or Aftermarket), OEM Number, Live Selling Price (formatted with ₹), and In-Stock status (In Stock ✅). ' +
-      'Never disclose internal numerical stock quantities, warehouse bin locations, or cost prices. Offer a direct PhonePe payment link if they would like to place an order.'
+      'CRITICAL: Customer tone must be warm, respectful, and helpful matching the customer language (English or natural Romanized Hinglish with Aap/Ji). ' +
+      'Best Auto Parts deals exclusively in genuine & aftermarket two-wheeler spare parts for Bajaj, Hero, and Honda motorcycles and scooters. ' +
+      'When quoting a verified spare part from the catalog, state the exact Part Name, Brand (Genuine OEM or Aftermarket), OEM Number, Live Selling Price (formatted with ₹), and In-Stock status (In Stock ✅ or Limited Stock ⚠️). ' +
+      'Strict Stock Privacy: Never disclose internal numerical stock quantities, units remaining, warehouse bin locations, or cost prices. ' +
+      'Selective Customer Care: Append "📞 Call Customer Care: *9634722174*" (Saud Bhai) ONLY for out-of-stock/special orders, location cards, or after-hours notices; never append to routine price/stock replies.'
 
     const effectiveUserPrompt = [config.systemPrompt, languageInstruction]
       .filter(Boolean)
