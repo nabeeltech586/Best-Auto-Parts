@@ -1140,6 +1140,75 @@ export async function handleWelcomeFlowInbound(
     return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
   }
 
+// Helper to check live payment status for customer order/ledger
+async function checkCustomerOrderPaymentStatus(
+  db: SupabaseClient,
+  contactId: string,
+  customerPhone?: string
+): Promise<{
+  orderId: string
+  totalAmount: number
+  paidAmount: number
+  remainingAmount: number
+  status: 'PAID' | 'PARTIAL' | 'PENDING'
+} | null> {
+  try {
+    const cleanDigits = customerPhone ? customerPhone.replace(/[^0-9]/g, '').slice(-10) : ''
+    let query = db.from('payment_links').select('*')
+    if (cleanDigits) {
+      query = query.or(`customer_phone.ilike.%${cleanDigits}%,customer_phone.eq.${customerPhone}`)
+    } else {
+      query = query.ilike('merchant_transaction_id', `%${contactId}%`)
+    }
+
+    const { data: links } = await query.order('created_at', { ascending: false }).limit(1)
+    const link = links?.[0]
+    if (!link) return null
+
+    const tot = Number(link.amount) || 0
+    const paid =
+      link.paid_amount !== undefined && link.paid_amount !== null
+        ? Number(link.paid_amount)
+        : link.status === 'PAID'
+        ? tot
+        : 0
+    const rem =
+      link.remaining_amount !== undefined && link.remaining_amount !== null
+        ? Number(link.remaining_amount)
+        : Math.max(0, tot - paid)
+
+    if (link.status === 'PAID' || rem <= 0) {
+      return {
+        orderId: link.order_id,
+        totalAmount: tot,
+        paidAmount: tot,
+        remainingAmount: 0,
+        status: 'PAID',
+      }
+    }
+
+    if (link.status === 'PARTIAL' || (paid > 0 && rem > 0)) {
+      return {
+        orderId: link.order_id,
+        totalAmount: tot,
+        paidAmount: paid,
+        remainingAmount: rem,
+        status: 'PARTIAL',
+      }
+    }
+
+    return {
+      orderId: link.order_id,
+      totalAmount: tot,
+      paidAmount: 0,
+      remainingAmount: tot,
+      status: 'PENDING',
+    }
+  } catch {
+    return null
+  }
+}
+
   // ------------------------------------------------------------
   // 8A. Online Payment Flow (PhonePe Gateway Track 2)
   // ------------------------------------------------------------
@@ -1163,6 +1232,74 @@ export async function handleWelcomeFlowInbound(
       if (c?.phone) customerPhone = c.phone
     } catch {
       // ignore
+    }
+
+    // Check live payment status for this customer first
+    const livePayment = await checkCustomerOrderPaymentStatus(db, contactId, customerPhone)
+
+    // CASE A: Full Payment Already Completed
+    if (livePayment && livePayment.status === 'PAID') {
+      const bodyText = isHinglish
+        ? `✅ *Payment Already Received!*\n\n` +
+          `Aapka order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) fully paid hai. Best Auto Parts ko chunne ke liye shukriya!\n\n` +
+          `Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.\n` +
+          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`
+        : `✅ *Payment Already Received!*\n\n` +
+          `Your order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) is fully paid. Thank you for choosing *Best Auto Parts*!\n\n` +
+          `Our team is preparing your spare parts for dispatch or counter pickup.\n` +
+          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`;
+
+      const res = await engineSendText({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        text: bodyText,
+      })
+      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+    }
+
+    // CASE B: Partial Payment (Collect remaining balance only)
+    if (livePayment && livePayment.status === 'PARTIAL') {
+      const remainingAmt = livePayment.remainingAmount
+      const partialCheckoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+        livePayment.orderId
+      )}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
+        customerPhone
+      )}&item=${encodeURIComponent(selectedPartName)}&amount=${remainingAmt}`
+
+      const bodyText = isHinglish
+        ? `⚡ *Remaining Balance Due — Best Auto Parts*\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `• *Order ID:* *${livePayment.orderId}*\n` +
+          `• *Total Bill:* ₹${livePayment.totalAmount.toFixed(2)}\n` +
+          `• *Already Paid:* ₹${livePayment.paidAmount.toFixed(2)}\n` +
+          `• *Remaining Balance Due:* *₹${remainingAmt.toFixed(2)}*\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `Bacha hua balance pay karne ke liye niche direct secure checkout link par tap karein:\n` +
+          `👉 ${partialCheckoutLink}`
+        : `⚡ *Remaining Balance Due — Best Auto Parts*\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `• *Order ID:* *${livePayment.orderId}*\n` +
+          `• *Total Bill:* ₹${livePayment.totalAmount.toFixed(2)}\n` +
+          `• *Already Paid:* ₹${livePayment.paidAmount.toFixed(2)}\n` +
+          `• *Remaining Balance Due:* *₹${remainingAmt.toFixed(2)}*\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `Please tap our secure checkout link to pay your remaining balance:\n` +
+          `👉 ${partialCheckoutLink}`;
+
+      const res = await engineSendInteractiveButtons({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        bodyText,
+        buttons: [
+          { id: WELCOME_CALLBACKS.PAY_UPI_ID, title: 'UPI ID Payment' },
+          { id: WELCOME_CALLBACKS.PAY_SCAN_QR, title: 'Scan QR Code' },
+        ],
+      })
+      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
     }
 
     let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER&name=${encodeURIComponent(
@@ -1228,10 +1365,39 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_SCAN_QR ||
     /^(scan\s*qr|scan\s*qr\s*code|qr\s*code)$/i.test(rawText)
   ) {
-    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
+    const { partName: selectedPartName, unitPrice: defaultUnitPrice, partId: selectedPartId } =
       await resolveActiveProduct(db, conversationId, contactId, accountId)
 
-    let orderRef = 'BAP-9634'
+    let selectedUnitPrice = defaultUnitPrice
+
+    // Check live payment status for this customer first
+    const livePayment = await checkCustomerOrderPaymentStatus(db, contactId)
+    if (livePayment && livePayment.status === 'PAID') {
+      const bodyText = isHinglish
+        ? `✅ *Payment Already Received!*\n\n` +
+          `Aapka order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) fully paid hai. Best Auto Parts ko chunne ke liye shukriya!\n\n` +
+          `Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.\n` +
+          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`
+        : `✅ *Payment Already Received!*\n\n` +
+          `Your order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) is fully paid. Thank you for choosing *Best Auto Parts*!\n\n` +
+          `Our team is preparing your spare parts for dispatch or counter pickup.\n` +
+          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`;
+
+      const res = await engineSendText({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        text: bodyText,
+      })
+      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+    }
+
+    if (livePayment && livePayment.status === 'PARTIAL') {
+      selectedUnitPrice = livePayment.remainingAmount
+    }
+
+    let orderRef = livePayment?.orderId || 'BAP-9634'
     let totalAmt = selectedUnitPrice
     try {
       const initResult = await PaymentService.initiatePayment({
@@ -1315,7 +1481,7 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.PAY_UPI_ID ||
     /^(upi\s*id|upi\s*id\s*payment|pay\s*via\s*upi)$/i.test(rawText)
   ) {
-    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
+    const { partName: selectedPartName, unitPrice: defaultUnitPrice, partId: selectedPartId } =
       await resolveActiveProduct(db, conversationId, contactId, accountId)
 
     let customerName = 'Customer'
@@ -1332,7 +1498,37 @@ export async function handleWelcomeFlowInbound(
       // ignore
     }
 
-    let orderRef = 'BAP-9634'
+    let selectedUnitPrice = defaultUnitPrice
+
+    // Check live payment status for this customer first
+    const livePayment = await checkCustomerOrderPaymentStatus(db, contactId, customerPhone)
+
+    if (livePayment && livePayment.status === 'PAID') {
+      const bodyText = isHinglish
+        ? `✅ *Payment Already Received!*\n\n` +
+          `Aapka order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) fully paid hai. Best Auto Parts ko chunne ke liye shukriya!\n\n` +
+          `Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.\n` +
+          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`
+        : `✅ *Payment Already Received!*\n\n` +
+          `Your order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) is fully paid. Thank you for choosing *Best Auto Parts*!\n\n` +
+          `Our team is preparing your spare parts for dispatch or counter pickup.\n` +
+          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`;
+
+      const res = await engineSendText({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        text: bodyText,
+      })
+      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+    }
+
+    if (livePayment && livePayment.status === 'PARTIAL') {
+      selectedUnitPrice = livePayment.remainingAmount
+    }
+
+    let orderRef = livePayment?.orderId || 'BAP-9634'
     let totalAmt = selectedUnitPrice
     let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
       orderRef

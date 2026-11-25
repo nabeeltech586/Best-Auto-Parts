@@ -7,25 +7,41 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
  */
 async function getSupplierIdentifiers(db: ReturnType<typeof supabaseAdmin>) {
   try {
-    const [{ data: supplierContacts }, { data: distributorsData }] = await Promise.all([
-      db.from('contacts').select('id, phone, category').in('category', ['Distributor', 'Wholesaler']),
-      db.from('distributors').select('whatsapp_number, phone'),
-    ]);
+    let supplierContacts: Array<{ id?: string; phone?: string | null }> = [];
+    try {
+      const { data } = await db
+        .from('contacts')
+        .select('id, phone, category')
+        .in('category', ['Distributor', 'Wholesaler']);
+      supplierContacts = (data as Array<{ id?: string; phone?: string | null }>) || [];
+    } catch {
+      supplierContacts = [];
+    }
 
-    const supplierIds = new Set<string>((supplierContacts || []).map((c: { id: string }) => c.id));
+    let distributorsData: Array<{ whatsapp_number?: string | null; phone?: string | null }> = [];
+    try {
+      const { data } = await db.from('distributors').select('whatsapp_number, phone');
+      distributorsData =
+        (data as Array<{ whatsapp_number?: string | null; phone?: string | null }>) || [];
+    } catch {
+      distributorsData = [];
+    }
+
+    const supplierIds = new Set<string>();
     const supplierPhones = new Set<string>();
 
-    for (const c of supplierContacts || []) {
-      if (c.phone) {
-        const digits = c.phone.replace(/[^0-9]/g, '').slice(-10);
+    for (const c of supplierContacts) {
+      if (c?.id) supplierIds.add(String(c.id));
+      if (c?.phone) {
+        const digits = String(c.phone).replace(/[^0-9]/g, '').slice(-10);
         if (digits) supplierPhones.add(digits);
       }
     }
 
-    for (const d of distributorsData || []) {
-      const p = d.whatsapp_number || d.phone;
+    for (const d of distributorsData) {
+      const p = d?.whatsapp_number || d?.phone;
       if (p) {
-        const digits = p.replace(/[^0-9]/g, '').slice(-10);
+        const digits = String(p).replace(/[^0-9]/g, '').slice(-10);
         if (digits) supplierPhones.add(digits);
       }
     }
@@ -48,8 +64,7 @@ export async function GET(request: Request) {
 
     const { supplierIds, supplierPhones } = await getSupplierIdentifiers(db);
 
-    // 1. Initial / On-Load Sync: Auto-sync any Pipeline Customer or Mechanic with balance_due > 0 (Mohd ali ₹250, etc.)
-    // Explicitly exclude all Distributors and Wholesalers
+    // 1. Initial / On-Load Sync: Auto-sync any Pipeline Customer or Mechanic with balance_due > 0
     try {
       const { data: debtContacts } = await db
         .from('contacts')
@@ -141,7 +156,7 @@ export async function GET(request: Request) {
       console.warn('[API /api/payments/links] Auto-sync customer/mechanic partners warning:', syncErr);
     }
 
-    // 2. Query payment links and all contacts to attach role (Mechanic vs Customer) and exclude any supplier entries
+    // 2. Query contacts to attach role (Mechanic vs Customer)
     const { data: contactsData } = await db
       .from('contacts')
       .select('id, name, phone, company, category, unique_code');
@@ -161,11 +176,15 @@ export async function GET(request: Request) {
 
     let query = db
       .from('payment_links')
-      .select('id, order_id, merchant_transaction_id, customer_name, customer_phone, part_details, amount, status, phonepe_redirect_url, phonepe_transaction_id, payment_mode, paid_at, created_at')
+      .select('*')
       .order('created_at', { ascending: false });
 
     if (status && status !== 'ALL') {
-      query = query.eq('status', status);
+      if (status === 'PENDING') {
+        query = query.in('status', ['PENDING', 'PARTIAL']);
+      } else {
+        query = query.eq('status', status);
+      }
     }
 
     if (search) {
@@ -177,7 +196,7 @@ export async function GET(request: Request) {
         `merchant_transaction_id.ilike.%${search}%`,
       ];
 
-      // If search is a unique contact code (e.g. BAP-MEC-001 or BAP-CUS-001), resolve partner details
+      // If search is a unique contact code, resolve partner details
       if (/^BAP-/i.test(search)) {
         try {
           const { data: matchedContact } = await db
@@ -201,7 +220,7 @@ export async function GET(request: Request) {
 
     const [linksRes, allRowsRes] = await Promise.all([
       query.limit(200),
-      db.from('payment_links').select('id, merchant_transaction_id, customer_phone, customer_name, part_details, amount, status'),
+      db.from('payment_links').select('*'),
     ]);
 
     const rawLinks = linksRes.data || [];
@@ -273,9 +292,18 @@ export async function GET(request: Request) {
 
       totalCount++;
       const amt = Number(row.amount) || 0;
+      const paidAmt = row.paid_amount !== undefined && row.paid_amount !== null ? Number(row.paid_amount) : 0;
+      const remAmt = row.remaining_amount !== undefined && row.remaining_amount !== null
+        ? Number(row.remaining_amount)
+        : Math.max(0, amt - paidAmt);
+
       if (row.status === 'PAID') {
         totalCollected += amt;
         paidCount++;
+      } else if (row.status === 'PARTIAL') {
+        totalCollected += paidAmt;
+        pendingAmount += remAmt;
+        pendingCount++;
       } else if (row.status === 'PENDING') {
         pendingAmount += amt;
         pendingCount++;
@@ -299,8 +327,23 @@ export async function GET(request: Request) {
         if (categoryParam.toLowerCase() === 'customer' && cat !== 'Customer') continue;
       }
 
+      const totalAmt = Number(link.amount) || 0;
+      const paidAmt =
+        link.paid_amount !== undefined && link.paid_amount !== null
+          ? Number(link.paid_amount)
+          : link.status === 'PAID'
+          ? totalAmt
+          : 0;
+      const remAmt =
+        link.remaining_amount !== undefined && link.remaining_amount !== null
+          ? Number(link.remaining_amount)
+          : Math.max(0, totalAmt - paidAmt);
+
       filteredLinks.push({
         ...link,
+        amount: totalAmt,
+        paid_amount: paidAmt,
+        remaining_amount: remAmt,
         contact_category: cat,
       });
     }
@@ -333,7 +376,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'merchant_transaction_id is required' }, { status: 400 });
     }
 
-    if (!status || !['PENDING', 'PAID', 'FAILED'].includes(status)) {
+    if (!status || !['PENDING', 'PAID', 'PARTIAL', 'FAILED'].includes(status)) {
       return NextResponse.json(
         { error: 'Valid status (PENDING, PAID, FAILED) is required' },
         { status: 400 }
@@ -354,22 +397,49 @@ export async function PATCH(request: Request) {
     }
 
     const previousStatus = currentLink.status;
-    const paidAmount = Number(currentLink.amount) || 0;
+    const totalAmount = Number(currentLink.amount) || 0;
 
-    // 2. Update payment link status in Supabase
-    const { data: updatedLink, error: updateErr } = await db
+    // 2. Prepare update payload
+    const updatePayload: Record<string, unknown> = {
+      status,
+      paid_at: status === 'PAID' ? currentLink.paid_at || new Date().toISOString() : currentLink.paid_at,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (status === 'PAID') {
+      updatePayload.paid_amount = totalAmount;
+      updatePayload.remaining_amount = 0;
+    } else if (status === 'PENDING') {
+      updatePayload.paid_amount = 0;
+      updatePayload.remaining_amount = totalAmount;
+    }
+
+    let updatedLink = null;
+    const { data: updData, error: updateErr } = await db
       .from('payment_links')
-      .update({
-        status,
-        paid_at: status === 'PAID' ? currentLink.paid_at || new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('merchant_transaction_id', merchant_transaction_id)
       .select()
       .single();
 
     if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+      // Fallback update without new columns if needed
+      const { data: fbData, error: fbErr } = await db
+        .from('payment_links')
+        .update({
+          status,
+          paid_at: status === 'PAID' ? currentLink.paid_at || new Date().toISOString() : currentLink.paid_at,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('merchant_transaction_id', merchant_transaction_id)
+        .select()
+        .single();
+      if (fbErr) {
+        return NextResponse.json({ error: fbErr.message }, { status: 500 });
+      }
+      updatedLink = fbData;
+    } else {
+      updatedLink = updData;
     }
 
     // 3. Deduct from Partner Ledger (contacts.pending_balance) when marked PAID
@@ -392,7 +462,7 @@ export async function PATCH(request: Request) {
         const contact = matchingContacts?.[0];
         if (contact) {
           const currentDue = Number(contact.pending_balance) || 0;
-          const newDue = Math.max(0, currentDue - paidAmount);
+          const newDue = Math.max(0, currentDue - totalAmount);
 
           await db
             .from('contacts')
@@ -409,7 +479,7 @@ export async function PATCH(request: Request) {
               account_id: currentLink.account_id || contact.account_id,
               contact_id: contact.id,
               entry_type: 'debit_payment',
-              amount: paidAmount,
+              amount: totalAmount,
               payment_mode: currentLink.payment_mode || 'UPI',
               reference_id: merchant_transaction_id,
               description: `Payment marked PAID via /payments for Order #${currentLink.order_id}`,
@@ -423,7 +493,7 @@ export async function PATCH(request: Request) {
 
     // 4. Recalculate metrics strictly across customer/mechanic rows
     const { supplierIds, supplierPhones } = await getSupplierIdentifiers(db);
-    const { data: allRows } = await db.from('payment_links').select('merchant_transaction_id, customer_phone, amount, status');
+    const { data: allRows } = await db.from('payment_links').select('amount, status');
 
     let totalCollected = 0;
     let pendingAmount = 0;
@@ -432,19 +502,31 @@ export async function PATCH(request: Request) {
     let totalCount = 0;
 
     if (allRows) {
-      for (const row of allRows) {
-        if (row.merchant_transaction_id?.startsWith('LEDGER_')) {
-          const contactId = row.merchant_transaction_id.replace('LEDGER_', '');
+      for (const rawRow of allRows) {
+        const row = rawRow as Record<string, unknown>;
+        const txnId = typeof row.merchant_transaction_id === 'string' ? row.merchant_transaction_id : '';
+        if (txnId.startsWith('LEDGER_')) {
+          const contactId = txnId.replace('LEDGER_', '');
           if (supplierIds.has(contactId)) continue;
         }
-        const cleanDigits = (row.customer_phone || '').replace(/[^0-9]/g, '').slice(-10);
+        const rawPhone = typeof row.customer_phone === 'string' ? row.customer_phone : '';
+        const cleanDigits = rawPhone.replace(/[^0-9]/g, '').slice(-10);
         if (cleanDigits && supplierPhones.has(cleanDigits)) continue;
 
         totalCount++;
         const amt = Number(row.amount) || 0;
+        const paidAmt = row.paid_amount !== undefined && row.paid_amount !== null ? Number(row.paid_amount) : 0;
+        const remAmt = row.remaining_amount !== undefined && row.remaining_amount !== null
+          ? Number(row.remaining_amount)
+          : Math.max(0, amt - paidAmt);
+
         if (row.status === 'PAID') {
           totalCollected += amt;
           paidCount++;
+        } else if (row.status === 'PARTIAL') {
+          totalCollected += paidAmt;
+          pendingAmount += remAmt;
+          pendingCount++;
         } else if (row.status === 'PENDING') {
           pendingAmount += amt;
           pendingCount++;

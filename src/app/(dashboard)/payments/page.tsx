@@ -21,6 +21,7 @@ import {
   User,
   AlertCircle,
   Wallet,
+  Phone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,7 +49,9 @@ export interface PaymentLinkItem {
   customer_phone: string;
   part_details: string;
   amount: number;
-  status: 'PENDING' | 'PAID' | 'FAILED';
+  paid_amount?: number;
+  remaining_amount?: number;
+  status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
   phonepe_redirect_url?: string;
   phonepe_transaction_id?: string;
   payment_mode?: string;
@@ -214,21 +217,25 @@ function PaymentsPageInner() {
     }
   };
 
-  // Generate customer payment URL
+  // Generate customer payment URL (bound strictly to remaining balance if PARTIAL)
   const getPayUrl = (item: PaymentLinkItem) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const payableAmount =
+      item.status === 'PARTIAL' && item.remaining_amount !== undefined
+        ? item.remaining_amount
+        : item.amount;
     const params = new URLSearchParams({
       order: item.order_id,
       name: item.customer_name || 'Customer',
       phone: item.customer_phone || '',
       item: item.part_details || 'Auto Parts Order',
-      amount: item.amount.toString(),
+      amount: payableAmount.toString(),
     });
     return `${origin}/pay?${params.toString()}`;
   };
 
-  // Handle manual status change (PENDING / PAID / FAILED)
-  const handleStatusChange = async (item: PaymentLinkItem, newStatus: 'PENDING' | 'PAID' | 'FAILED') => {
+  // Handle manual status change (PENDING / PAID / PARTIAL / FAILED)
+  const handleStatusChange = async (item: PaymentLinkItem, newStatus: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED') => {
     if (item.status === newStatus) return;
     const oldStatus = item.status;
     setUpdatingStatusTxnId(item.merchant_transaction_id);
@@ -325,7 +332,7 @@ function PaymentsPageInner() {
   const filteredLinks = useMemo(() => {
     return links.filter((item) => {
       if (activeTab === 'PAID' && item.status !== 'PAID') return false;
-      if (activeTab === 'PENDING' && item.status !== 'PENDING') return false;
+      if (activeTab === 'PENDING' && item.status !== 'PENDING' && item.status !== 'PARTIAL') return false;
       if (activeTab === 'FAILED' && item.status !== 'FAILED') return false;
       if (activeTab === 'MECHANIC' && item.contact_category !== 'Mechanic') return false;
       if (activeTab === 'CUSTOMER' && item.contact_category !== 'Customer') return false;
@@ -633,9 +640,31 @@ function PaymentsPageInner() {
                   </TableCell>
 
                   <TableCell>
-                    <span className="font-semibold text-foreground text-xs sm:text-sm">
-                      {formatCurrency(item.amount)}
-                    </span>
+                    <div className="flex flex-col">
+                      <span
+                        className={cn(
+                          'font-semibold text-xs sm:text-sm',
+                          item.status === 'PAID'
+                            ? 'text-emerald-700 dark:text-emerald-400'
+                            : 'text-foreground'
+                        )}
+                      >
+                        {formatCurrency(item.amount)}
+                      </span>
+                      {item.status === 'PARTIAL' && (
+                        <Badge
+                          variant="outline"
+                          className="w-fit text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-400/40 font-mono mt-0.5 px-1 py-0 font-medium"
+                        >
+                          Due:{' '}
+                          {formatCurrency(
+                            item.remaining_amount !== undefined
+                              ? item.remaining_amount
+                              : Math.max(0, item.amount - (item.paid_amount || 0))
+                          )}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
 
                   <TableCell>
@@ -646,15 +675,17 @@ function PaymentsPageInner() {
                         onChange={(e) =>
                           handleStatusChange(
                             item,
-                            e.target.value as 'PENDING' | 'PAID' | 'FAILED'
+                            e.target.value as 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED'
                           )
                         }
                         className={cn(
                           'appearance-none text-xs font-semibold px-2.5 py-1 pr-6 rounded-md border cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary disabled:opacity-50',
                           item.status === 'PAID' &&
                             'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30',
-                          item.status === 'PENDING' &&
+                          item.status === 'PARTIAL' &&
                             'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30',
+                          item.status === 'PENDING' &&
+                            'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30',
                           item.status === 'FAILED' &&
                             'bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30'
                         )}
@@ -662,6 +693,9 @@ function PaymentsPageInner() {
                       >
                         <option value="PENDING" className="bg-background text-foreground">
                           ⏳ PENDING
+                        </option>
+                        <option value="PARTIAL" className="bg-background text-foreground">
+                          ⚡ PARTIAL
                         </option>
                         <option value="PAID" className="bg-background text-foreground">
                           ✓ PAID
@@ -695,6 +729,15 @@ function PaymentsPageInner() {
                             Ref: {item.phonepe_transaction_id || 'VERIFIED'}
                           </span>
                         </>
+                      ) : item.status === 'PARTIAL' ? (
+                        <>
+                          <span className="font-medium text-amber-700 dark:text-amber-400">
+                            Paid: {formatCurrency(item.paid_amount || 0)}
+                          </span>
+                          <span className="text-muted-foreground font-mono text-[10px]">
+                            Awaiting Balance
+                          </span>
+                        </>
                       ) : (
                         <span className="text-muted-foreground italic">Awaiting Payment</span>
                       )}
@@ -720,43 +763,72 @@ function PaymentsPageInner() {
                         <span>Receipt</span>
                       </Button>
 
-                      {item.status === 'PENDING' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleCheckStatus(item.merchant_transaction_id)}
-                          disabled={verifyingTxnId === item.merchant_transaction_id}
-                          className="h-8 px-2.5 text-xs text-amber-600 hover:text-amber-700 border-amber-500/30 hover:bg-amber-500/10"
-                        >
-                          {verifyingTxnId === item.merchant_transaction_id ? (
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          ) : (
-                            <RefreshCw className="mr-1 h-3 w-3" />
-                          )}
-                          Check Status
-                        </Button>
-                      )}
+                      {/* For PENDING & PARTIAL rows: Show Send Payment Link via WhatsApp & Check Status */}
+                      {item.status !== 'PAID' && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const remaining =
+                                item.remaining_amount !== undefined
+                                  ? item.remaining_amount
+                                  : Math.max(0, item.amount - (item.paid_amount || 0));
+                              const payUrl = getPayUrl(item);
+                              const msg =
+                                item.status === 'PARTIAL'
+                                  ? `⚡ *Payment Reminder / Balance Due — Best Auto Parts*\n\n• *Order ID:* #${item.order_id}\n• *Total Bill:* ${formatCurrency(item.amount)}\n• *Already Paid:* ${formatCurrency(item.paid_amount || 0)}\n• *Remaining Balance Due:* *${formatCurrency(remaining)}*\n\n👉 *Pay remaining balance securely:* ${payUrl}\n\n📍 Kailashpur, Saharanpur • +91 96347 22174`
+                                  : `⚡ *Payment Link — Best Auto Parts*\n\n• *Order ID:* #${item.order_id}\n• *Amount Due:* *${formatCurrency(item.amount)}*\n\n👉 *Pay securely here:* ${payUrl}\n\n📍 Kailashpur, Saharanpur • +91 96347 22174`;
+                              const cleanDigits = item.customer_phone.replace(/[^0-9]/g, '');
+                              const waUrl = `https://wa.me/${cleanDigits}?text=${encodeURIComponent(msg)}`;
+                              window.open(waUrl, '_blank');
+                            }}
+                            className="h-8 px-2 text-xs gap-1 text-emerald-600 hover:text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/10"
+                            title={item.status === 'PARTIAL' ? 'Send Remaining Balance Link via WhatsApp' : 'Send Payment Link via WhatsApp'}
+                          >
+                            <Phone className="h-3.5 w-3.5" />
+                            <span className="hidden xl:inline">
+                              {item.status === 'PARTIAL' ? 'Send Balance' : 'Send Link'}
+                            </span>
+                          </Button>
 
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleCopyLink(item)}
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                        title="Copy payment link"
-                      >
-                        {copiedTxnId === item.merchant_transaction_id ? (
-                          <Check className="h-4 w-4 text-emerald-600" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCheckStatus(item.merchant_transaction_id)}
+                            disabled={verifyingTxnId === item.merchant_transaction_id}
+                            className="h-8 px-2 text-xs text-amber-600 hover:text-amber-700 border-amber-500/30 hover:bg-amber-500/10"
+                            title="Verify payment with gateway"
+                          >
+                            {verifyingTxnId === item.merchant_transaction_id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3 w-3" />
+                            )}
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleCopyLink(item)}
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                            title={item.status === 'PARTIAL' ? 'Copy remaining balance link' : 'Copy payment link'}
+                          >
+                            {copiedTxnId === item.merchant_transaction_id ? (
+                              <Check className="h-4 w-4 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </>
+                      )}
 
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => window.open(getPayUrl(item), '_blank')}
                         className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                        title="Open Pay Page"
+                        title={item.status === 'PAID' ? 'View Completed Receipt' : 'Open Pay Page'}
                       >
                         <ExternalLink className="h-4 w-4" />
                       </Button>

@@ -103,12 +103,16 @@ export async function POST(request: Request) {
     }
 
     // Auto-sync PO supplier to contacts directory
-    await syncSupplierToContact(supabase, {
-      firm_name: supplierName,
-      whatsapp_number: supplierPhone,
-      contact_person: supplierName,
-      account_id: accountId,
-    });
+    try {
+      await syncSupplierToContact(supabase, {
+        firm_name: supplierName,
+        whatsapp_number: supplierPhone,
+        contact_person: supplierName,
+        account_id: accountId,
+      });
+    } catch (syncErr) {
+      console.warn('[inventory/purchase-orders POST] Supplier to contact sync skipped:', syncErr);
+    }
 
     let whatsappDispatched = false;
     let whatsappError: string | null = null;

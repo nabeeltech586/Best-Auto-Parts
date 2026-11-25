@@ -77,12 +77,16 @@ export async function POST(request: Request) {
     }
 
     // Auto-sync new supplier into contacts table
-    await syncSupplierToContact(supabase, {
-      firm_name: supplier.firm_name,
-      whatsapp_number: supplier.whatsapp_number,
-      contact_person: supplier.contact_person,
-      account_id: accountId,
-    });
+    try {
+      await syncSupplierToContact(supabase, {
+        firm_name: supplier.firm_name,
+        whatsapp_number: supplier.whatsapp_number,
+        contact_person: supplier.contact_person,
+        account_id: accountId,
+      });
+    } catch (syncErr) {
+      console.warn('[inventory/suppliers POST] Supplier to contact sync skipped:', syncErr);
+    }
 
     return NextResponse.json({ supplier }, { status: 201 });
   } catch (err) {

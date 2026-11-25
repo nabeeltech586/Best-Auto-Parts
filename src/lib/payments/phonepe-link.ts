@@ -23,7 +23,9 @@ export interface PaymentLinkRecord {
   customer_phone: string
   part_details: string
   amount: number
-  status: 'PENDING' | 'PAID' | 'FAILED'
+  paid_amount?: number
+  remaining_amount?: number
+  status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED'
   phonepe_redirect_url?: string
   phonepe_transaction_id?: string
   payment_mode?: string
@@ -239,7 +241,7 @@ export async function getPaymentLinkByTxnId(txnId: string): Promise<PaymentLinkR
  * Verify payment with PhonePe Status API and update record.
  */
 export async function verifyAndSyncPaymentStatus(txnId: string): Promise<{
-  status: 'PAID' | 'PENDING' | 'FAILED'
+  status: 'PAID' | 'PENDING' | 'PARTIAL' | 'FAILED'
   record: PaymentLinkRecord | null
   phonepeData?: Record<string, unknown>
 }> {
@@ -251,7 +253,7 @@ export async function verifyAndSyncPaymentStatus(txnId: string): Promise<{
   }
 
   const xVerify = generateStatusChecksum(merchantId, txnId, saltKey, saltIndex)
-  let status: 'PAID' | 'PENDING' | 'FAILED' = record?.status || 'PENDING'
+  let status: 'PAID' | 'PENDING' | 'PARTIAL' | 'FAILED' = record?.status || 'PENDING'
   let phonePeRefId: string | undefined
   let paymentMode: string | undefined
 

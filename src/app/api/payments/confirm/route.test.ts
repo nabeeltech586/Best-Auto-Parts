@@ -1,25 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from './route';
 
-const mockSelect = vi.fn();
-const mockUpdate = vi.fn();
-const mockInsert = vi.fn();
-const mockEq = vi.fn();
-const mockOr = vi.fn();
-const mockSingle = vi.fn();
-const mockMaybeSingle = vi.fn();
-
-const mockFrom = vi.fn((_table: string) => {
-  return {
-    select: mockSelect,
-    update: mockUpdate,
-    insert: mockInsert,
-    eq: mockEq,
-    or: mockOr,
-    single: mockSingle,
-    maybeSingle: mockMaybeSingle,
-  };
-});
+const mockFrom = vi.fn();
 
 vi.mock('@/lib/flows/admin-client', () => ({
   supabaseAdmin: vi.fn(() => ({
@@ -74,6 +56,11 @@ describe('POST /api/payments/confirm', () => {
         return {
           select: vi.fn().mockReturnValue({
             or: vi.fn().mockReturnValue({
+              order: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+                }),
+              }),
               maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
             }),
           }),
@@ -90,7 +77,7 @@ describe('POST /api/payments/confirm', () => {
               }),
             }),
           }),
-        } as unknown as ReturnType<typeof mockFrom>;
+        };
       }
 
       if (table === 'orders') {
@@ -98,7 +85,7 @@ describe('POST /api/payments/confirm', () => {
           update: vi.fn().mockReturnValue({
             or: vi.fn().mockResolvedValue({ data: null, error: null }),
           }),
-        } as unknown as ReturnType<typeof mockFrom>;
+        };
       }
 
       if (table === 'contacts') {
@@ -109,13 +96,13 @@ describe('POST /api/payments/confirm', () => {
           update: vi.fn().mockReturnValue({
             eq: vi.fn().mockResolvedValue({ data: null, error: null }),
           }),
-        } as unknown as ReturnType<typeof mockFrom>;
+        };
       }
 
       if (table === 'mechanic_ledger_entries') {
         return {
           insert: vi.fn().mockResolvedValue({ data: null, error: null }),
-        } as unknown as ReturnType<typeof mockFrom>;
+        };
       }
 
       if (table === 'whatsapp_config') {
@@ -128,10 +115,10 @@ describe('POST /api/payments/confirm', () => {
               }),
             }),
           }),
-        } as unknown as ReturnType<typeof mockFrom>;
+        };
       }
 
-      return {} as unknown as ReturnType<typeof mockFrom>;
+      return {};
     });
 
     const req = new Request('http://localhost:3000/api/payments/confirm', {
@@ -157,5 +144,159 @@ describe('POST /api/payments/confirm', () => {
     expect(json.amount).toBe(340);
     expect(json.utr).toBe('432109876543');
     expect(json.payment_mode).toBe('UPI / QR');
+  });
+
+  it('returns idempotent alreadyPaid: true if the record is already status PAID', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'payment_links') {
+        return {
+          select: vi.fn().mockReturnValue({
+            or: vi.fn().mockReturnValue({
+              order: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: {
+                      id: 'link-101',
+                      order_id: 'BAP-ORD-101',
+                      amount: 750,
+                      paid_amount: 750,
+                      remaining_amount: 0,
+                      status: 'PAID',
+                      payment_mode: 'UPI / QR',
+                      phonepe_transaction_id: 'ALREADY_PAID_UTR',
+                      paid_at: '2026-11-25T08:00:00.000Z',
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const req = new Request('http://localhost:3000/api/payments/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: 'BAP-ORD-101',
+        amount: 750,
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.alreadyPaid).toBe(true);
+    expect(json.status).toBe('PAID');
+    expect(json.remaining_amount).toBe(0);
+  });
+
+  it('records partial payment and calculates remaining balance', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'payment_links') {
+        return {
+          select: vi.fn().mockReturnValue({
+            or: vi.fn().mockReturnValue({
+              order: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                  maybeSingle: vi.fn().mockResolvedValue({
+                    data: {
+                      id: 'link-102',
+                      order_id: 'BAP-ORD-102',
+                      merchant_transaction_id: 'BAP_ORD_102',
+                      customer_name: 'Rahul Sharma',
+                      customer_phone: '919876543211',
+                      amount: 1200,
+                      paid_amount: 0,
+                      remaining_amount: 1200,
+                      status: 'PENDING',
+                    },
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              select: vi.fn().mockReturnValue({
+                single: vi.fn().mockResolvedValue({
+                  data: {
+                    id: 'link-102',
+                    status: 'PARTIAL',
+                    paid_amount: 500,
+                    remaining_amount: 700,
+                  },
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'contacts') {
+        return {
+          select: vi.fn().mockReturnValue({
+            or: vi.fn().mockResolvedValue({
+              data: [
+                {
+                  id: 'contact-1',
+                  account_id: 'acc-1',
+                  name: 'Rahul Sharma',
+                  pending_balance: 1200,
+                },
+              ],
+            }),
+          }),
+          update: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ data: null, error: null }),
+          }),
+        };
+      }
+      if (table === 'mechanic_ledger_entries') {
+        return {
+          insert: vi.fn().mockResolvedValue({ data: null, error: null }),
+        };
+      }
+      if (table === 'whatsapp_config') {
+        return {
+          select: vi.fn().mockReturnValue({
+            limit: vi.fn().mockReturnValue({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: { account_id: 'acc-1' },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return {};
+    });
+
+    const req = new Request('http://localhost:3000/api/payments/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: 'BAP-ORD-102',
+        amount: 500,
+        customer_name: 'Rahul Sharma',
+        customer_phone: '919876543211',
+        payment_mode: 'UPI / QR',
+        utr: 'UTR500PARTIAL',
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.status).toBe('PARTIAL');
+    expect(json.amount).toBe(500);
+    expect(json.total_amount).toBe(1200);
+    expect(json.paid_amount).toBe(500);
+    expect(json.remaining_amount).toBe(700);
   });
 });

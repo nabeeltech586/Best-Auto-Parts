@@ -242,6 +242,10 @@ export function CustomerReceiptDialog({
                 <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
                   <CheckCircle2 className="size-3" /> PAID (Success)
                 </Badge>
+              ) : order.status === 'PARTIAL' ? (
+                <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
+                  ⚡ PARTIALLY PAID
+                </Badge>
               ) : (
                 <Badge variant="outline" className="text-[10px]">
                   {order.status}

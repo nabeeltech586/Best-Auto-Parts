@@ -1,6 +1,6 @@
 import { redirect, RedirectType } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, AlertCircle, Phone, ArrowLeft, ShieldCheck, Clock } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Phone, ArrowLeft, ShieldCheck, Clock, FileCheck2 } from 'lucide-react'
 import { getPaymentLinkByTxnId } from '@/lib/payments/phonepe-link'
 
 export const dynamic = 'force-dynamic'
@@ -45,17 +45,39 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
     )
   }
 
-  // 2. Pending State -> Clean 302 Redirect to PhonePe Standard Pay Page
+  // 2. Partial State -> Redirect to Pay Checkout page with remaining balance
+  if (record.status === 'PARTIAL') {
+    const remaining = record.remaining_amount !== undefined ? record.remaining_amount : record.amount
+    const checkoutUrl = `/pay?order=${encodeURIComponent(record.order_id)}&phone=${encodeURIComponent(
+      record.customer_phone
+    )}&name=${encodeURIComponent(record.customer_name || '')}&item=${encodeURIComponent(
+      record.part_details
+    )}&amount=${remaining}`
+    redirect(checkoutUrl, RedirectType.replace)
+  }
+
+  // 3. Pending State -> Clean Redirect to PhonePe Gateway or BestPay Checkout
   if (record.status === 'PENDING') {
     if (record.phonepe_redirect_url) {
       redirect(record.phonepe_redirect_url, RedirectType.replace)
+    } else {
+      const checkoutUrl = `/pay?order=${encodeURIComponent(record.order_id)}&phone=${encodeURIComponent(
+        record.customer_phone
+      )}&name=${encodeURIComponent(record.customer_name || '')}&item=${encodeURIComponent(
+        record.part_details
+      )}&amount=${record.amount}`
+      redirect(checkoutUrl, RedirectType.replace)
     }
   }
 
-  // 3. Paid State -> Clean "Already Paid" Receipt Screen
+  // 4. Paid State -> Clean "Already Paid" Receipt Screen
   const paidDate = record.paid_at
     ? new Date(record.paid_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })
     : 'Verified'
+
+  const directPayUrl = `/pay?order=${encodeURIComponent(record.order_id)}&phone=${encodeURIComponent(
+    record.customer_phone
+  )}&amount=${record.amount}`
 
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -65,18 +87,21 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
           <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-sm">
             <CheckCircle2 className="w-10 h-10 text-white" />
           </div>
+          <div className="inline-flex items-center gap-1 px-3 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white border border-white/30 mb-1">
+            ✅ PAYMENT ALREADY COMPLETED
+          </div>
           <h1 className="text-2xl font-bold">Payment Completed</h1>
-          <p className="text-emerald-100 text-sm mt-1">Order payment successfully verified</p>
+          <p className="text-emerald-100 text-xs mt-1">Order payment verified & recorded in CRM</p>
         </div>
 
         {/* Content */}
         <div className="p-6">
           <div className="text-center pb-6 border-b border-slate-100">
-            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Amount Paid</span>
+            <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Total Paid</span>
             <div className="text-3xl font-extrabold text-slate-900 mt-1">₹{record.amount.toFixed(2)}</div>
             <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-semibold mt-2 border border-emerald-200">
               <ShieldCheck className="w-3.5 h-3.5" />
-              Paid via {record.payment_mode || 'UPI / PhonePe'}
+              Paid via {record.payment_mode || 'UPI / BestPay'}
             </div>
           </div>
 
@@ -99,7 +124,7 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
             </div>
             {record.phonepe_transaction_id && (
               <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">PhonePe Ref ID:</span>
+                <span className="text-slate-500">Reference ID:</span>
                 <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{record.phonepe_transaction_id}</span>
               </div>
             )}
@@ -114,25 +139,39 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
 
           <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-xs text-slate-600 mt-2 space-y-1">
             <p className="font-semibold text-slate-800">Best Auto Parts</p>
-            <p>Main Market, Auto Parts Hub • Timing: 09:00 AM – 08:00 PM</p>
-            <p className="text-emerald-700 font-medium">Hamari team aapka spare part dispatch / pickup ke liye arrange kar rahi hai.</p>
+            <p>Main Market Road, Kailashpur, Saharanpur • Timing: 09:00 AM – 09:00 PM</p>
+            <p className="text-emerald-700 font-medium">Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.</p>
           </div>
 
-          <div className="mt-6 flex flex-col gap-2">
-            <a
-              href="https://wa.me/919634722174"
-              className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition shadow-sm text-sm"
-            >
-              <Phone className="w-4 h-4" />
-              Chat on WhatsApp
-            </a>
+          <div className="mt-6 flex flex-col gap-2.5">
             <Link
-              href="/"
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition text-sm"
+              href={directPayUrl}
+              className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition shadow-sm text-sm"
             >
-              <ArrowLeft className="w-4 h-4" />
-              Return to Best Auto Parts
+              <FileCheck2 className="w-4 h-4" />
+              📄 View / Download Digital Receipt
             </Link>
+
+            <div className="grid grid-cols-2 gap-2">
+              <a
+                href={`https://wa.me/919634722174?text=${encodeURIComponent(
+                  `Hello Saud Bhai, mera Order #${record.order_id} (₹${record.amount}) paid ho gaya hai. Please dispatch update karein.`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition"
+              >
+                <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                WhatsApp Support
+              </a>
+              <Link
+                href="/payments"
+                className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Return to CRM
+              </Link>
+            </div>
           </div>
         </div>
       </div>

@@ -21,6 +21,8 @@ export async function GET(request: Request) {
       merchantTransactionId: cleanTxnId,
       orderId: record?.order_id,
       amount: record?.amount,
+      paidAmount: record?.paid_amount !== undefined ? record.paid_amount : (record?.status === 'PAID' ? record?.amount : 0),
+      remainingAmount: record?.remaining_amount !== undefined ? record.remaining_amount : (record?.status === 'PAID' ? 0 : record?.amount),
       customerName: record?.customer_name,
       partDetails: record?.part_details,
       paymentMode: record?.payment_mode,
