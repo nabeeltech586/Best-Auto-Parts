@@ -3,10 +3,19 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { formatCurrency } from '@/lib/currency';
 
+export interface CartItemPayload {
+  name: string;
+  quantity?: number;
+  unitPrice?: number;
+  bikeModel?: string;
+  brand?: string;
+}
+
 interface SendQuotePayload {
   customerName?: string;
   customerPhone: string;
   partDetails: string;
+  items?: CartItemPayload[];
   amount?: string | number;
   orderId?: string;
   paymentLink?: string;
@@ -20,6 +29,7 @@ export async function POST(request: Request) {
       customerName,
       customerPhone,
       partDetails,
+      items,
       amount,
       orderId,
       paymentLink,
@@ -55,18 +65,33 @@ export async function POST(request: Request) {
     const numAmount = Number(amount);
     const priceStr = !isNaN(numAmount) && numAmount > 0 ? formatCurrency(numAmount) : 'Contact for best price';
 
-    // 2. Prepare WhatsApp single *bold* message
+    // 2. Prepare WhatsApp single *bold* message with multi-item breakdown support
     let formattedMessage: string;
     let previewTitle: string;
 
+    const hasItemsList = items && Array.isArray(items) && items.length > 0;
+    const itemsFormattedText = hasItemsList
+      ? items
+          .map((item, idx) => {
+            const modelStr = item.bikeModel ? ` (${item.bikeModel})` : '';
+            const qty = item.quantity || 1;
+            const itemTotal = item.unitPrice ? ` — ${formatCurrency(item.unitPrice * qty)}` : '';
+            return `  ${idx + 1}. *${item.name}*${modelStr} (x${qty})${itemTotal}`;
+          })
+          .join('\n')
+      : cleanPart;
+
     if (isQuoteOnly) {
-      previewTitle = `Part Quote — ${cleanPart} (${priceStr})`;
+      previewTitle = hasItemsList
+        ? `Part Quote (${items.length} items) — ${priceStr}`
+        : `Part Quote — ${cleanPart} (${priceStr})`;
+
       formattedMessage =
         `*Spare Part Quote — Best Auto Parts* 🏍️\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• Customer: ${cleanName}\n` +
-        `• Part: ${cleanPart}\n` +
-        `• Price: ${priceStr}\n` +
+        (hasItemsList ? `• Selected Parts:\n${itemsFormattedText}\n` : `• Part: ${cleanPart}\n`) +
+        `• Total Amount: ${priceStr}\n` +
         `• Availability: In Stock ✅\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `📍 Best Auto Parts, Main Market, Kailashpur, Saharanpur, UP 247001\n` +
@@ -75,16 +100,19 @@ export async function POST(request: Request) {
         `Reply here to confirm your order or request an instant BestPay checkout link.`;
     } else {
       const cleanOrderId = (orderId || '').trim() || `ORD-${Date.now().toString(36).slice(-5).toUpperCase()}`;
-      previewTitle = `Payment Request #${cleanOrderId} (${priceStr})`;
+      previewTitle = hasItemsList
+        ? `Payment Request #${cleanOrderId} (${items.length} items) — ${priceStr}`
+        : `Payment Request #${cleanOrderId} (${priceStr})`;
+
       const linkLine = paymentLink ? `👉 *Pay securely here:* ${paymentLink}\n\n` : '';
 
       formattedMessage =
         `*Payment Request & Part Quote — Best Auto Parts* 🏍️\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `• Customer: ${cleanName}\n` +
-        `• Item: ${cleanPart}\n` +
+        (hasItemsList ? `• Selected Items:\n${itemsFormattedText}\n` : `• Item: ${cleanPart}\n`) +
         `• Order ID: #${cleanOrderId}\n` +
-        `• Amount Due: ${priceStr}\n` +
+        `• Grand Total Due: ${priceStr}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         linkLine +
         `⚡ Supports UPI (Google Pay, PhonePe, Paytm, BHIM), Dynamic QR Code & Cash at shop.\n` +

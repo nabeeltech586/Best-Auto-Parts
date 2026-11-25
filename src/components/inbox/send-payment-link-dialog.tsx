@@ -23,13 +23,25 @@ import {
   User,
   Wrench,
   Building2,
-  Store,
-  Check,
   Package,
+  Plus,
+  Minus,
+  Trash2,
+  ShoppingCart,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/currency';
 import type { PartCatalogItem } from '@/types/inventory';
+
+export interface SelectedCartItem {
+  id: string;
+  name: string;
+  bikeModel?: string;
+  brand?: string;
+  unitPrice: number;
+  quantity: number;
+}
 
 interface ContactItem {
   id: string;
@@ -57,12 +69,14 @@ export function SendPaymentLinkDialog({
   conversationId,
   onSendPaymentMessage,
 }: SendPaymentLinkDialogProps) {
+  // Multi-Item Cart State
+  const [selectedItems, setSelectedItems] = useState<SelectedCartItem[]>([]);
+
   // Inventory Catalog Dropdown States
   const [partSearch, setPartSearch] = useState('');
   const [searchingParts, setSearchingParts] = useState(false);
   const [partResults, setPartResults] = useState<PartCatalogItem[]>([]);
   const [showPartDropdown, setShowPartDropdown] = useState(false);
-  const [selectedPart, setSelectedPart] = useState<PartCatalogItem | null>(null);
 
   // CRM Contacts Dropdown States
   const [contacts, setContacts] = useState<ContactItem[]>([]);
@@ -92,6 +106,27 @@ export function SendPaymentLinkDialog({
       return `${part.part_name} (${fitment})`;
     }
     return part.part_name;
+  }, []);
+
+  // Sync form inputs with the cart array
+  const syncFormFieldsWithCart = useCallback((items: SelectedCartItem[]) => {
+    if (items.length === 0) {
+      setPartDetails('');
+      setAmount('');
+      return;
+    }
+
+    const lines = items.map((item, idx) => {
+      const modelStr = item.bikeModel ? ` (${item.bikeModel})` : '';
+      return `${idx + 1}. ${item.name}${modelStr} (x${item.quantity}) — ${formatCurrency(
+        item.unitPrice * item.quantity
+      )}`;
+    });
+
+    setPartDetails(lines.join('\n'));
+
+    const total = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+    setAmount(total > 0 ? String(total) : '');
   }, []);
 
   // Fetch initial parts catalog
@@ -133,10 +168,10 @@ export function SendPaymentLinkDialog({
       setPhone(customerPhone || '');
       const randSuffix = Math.floor(1000 + Math.random() * 9000);
       setOrderId(`ORD-${randSuffix}`);
+      setSelectedItems([]);
       setPartDetails('');
       setAmount('');
       setPartSearch('');
-      setSelectedPart(null);
       setShowPartDropdown(false);
       setShowContactDropdown(false);
 
@@ -189,22 +224,89 @@ export function SendPaymentLinkDialog({
     return () => clearTimeout(timer);
   }, [partSearch, open]);
 
-  // Select part from catalog dropdown
+  // Multi-Item Add / Increment Handler
   const handleSelectPart = (part: PartCatalogItem) => {
-    setSelectedPart(part);
-    const formatted = formatPartWithModel(part);
+    const bikeModel =
+      part.fitments && part.fitments.length > 0
+        ? `${part.fitments[0].manufacturer || ''} ${part.fitments[0].model || ''}`.trim()
+        : part.brand || '';
 
-    setPartDetails((prev) => {
-      const clean = prev.trim();
-      if (!clean) return formatted;
-      if (clean.includes(formatted)) return clean;
-      return `${clean}, ${formatted}`;
+    const unitPrice = Number(part.selling_price) || 0;
+
+    setSelectedItems((prev) => {
+      const existingIdx = prev.findIndex((item) => item.id === part.id);
+      let updated: SelectedCartItem[];
+      if (existingIdx >= 0) {
+        updated = prev.map((item, idx) =>
+          idx === existingIdx ? { ...item, quantity: item.quantity + 1 } : item
+        );
+      } else {
+        updated = [
+          ...prev,
+          {
+            id: part.id,
+            name: part.part_name,
+            bikeModel: bikeModel || undefined,
+            brand: part.brand || undefined,
+            unitPrice,
+            quantity: 1,
+          },
+        ];
+      }
+      syncFormFieldsWithCart(updated);
+      return updated;
     });
 
-    setAmount(String(part.selling_price || '0.00'));
     setShowPartDropdown(false);
-    setPartSearch('');
+    setPartSearch(''); // Clears search query immediately so next part can be typed
   };
+
+  // Quantity Stepper Handlers
+  const handleUpdateQuantity = (id: string, delta: number) => {
+    setSelectedItems((prev) => {
+      const updated = prev
+        .map((item) => {
+          if (item.id === id) {
+            const nextQty = item.quantity + delta;
+            return nextQty > 0 ? { ...item, quantity: nextQty } : null;
+          }
+          return item;
+        })
+        .filter((item): item is SelectedCartItem => item !== null);
+
+      syncFormFieldsWithCart(updated);
+      return updated;
+    });
+  };
+
+  const handleUpdateUnitPrice = (id: string, newPrice: number) => {
+    setSelectedItems((prev) => {
+      const updated = prev.map((item) =>
+        item.id === id ? { ...item, unitPrice: Math.max(0, newPrice) } : item
+      );
+      syncFormFieldsWithCart(updated);
+      return updated;
+    });
+  };
+
+  const handleRemoveItem = (id: string) => {
+    setSelectedItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      syncFormFieldsWithCart(updated);
+      return updated;
+    });
+  };
+
+  const handleClearAll = () => {
+    setSelectedItems([]);
+    setPartDetails('');
+    setAmount('');
+  };
+
+  // Calculate Cart Grand Total
+  const cartGrandTotal = useMemo(() => {
+    return selectedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+  }, [selectedItems]);
 
   // Filtered contacts list
   const filteredContacts = useMemo(() => {
@@ -231,11 +333,11 @@ export function SendPaymentLinkDialog({
     setShowContactDropdown(false);
   };
 
-  // 1. Send Part Quote Only (Dispatches WhatsApp & Logs in Inbox)
+  // 1. Send Multi-Item Part Quote Only (Dispatches WhatsApp & Logs in Inbox)
   const handleSendQuoteOnly = async () => {
     const cleanPart = partDetails.trim();
     if (!cleanPart) {
-      toast.error('Please enter or select a spare part.');
+      toast.error('Please enter or select spare parts.');
       return;
     }
 
@@ -256,6 +358,7 @@ export function SendPaymentLinkDialog({
           customerName: name.trim() || undefined,
           customerPhone: cleanPhone,
           partDetails: cleanPart,
+          items: selectedItems.length > 0 ? selectedItems : undefined,
           amount: isNaN(numAmount) ? undefined : numAmount,
           isQuoteOnly: true,
         }),
@@ -267,7 +370,7 @@ export function SendPaymentLinkDialog({
       }
 
       onSendPaymentMessage(data.formattedMessage || `Part Quote for ${cleanPart}`);
-      toast.success('Part quote dispatched via WhatsApp and logged in Inbox!');
+      toast.success('Itemized part quote dispatched via WhatsApp and logged in Inbox!');
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to send quote';
@@ -277,13 +380,13 @@ export function SendPaymentLinkDialog({
     }
   };
 
-  // 2. Generate and Send BestPay Link + Quote (Creates Ledger, Dispatches WhatsApp, Refreshes CRM)
+  // 2. Generate and Send BestPay Link + Itemized Quote
   const handleGenerateAndSend = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const cleanPart = partDetails.trim();
     if (!cleanPart) {
-      toast.error('Please enter the part or item name.');
+      toast.error('Please enter or select at least one spare part.');
       return;
     }
 
@@ -328,6 +431,7 @@ export function SendPaymentLinkDialog({
           customerName: name.trim() || undefined,
           customerPhone: cleanPhone,
           partDetails: cleanPart,
+          items: selectedItems.length > 0 ? selectedItems : undefined,
           amount: numAmount,
           orderId: linkData.orderId || orderId,
           paymentLink: linkData.paymentLink,
@@ -343,7 +447,7 @@ export function SendPaymentLinkDialog({
         `*Payment Request — Best Auto Parts*\nOrder #${linkData.orderId}: ${linkData.paymentLink}`;
       onSendPaymentMessage(finalMsg);
 
-      toast.success('BestPay link & quote dispatched to WhatsApp!');
+      toast.success('BestPay link & itemized quote dispatched to WhatsApp!');
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate payment link';
@@ -355,7 +459,7 @@ export function SendPaymentLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[92vh] overflow-y-visible">
+      <DialogContent className="sm:max-w-xl max-h-[94vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -366,7 +470,7 @@ export function SendPaymentLinkDialog({
                 BestPay Instant Checkout & Part Quote
               </DialogTitle>
               <DialogDescription className="text-xs">
-                Search live catalog, select saved customer/mechanic, quote verified price, and dispatch payment link via WhatsApp.
+                Search live catalog, add multiple parts, adjust quantities, and dispatch itemized quote & BestPay link.
               </DialogDescription>
             </div>
           </div>
@@ -379,12 +483,12 @@ export function SendPaymentLinkDialog({
               <Search className="size-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Live Inventory Catalog Search</span>
             </Label>
-            <span className="text-[10px] text-muted-foreground">Bajaj • Hero • Honda genuine spares</span>
+            <span className="text-[10px] text-muted-foreground">Click part to add to quote</span>
           </div>
 
           <div className="relative">
             <Input
-              placeholder="Type part name, bike model (Pulsar, Splendor, Activa), SKU, or OEM #..."
+              placeholder="Search part (Clutch Cable, Brake Shoe, Oil, Pulsar, Splendor, Activa)..."
               value={partSearch}
               onChange={(e) => {
                 setPartSearch(e.target.value);
@@ -427,6 +531,8 @@ export function SendPaymentLinkDialog({
                       part.quantity_in_stock <= (part.low_stock_threshold || 5);
                     const isOutOfStock = part.quantity_in_stock <= 0;
 
+                    const inCartItem = selectedItems.find((i) => i.id === part.id);
+
                     return (
                       <button
                         key={part.id}
@@ -438,6 +544,11 @@ export function SendPaymentLinkDialog({
                           <div className="font-semibold text-foreground truncate flex items-center gap-1.5">
                             <Package className="size-3 text-emerald-600 shrink-0" />
                             <span>{displayName}</span>
+                            {inCartItem && (
+                              <Badge className="text-[9px] px-1 py-0 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
+                                In Cart ({inCartItem.quantity})
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
                             <span className="font-medium">{part.brand || 'Genuine'}</span>
@@ -469,7 +580,7 @@ export function SendPaymentLinkDialog({
                             {formatCurrency(part.selling_price || 0)}
                           </span>
                           <span className="inline-block text-[9px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300/60 dark:border-emerald-700/60 px-1.5 py-0.5 rounded mt-0.5">
-                            + Select
+                            {inCartItem ? '+ Add Another' : '+ Add to Quote'}
                           </span>
                         </div>
                       </button>
@@ -479,36 +590,117 @@ export function SendPaymentLinkDialog({
               </div>
             )}
           </div>
-
-          {selectedPart && (
-            <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-2 text-xs">
-              <span className="text-emerald-700 dark:text-emerald-300 font-medium truncate flex items-center gap-1.5">
-                <Check className="size-3.5 text-emerald-600" />
-                <span>Selected: {formatPartWithModel(selectedPart)}</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelectedPart(null)}
-                className="text-[11px] text-muted-foreground hover:text-foreground shrink-0 underline ml-2 cursor-pointer"
-              >
-                Clear
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* 2. Main Order & Customer Form */}
+        {/* 2. Interactive Multi-Item Cart List UI */}
+        {selectedItems.length > 0 && (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-emerald-500/20 pb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                <ShoppingCart className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>
+                  Selected Parts ({selectedItems.length} {selectedItems.length === 1 ? 'item' : 'items'})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearAll}
+                className="text-[11px] text-muted-foreground hover:text-destructive font-medium cursor-pointer transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-0.5 divide-y divide-border/40">
+              {selectedItems.map((item) => (
+                <div key={item.id} className="pt-2 first:pt-0 flex items-center justify-between gap-2.5 text-xs">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <p className="font-semibold text-foreground truncate">{item.name}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {item.bikeModel || item.brand || 'Genuine Spares'}
+                    </p>
+                  </div>
+
+                  {/* Quantity Stepper */}
+                  <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shrink-0 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateQuantity(item.id, -1)}
+                      className="h-6 w-6 flex items-center justify-center hover:bg-muted active:bg-muted/80 text-foreground transition cursor-pointer"
+                      title="Decrease quantity"
+                    >
+                      <Minus className="size-3" />
+                    </button>
+                    <span className="w-6 text-center font-mono font-bold text-xs text-foreground">
+                      {item.quantity}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateQuantity(item.id, 1)}
+                      className="h-6 w-6 flex items-center justify-center hover:bg-muted active:bg-muted/80 text-foreground transition cursor-pointer"
+                      title="Increase quantity"
+                    >
+                      <Plus className="size-3" />
+                    </button>
+                  </div>
+
+                  {/* Editable Unit Price & Subtotal */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="relative w-20">
+                      <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
+                        ₹
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={item.unitPrice}
+                        onChange={(e) => handleUpdateUnitPrice(item.id, parseFloat(e.target.value) || 0)}
+                        className="h-7 pl-4 pr-1 text-xs font-mono font-semibold text-right bg-background"
+                        title="Unit price"
+                      />
+                    </div>
+                    <span className="w-16 text-right font-mono font-bold text-foreground text-xs">
+                      {formatCurrency(item.unitPrice * item.quantity)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveItem(item.id)}
+                      className="text-muted-foreground hover:text-destructive p-1 rounded transition cursor-pointer"
+                      title="Remove part"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Auto-Total Summary Row */}
+            <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-xs">
+              <span className="font-semibold text-muted-foreground">Auto-Calculated Total:</span>
+              <span className="font-extrabold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
+                {formatCurrency(cartGrandTotal)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* 3. Main Order & Customer Form */}
         <form onSubmit={handleGenerateAndSend} className="space-y-3 pt-1">
           <div className="space-y-1">
-            <Label htmlFor="partDetails" className="text-xs font-medium">
-              Part / Item Details <span className="text-destructive">*</span>
-            </Label>
-            <Input
+            <div className="flex items-center justify-between">
+              <Label htmlFor="partDetails" className="text-xs font-medium">
+                Part / Item Details <span className="text-destructive">*</span>
+              </Label>
+              <span className="text-[10px] text-muted-foreground">Synced from selected parts</span>
+            </div>
+            <textarea
               id="partDetails"
-              placeholder="e.g. Hero Splendor Brake Shoe (Hero Splendor)"
+              rows={selectedItems.length > 1 ? 3 : 2}
+              placeholder="e.g. 1. Clutch Cable (x1) — ₹140.00&#10;2. Ignition Switch (x1) — ₹380.00"
               value={partDetails}
               onChange={(e) => setPartDetails(e.target.value)}
-              className="text-xs bg-card"
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono leading-relaxed"
               required
             />
           </div>
@@ -516,7 +708,7 @@ export function SendPaymentLinkDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="amount" className="text-xs font-medium">
-                Selling Price (₹) <span className="text-destructive">*</span>
+                Selling Price / Grand Total (₹) <span className="text-destructive">*</span>
               </Label>
               <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
@@ -529,7 +721,7 @@ export function SendPaymentLinkDialog({
                   placeholder="0.00"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="pl-6 text-xs font-semibold bg-card font-mono"
+                  className="pl-6 text-xs font-semibold bg-card font-mono text-emerald-600 dark:text-emerald-400"
                   required
                 />
               </div>
@@ -549,7 +741,7 @@ export function SendPaymentLinkDialog({
             </div>
           </div>
 
-          {/* 3. Interactive Customer & Mechanic Contact Selector */}
+          {/* 4. Interactive Customer & Mechanic Contact Selector */}
           <div className="grid grid-cols-2 gap-3">
             <div ref={contactDropdownRef} className="space-y-1 relative">
               <div className="flex items-center justify-between">
