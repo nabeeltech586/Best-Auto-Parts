@@ -47,7 +47,7 @@ function InboxPageInner() {
    * dashboard's recent-conversations list or contacts directory so the right thread opens
    * automatically instead of showing the empty center panel.
    */
-  const deepLinkConvId = searchParams.get("c");
+  const deepLinkConvId = searchParams.get("c") || searchParams.get("chat");
   const deepLinkPhone = searchParams.get("phone");
   const deepLinkName = searchParams.get("name");
 
