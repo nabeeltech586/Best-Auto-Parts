@@ -38,6 +38,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SendPaymentLinkDialog } from '@/components/inbox/send-payment-link-dialog';
 import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
+import { RecordCustomerPaymentDialog } from '@/components/payments/record-customer-payment-dialog';
 import { formatCurrency } from '@/lib/currency';
 import { cn } from '@/lib/utils';
 
@@ -121,6 +122,7 @@ function PaymentsPageInner() {
   const [copiedTxnId, setCopiedTxnId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkItem | null>(null);
+  const [payingRecord, setPayingRecord] = useState<PaymentLinkItem | null>(null);
 
   // Sync state if URL search params change
   useEffect(() => {
@@ -672,12 +674,17 @@ function PaymentsPageInner() {
                       <select
                         value={item.status}
                         disabled={updatingStatusTxnId === item.merchant_transaction_id}
-                        onChange={(e) =>
-                          handleStatusChange(
-                            item,
-                            e.target.value as 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED'
-                          )
-                        }
+                        onChange={(e) => {
+                          const nextVal = e.target.value as 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
+                          if (
+                            (nextVal === 'PARTIAL' || nextVal === 'PAID') &&
+                            item.status !== 'PAID'
+                          ) {
+                            setPayingRecord(item);
+                          } else {
+                            handleStatusChange(item, nextVal);
+                          }
+                        }}
                         className={cn(
                           'appearance-none text-xs font-semibold px-2.5 py-1 pr-6 rounded-md border cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary disabled:opacity-50',
                           item.status === 'PAID' &&
@@ -752,6 +759,19 @@ function PaymentsPageInner() {
 
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1.5">
+                      {/* Prominent Record Payment button for every non-PAID customer or mechanic order */}
+                      {item.status !== 'PAID' && (
+                        <Button
+                          size="sm"
+                          onClick={() => setPayingRecord(item)}
+                          className="h-8 px-2.5 text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-xs cursor-pointer"
+                          title="Record Customer or Mechanic Payment (Full or Partial)"
+                        >
+                          <Wallet className="h-3.5 w-3.5" />
+                          <span>Record Payment</span>
+                        </Button>
+                      )}
+
                       <Button
                         size="sm"
                         variant="outline"
@@ -855,6 +875,14 @@ function PaymentsPageInner() {
         open={Boolean(selectedReceipt)}
         onOpenChange={(v) => !v && setSelectedReceipt(null)}
         order={selectedReceipt}
+      />
+
+      {/* Record Customer / Mechanic Payment Dialog */}
+      <RecordCustomerPaymentDialog
+        open={Boolean(payingRecord)}
+        onOpenChange={(v) => !v && setPayingRecord(null)}
+        order={payingRecord}
+        onSuccess={() => fetchLinks(true)}
       />
     </div>
   );

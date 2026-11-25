@@ -11,15 +11,18 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const {
       order_id,
+      merchant_transaction_id,
       amount,
       customer_name,
       customer_phone,
       item_description,
       payment_mode,
       utr,
+      notes,
     } = body;
 
     const ord = (order_id || `BAP-${Date.now().toString().slice(-6)}`).trim();
+    const mTxnId = (merchant_transaction_id || '').trim();
     const rawAmt = Number(amount);
     if (!rawAmt || rawAmt <= 0) {
       return NextResponse.json(
@@ -33,15 +36,22 @@ export async function POST(request: Request) {
     const name = (customer_name || 'Valued Customer').trim();
     const phone = (customer_phone || '').trim();
     const item = (item_description || 'Motorcycle Genuine Spare Parts').trim();
+    const cleanNotes = (notes || '').trim();
     const nowIso = new Date().toISOString();
 
     const db = supabaseAdmin();
 
     // 1. Check existing record in payment_links
-    const { data: existingLink } = await db
-      .from('payment_links')
-      .select('*')
-      .or(`order_id.eq.${ord},merchant_transaction_id.eq.${ord}`)
+    let linkQuery = db.from('payment_links').select('*');
+    if (mTxnId && ord) {
+      linkQuery = linkQuery.or(`merchant_transaction_id.eq.${mTxnId},order_id.eq.${ord},merchant_transaction_id.eq.${ord}`);
+    } else if (mTxnId) {
+      linkQuery = linkQuery.eq('merchant_transaction_id', mTxnId);
+    } else {
+      linkQuery = linkQuery.or(`order_id.eq.${ord},merchant_transaction_id.eq.${ord}`);
+    }
+
+    const { data: existingLink } = await linkQuery
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -221,7 +231,7 @@ export async function POST(request: Request) {
             amount: rawAmt,
             payment_mode: mode,
             reference_id: cleanUtr,
-            description: `Payment received for Order #${ord} — ${item} (${newStatus === 'PAID' ? 'Full Settlement' : `Partial Payment, Bal Due: ₹${newRemaining.toFixed(2)}`})`,
+            description: `Payment received for Order #${ord} — ${item} (${newStatus === 'PAID' ? 'Full Settlement' : `Partial Payment, Bal Due: ₹${newRemaining.toFixed(2)}`})${cleanNotes ? ` • Notes: ${cleanNotes}` : ''}`,
           });
         }
       } catch (ledgerErr) {
