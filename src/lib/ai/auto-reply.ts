@@ -18,6 +18,12 @@ import {
   loadAccountMetaCredentials,
 } from '@/lib/flows/meta-send'
 import { getContactLanguage } from '@/lib/whatsapp/welcome-flow'
+import {
+  isClosingOrGratitudeMessage,
+  isHinglishClosing,
+  CLOSING_REPLY_ENGLISH,
+  CLOSING_REPLY_HINGLISH,
+} from '@/lib/whatsapp/closing-replies'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { triggerMatches } from '@/lib/automations/engine'
@@ -151,6 +157,26 @@ export async function dispatchInboundToAiReply(
       }
     }
 
+    // Every gate has passed — check for courteous closing & gratitude acknowledgment
+    // ("ok", "okay", "thanks", "thank you", "thx", "shukriya", "dhanyawad", "ji", "theek hai", "achha", "nice", "👍")
+    // Never trigger a fallback error, never repeat the full store menu.
+    const latestRawUserText = latestUserMessage(messages).trim()
+    if (isClosingOrGratitudeMessage(latestRawUserText)) {
+      const custLang = await getContactLanguage(db, accountId, contactId).catch(() => null)
+      const isHinglish = isHinglishClosing(latestRawUserText, custLang)
+      const replyText = isHinglish ? CLOSING_REPLY_HINGLISH : CLOSING_REPLY_ENGLISH
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        text: replyText,
+        aiGenerated: true,
+      })
+      return
+    }
+
     // Account-wide throttle on the shared BYO key. The per-conversation
     // cap bounds one thread; this bounds a burst across many threads (a
     // marketing blast landing 200 replies at once) so we never run the
@@ -198,7 +224,10 @@ export async function dispatchInboundToAiReply(
       'Best Auto Parts deals exclusively in genuine & aftermarket two-wheeler spare parts for Bajaj, Hero, and Honda motorcycles and scooters. ' +
       'When quoting a verified spare part from the catalog, state the exact Part Name, Brand (Genuine OEM or Aftermarket), OEM Number, Live Selling Price (formatted with ₹), and In-Stock status (In Stock ✅ or Limited Stock ⚠️). ' +
       'Strict Stock Privacy: Never disclose internal numerical stock quantities, units remaining, warehouse bin locations, or cost prices. ' +
-      'Selective Customer Care: Append "📞 Call Customer Care: *9634722174*" (Saud Bhai) ONLY for out-of-stock/special orders, location cards, or after-hours notices; never append to routine price/stock replies.'
+      'Selective Customer Care: Append "📞 Call Customer Care: *9634722174*" (Saud Bhai) ONLY for out-of-stock/special orders, location cards, or after-hours notices; never append to routine price/stock replies. ' +
+      'Closing Courtesy: When a customer sends a closing or gratitude message (such as ok, okay, thanks, thank you, thx, shukriya, dhanyawad, ji, theek hai, achha, nice, or 👍), NEVER trigger a fallback or handoff error, never output or repeat a store menu, and reply warmly and concisely with: ' +
+      'For English: "You\'re most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!" ' +
+      'For Hinglish: "Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!"'
 
     const effectiveUserPrompt = [config.systemPrompt, languageInstruction]
       .filter(Boolean)

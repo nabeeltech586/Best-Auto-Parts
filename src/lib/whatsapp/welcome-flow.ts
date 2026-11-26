@@ -19,6 +19,21 @@ import {
 import { cleanCustomerFacingPartName } from '@/lib/ai/stock-privacy'
 import { formatVehicleFitment } from '@/lib/inventory/fitment'
 import { PaymentService } from '@/lib/payments/payment-service'
+import {
+  isClosingOrGratitudeMessage,
+  isHinglishClosing,
+  getClosingReply,
+  CLOSING_REPLY_ENGLISH,
+  CLOSING_REPLY_HINGLISH,
+} from './closing-replies'
+
+export {
+  isClosingOrGratitudeMessage,
+  isHinglishClosing,
+  getClosingReply,
+  CLOSING_REPLY_ENGLISH,
+  CLOSING_REPLY_HINGLISH,
+}
 
 export type CustomerLanguage = 'en' | 'hinglish'
 
@@ -904,6 +919,29 @@ export async function handleWelcomeFlowInbound(
   // 3. Resolve Current Saved Language
   // ------------------------------------------------------------
   const savedLang = existingSavedLang ?? (await getContactLanguage(db, accountId, contactId))
+
+  // ------------------------------------------------------------
+  // 3B. Courteous Closing & Gratitude Acknowledgment Handling
+  // ("ok", "okay", "thanks", "thank you", "thx", "shukriya", "dhanyawad", "ji", "theek hai", "achha", "nice", "👍")
+  // Clean, warm closure in customer language without triggering AI fallback or repeating the full store menu.
+  // ------------------------------------------------------------
+  if (!interactiveReplyId && isClosingOrGratitudeMessage(rawText)) {
+    const isHinglish = isHinglishClosing(rawText, savedLang)
+    const replyText = isHinglish ? CLOSING_REPLY_HINGLISH : CLOSING_REPLY_ENGLISH
+
+    const res = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text: replyText,
+    })
+    return {
+      consumed: true,
+      responseSent: replyText,
+      messageId: res.whatsapp_message_id,
+    }
+  }
 
   // ------------------------------------------------------------
   // 4. UNSELECTED LANGUAGE STATE (Critical Section 4)
@@ -2017,7 +2055,7 @@ async function checkCustomerOrderPaymentStatus(
   // ------------------------------------------------------------
   // 13. Yes/No Context Handling (Section 11)
   // ------------------------------------------------------------
-  const isYes = /^(yes|yeah|yep|yup|haan|ha|ji|sure|bilkul|zaroor)$/i.test(rawText)
+  const isYes = /^(yes|yeah|yep|yup|haan|ha|ji\s*haan|haan\s*ji|ji\s*ha|sure|bilkul|zaroor)$/i.test(rawText)
   const isNo = /^(no|nope|nah|nahi|nahin|na|matlab nahi)$/i.test(rawText)
 
   if (!interactiveReplyId && (isYes || isNo)) {
@@ -2194,17 +2232,14 @@ async function checkCustomerOrderPaymentStatus(
 
   // ------------------------------------------------------------
   // 13B. Gratitude & Courteous Acknowledgment Handling
-  // ("ok", "okay", "thanks", "thank you", "shukriya", "thik hai", "dhanyawad")
+  // ("ok", "okay", "thanks", "thank you", "thx", "shukriya", "thik hai", "dhanyawad", "ji", "theek hai", "achha", "nice", "👍")
   // ------------------------------------------------------------
-  const isGratitude =
-    /^(ok|okay|thx|thanks|thank\s*you|thank\s*u|shukriya|dhanyawad|dhanyavaad|thik\s*hai|theek\s*hai|accha|achha|sahi\s*hai|ji\s*shukriya|bahut\s*shukriya)[.!?\s]*$/i.test(
-      rawText,
-    )
+  const isGratitude = isClosingOrGratitudeMessage(rawText)
 
   if (!interactiveReplyId && isGratitude) {
-    const gratitudeReply = isHinglish
-      ? 'Shukriya ji! 🙏 Kabhi bhi kisi *Bajaj, Hero ya Honda* ke spare part ki zaroorat ho toh batayein. Have a great day! 🏍️'
-      : 'Thank you! 🙏 Whenever you need any *Bajaj, Hero, or Honda* two-wheeler spare parts, feel free to reach out. Have a wonderful day! 🏍️'
+    const gratitudeReply = isHinglishClosing(rawText, savedLang)
+      ? CLOSING_REPLY_HINGLISH
+      : CLOSING_REPLY_ENGLISH
 
     const res = await engineSendText({
       accountId,

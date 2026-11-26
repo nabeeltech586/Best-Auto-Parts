@@ -2486,13 +2486,14 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(sentLists[0].bodyText).toContain('Bajaj, Hero, or Honda')
   })
 
-  // Test 68: Gratitude acknowledgment
-  it('68. Gratitude acknowledgment: warms customers and never triggers fallback on thanks/shukriya/ok', async () => {
+  // Test 68: Gratitude & closing acknowledgment
+  it('68. Gratitude & closing acknowledgment: warms customers and never triggers fallback or menu on thanks/shukriya/ok/ji/👍', async () => {
     const db = createFakeDb({
       contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
     })
 
-    const resOk = await handleWelcomeFlowInbound({
+    // Case A: Hinglish closing (shukriya)
+    const resShukriya = await handleWelcomeFlowInbound({
       db: db as any,
       accountId,
       userId,
@@ -2501,10 +2502,66 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       inboundText: 'shukriya',
     })
 
-    expect(resOk.consumed).toBe(true)
+    expect(resShukriya.consumed).toBe(true)
     expect(sentTexts.length).toBe(1)
-    expect(sentTexts[0].text).toContain('Shukriya ji!')
-    expect(sentTexts[0].text).toContain('Bajaj, Hero ya Honda')
+    expect(sentTexts[0].text).toBe(
+      'Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!'
+    )
+    expect(sentTexts[0].text).not.toContain('9634722174')
+    expect(sentTexts[0].text).not.toContain('View Menu')
+
+    // Case B: Customer sending "ji"
+    sentTexts.length = 0
+    const resJi = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'ji',
+    })
+
+    expect(resJi.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+    expect(sentTexts[0].text).toBe(
+      'Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!'
+    )
+
+    // Case C: Customer sending "👍"
+    sentTexts.length = 0
+    const resThumbs = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: '👍',
+    })
+
+    expect(resThumbs.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+
+    // Case D: English customer sending "thanks"
+    const dbEn = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'en' }],
+    })
+    sentTexts.length = 0
+    const resThanks = await handleWelcomeFlowInbound({
+      db: dbEn as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'thanks',
+    })
+
+    expect(resThanks.consumed).toBe(true)
+    expect(sentTexts.length).toBe(1)
+    expect(sentTexts[0].text).toBe(
+      "You're most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!"
+    )
+    expect(sentTexts[0].text).not.toContain('9634722174')
+    expect(sentTexts[0].text).not.toContain('View Menu')
   })
 
   // Test 69: Unsupported vehicle brand refusal

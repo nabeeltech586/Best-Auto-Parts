@@ -377,3 +377,31 @@ describe('dispatchInboundToAiReply — purchase buttons on inventory intent', ()
     )
   })
 })
+
+describe('dispatchInboundToAiReply — closing and gratitude remarks', () => {
+  it('sends warm English closing reply without calling LLM when customer says thanks', async () => {
+    h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'thanks' }])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "You're most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!",
+      }),
+    )
+  })
+
+  it('sends warm Hinglish closing reply without calling LLM when customer says shukriya / theek hai / ji', async () => {
+    h.buildConversationContext.mockResolvedValue([{ role: 'user', content: 'shukriya' }])
+
+    await dispatchInboundToAiReply(ARGS)
+
+    expect(h.generateReply).not.toHaveBeenCalled()
+    expect(h.engineSendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!',
+      }),
+    )
+  })
+})
