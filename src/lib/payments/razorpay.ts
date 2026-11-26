@@ -13,13 +13,43 @@ import { deductStockForSale } from '@/lib/inventory/stock-deduction';
 
 export interface CreatePaymentLinkInput {
   orderId?: string;
+  order_id?: string;
+  ledgerId?: string;
+  ledger_id?: string;
   customerName?: string;
-  customerPhone: string;
-  partDetails: string;
+  customer_name?: string;
+  customerPhone?: string;
+  customer_phone?: string;
+  partDetails?: string;
+  description?: string;
   amount: number;
   accountId?: string;
   userId?: string;
   conversationId?: string;
+  notes?: Record<string, string>;
+}
+
+export interface RazorpayPaymentRecord {
+  id?: string;
+  account_id?: string;
+  razorpay_payment_link_id?: string;
+  razorpay_payment_id?: string;
+  razorpay_order_id?: string;
+  order_id?: string;
+  ledger_id?: string;
+  amount: number;
+  currency?: string;
+  status: 'created' | 'paid' | 'partially_paid' | 'expired' | 'cancelled' | 'failed' | string;
+  customer_name?: string;
+  customer_phone?: string;
+  description?: string;
+  short_url?: string;
+  payment_method?: string;
+  notes?: Record<string, unknown>;
+  raw_webhook_payload?: Record<string, unknown>;
+  paid_at?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface PaymentLinkRecord {
@@ -96,7 +126,10 @@ export async function createRazorpayPaymentLink(
   const db = supabaseAdmin();
 
   const rawOrderId =
+    input.order_id?.trim() ||
     input.orderId?.trim() ||
+    input.ledger_id?.trim() ||
+    input.ledgerId?.trim() ||
     `ORD-${Date.now().toString(36).slice(-5).toUpperCase()}`;
   const cleanOrderId = rawOrderId.replace(/[^a-zA-Z0-9_-]/g, '');
   const amount = Number(input.amount);
@@ -104,11 +137,12 @@ export async function createRazorpayPaymentLink(
     throw new Error('Invalid payment amount. Amount must be a positive number.');
   }
 
-  const phoneDigits = sanitizePhoneForMeta(input.customerPhone);
+  const rawPhone = input.customer_phone || input.customerPhone || '';
+  const phoneDigits = sanitizePhoneForMeta(rawPhone);
   const normalizedPhone = phoneDigits ? `+91${phoneDigits.slice(-10)}` : '+919634722174';
   const amountInPaise = Math.round(amount * 100);
-  const cleanCustomerName = input.customerName?.trim() || 'Valued Customer';
-  const cleanDescription = (input.partDetails || 'Two-Wheeler Spare Parts Order').slice(0, 255);
+  const cleanCustomerName = input.customer_name?.trim() || input.customerName?.trim() || 'Valued Customer';
+  const cleanDescription = (input.description || input.partDetails || 'Two-Wheeler Spare Parts Order').slice(0, 255);
 
   let paymentLinkId = `plink_${cleanOrderId.toLowerCase()}_${Date.now()}`;
   let shortUrl = `${appUrl}/pay?order=${encodeURIComponent(cleanOrderId)}&amount=${amount}&name=${encodeURIComponent(cleanCustomerName)}`;
@@ -143,6 +177,10 @@ export async function createRazorpayPaymentLink(
             store: 'Best Auto Parts',
             address: 'Kailashpur, Saharanpur, UP 247001',
             order_id: cleanOrderId,
+            ledger_id: input.ledger_id || input.ledgerId || '',
+            customer_name: cleanCustomerName,
+            customer_phone: rawPhone,
+            ...(input.notes || {}),
           },
           callback_url: `${appUrl}/pay/${cleanOrderId}`,
           callback_method: 'get',
@@ -180,8 +218,8 @@ export async function createRazorpayPaymentLink(
     order_id: cleanOrderId,
     merchant_transaction_id: cleanOrderId,
     customer_name: cleanCustomerName,
-    customer_phone: input.customerPhone.trim(),
-    part_details: input.partDetails.trim(),
+    customer_phone: rawPhone.trim(),
+    part_details: cleanDescription,
     amount,
     status: 'PENDING',
     razorpay_payment_link_id: paymentLinkId,
@@ -204,6 +242,35 @@ export async function createRazorpayPaymentLink(
     }
   } catch (dbErr) {
     console.warn('[Razorpay] DB insert notice:', dbErr);
+  }
+
+  // 4. Save to public.razorpay_payments table
+  try {
+    await db.from('razorpay_payments').insert({
+      account_id: accountId,
+      razorpay_payment_link_id: paymentLinkId,
+      order_id: cleanOrderId,
+      ledger_id: input.ledger_id || input.ledgerId || null,
+      amount,
+      currency: 'INR',
+      status: 'created',
+      customer_name: cleanCustomerName,
+      customer_phone: rawPhone.trim(),
+      description: cleanDescription,
+      short_url: shortUrl,
+      notes: {
+        store: 'Best Auto Parts',
+        order_id: cleanOrderId,
+        ledger_id: input.ledger_id || input.ledgerId || '',
+        customer_name: cleanCustomerName,
+        customer_phone: rawPhone.trim(),
+        ...(input.notes || {}),
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  } catch (rzpDbErr) {
+    console.warn('[Razorpay] razorpay_payments insert notice:', rzpDbErr);
   }
 
   // In-memory cache fallback
@@ -365,11 +432,53 @@ export async function markPaymentAsPaid(args: {
     }
   }
 
+  // Update razorpay_payments table if row exists
+  try {
+    const rzpTable = db.from('razorpay_payments');
+    if (rzpTable && typeof rzpTable.update === 'function') {
+      const rzpUpdates: Record<string, unknown> = {
+        status: 'paid',
+        razorpay_payment_id: args.razorpayPaymentId,
+        payment_method: args.paymentMode || 'UPI',
+        paid_at: nowIso,
+        updated_at: nowIso,
+      };
+      let qRzp = rzpTable.update(rzpUpdates);
+      if (args.razorpayPaymentLinkId) {
+        qRzp = qRzp.or(
+          `razorpay_payment_link_id.eq.${args.razorpayPaymentLinkId},order_id.eq.${targetId},ledger_id.eq.${targetId}`
+        );
+      } else {
+        qRzp = qRzp.or(`order_id.eq.${targetId},ledger_id.eq.${targetId}`);
+      }
+      await qRzp;
+    }
+  } catch (rzpErr) {
+    console.warn('[Razorpay] razorpay_payments update notice:', rzpErr);
+  }
+
   // Deduct inventory stock in parts_catalog and log in stock_movements
   const targetRecord = record || (await getPaymentLinkByTxnId(targetId));
   if (targetRecord) {
     await deductStockForPaidOrder(targetRecord, db).catch((err) => {
       console.warn('[Razorpay] Stock deduction error:', err);
+    });
+
+    // Credit customer/mechanic balance in BestPay ledger
+    await creditBestPayLedgerBalance({
+      amount: args.amount || targetRecord.amount || 0,
+      paymentId: args.razorpayPaymentId,
+      orderId: targetRecord.order_id,
+      ledgerId: targetRecord.merchant_transaction_id?.startsWith('LEDGER_')
+        ? targetRecord.merchant_transaction_id
+        : undefined,
+      customerPhone: targetRecord.customer_phone,
+      customerName: targetRecord.customer_name,
+      paymentMode: args.paymentMode,
+      description: targetRecord.part_details,
+      db,
+    }).catch((err) => {
+      console.warn('[Razorpay] creditBestPayLedgerBalance error:', err);
     });
   }
 
@@ -594,4 +703,335 @@ export async function verifyAndSyncPaymentStatus(txnId: string): Promise<{
   }
 
   return { status: record?.status || 'PENDING', record };
+}
+
+export interface CreditLedgerInput {
+  amount: number;
+  paymentId: string;
+  orderId?: string;
+  ledgerId?: string;
+  customerPhone?: string;
+  customerName?: string;
+  paymentMode?: string;
+  description?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db?: any;
+}
+
+export interface CreditLedgerResult {
+  credited: boolean;
+  contactId?: string;
+  previousBalance?: number;
+  newBalance?: number;
+  reason?: string;
+}
+
+/**
+ * Automatically credits the customer / mechanic pending balance in BestPay ledger
+ * (`contacts.pending_balance` and `mechanic_ledger_entries`).
+ */
+export async function creditBestPayLedgerBalance(
+  args: CreditLedgerInput
+): Promise<CreditLedgerResult> {
+  const amount = Number(args.amount);
+  if (!amount || amount <= 0 || !Number.isFinite(amount)) {
+    return { credited: false, reason: 'Invalid or non-positive amount' };
+  }
+
+  const db = args.db || supabaseAdmin();
+  const nowIso = new Date().toISOString();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let matchedContact: any = null;
+
+  // 1. Try to find contact by ledgerId if provided (strip 'LEDGER_' prefix if present)
+  if (args.ledgerId) {
+    const cleanLedgerId = args.ledgerId.replace(/^LEDGER_/i, '').trim();
+    try {
+      const contactsTable = db.from('contacts');
+      if (contactsTable && typeof contactsTable.select === 'function') {
+        const sel = contactsTable.select(
+          'id, name, account_id, pending_balance, monthly_purchases, loyalty_tier, khata_stage'
+        );
+        let q =
+          typeof sel.or === 'function'
+            ? sel.or(`id.eq.${cleanLedgerId},unique_id.eq.${cleanLedgerId}`)
+            : typeof sel.eq === 'function'
+            ? sel.eq('id', cleanLedgerId)
+            : null;
+
+        if (q && typeof q.limit === 'function') {
+          const qLimit = q.limit(1);
+          if (typeof qLimit.maybeSingle === 'function') {
+            const res = await qLimit.maybeSingle();
+            matchedContact = res?.data;
+          } else {
+            const res = await qLimit;
+            matchedContact = Array.isArray(res?.data) ? res.data[0] : res?.data;
+          }
+        }
+      }
+    } catch (ledgerLookupErr) {
+      console.warn('[Razorpay] ledger lookup notice:', ledgerLookupErr);
+    }
+  }
+
+  // 2. Fallback to lookup by customer phone
+  if (!matchedContact && args.customerPhone) {
+    const rawPhone = args.customerPhone.trim();
+    const cleanDigits = rawPhone.replace(/[^0-9]/g, '').slice(-10);
+    const cleanPhone = cleanDigits ? `+91${cleanDigits}` : '';
+
+    if (cleanDigits) {
+      try {
+        const contactsTable = db.from('contacts');
+        if (contactsTable && typeof contactsTable.select === 'function') {
+          const sel = contactsTable.select(
+            'id, name, account_id, pending_balance, monthly_purchases, loyalty_tier, khata_stage'
+          );
+          let matchQuery = null;
+          if (typeof sel.or === 'function') {
+            matchQuery = sel.or(
+              `phone.ilike.%${cleanDigits}%,phone.eq.${rawPhone}${
+                cleanPhone ? `,phone_normalized.eq.${cleanPhone}` : ''
+              }`
+            );
+          } else if (typeof sel.eq === 'function') {
+            matchQuery = sel.eq('phone', rawPhone);
+          }
+
+          if (matchQuery && typeof matchQuery.limit === 'function') {
+            const { data: matchingContacts } = await matchQuery.limit(1);
+            if (matchingContacts && matchingContacts.length > 0) {
+              matchedContact = matchingContacts[0];
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Razorpay] contacts lookup notice:', err);
+      }
+    }
+  }
+
+  if (!matchedContact) {
+    return { credited: false, reason: 'No matching contact found for ledger credit' };
+  }
+
+  const currentDue = Number(matchedContact.pending_balance) || 0;
+  const newDue = Math.max(0, currentDue - amount);
+  const newKhataStage =
+    newDue === 0 ? 'Settled This Month' : matchedContact.khata_stage || 'Payment Due';
+
+  // 3. Update contact balance and khata stage
+  try {
+    const contactsTable = db.from('contacts');
+    if (contactsTable && typeof contactsTable.update === 'function') {
+      await contactsTable
+        .update({
+          pending_balance: newDue,
+          khata_stage: newKhataStage,
+          updated_at: nowIso,
+        })
+        .eq('id', matchedContact.id);
+    }
+  } catch (updErr) {
+    console.warn('[Razorpay] Failed to update contact balance:', updErr);
+  }
+
+  // 4. Insert debit payment entry into mechanic_ledger_entries
+  try {
+    const ledgerTable = db.from('mechanic_ledger_entries');
+    if (ledgerTable && typeof ledgerTable.insert === 'function') {
+      const desc =
+        args.description ||
+        `Payment received via Razorpay (Ref: ${args.paymentId}${
+          args.orderId ? ` • Order #${args.orderId}` : ''
+        }) • ${newDue === 0 ? 'Full Settlement' : `Balance Due: ₹${newDue.toFixed(2)}`}`;
+
+      await ledgerTable.insert({
+        account_id: matchedContact.account_id,
+        contact_id: matchedContact.id,
+        entry_type: 'debit_payment',
+        amount,
+        payment_mode: args.paymentMode || 'Razorpay / UPI',
+        reference_id: args.paymentId,
+        balance_after: newDue,
+        description: desc,
+        created_at: nowIso,
+      });
+    }
+  } catch (ledgerErr) {
+    console.warn('[Razorpay] Failed to insert mechanic_ledger_entry:', ledgerErr);
+  }
+
+  // 5. Update any matching payment_links for this order/contact
+  if (args.orderId) {
+    try {
+      const plinksTable = db.from('payment_links');
+      if (plinksTable && typeof plinksTable.update === 'function') {
+        await plinksTable
+          .update({
+            paid_amount: amount,
+            remaining_amount: 0,
+            status: 'PAID',
+            updated_at: nowIso,
+          })
+          .eq('order_id', args.orderId);
+      }
+    } catch {}
+  }
+
+  return {
+    credited: true,
+    contactId: matchedContact.id,
+    previousBalance: currentDue,
+    newBalance: newDue,
+  };
+}
+
+export interface SendReceiptVoucherInput {
+  customerName?: string;
+  customerPhone: string;
+  receiptId: string;
+  description?: string;
+  amount: number | string;
+  paymentMode?: string;
+  paymentId?: string;
+  status?: string;
+  date?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db?: any;
+}
+
+/**
+ * Triggers the approved WhatsApp template `payment_receipt_voucher` via Meta Cloud API,
+ * with graceful fallback to standard formatted receipt text.
+ */
+export async function sendWhatsAppReceiptVoucherTemplate(
+  args: SendReceiptVoucherInput
+): Promise<{
+  success: boolean;
+  messageId?: string;
+  fallbackUsed?: boolean;
+}> {
+  const db = args.db || supabaseAdmin();
+  const phone = args.customerPhone;
+  const cleanDigits = phone.replace(/[^0-9]/g, '');
+  const phone10 = cleanDigits.slice(-10);
+  if (!phone10 || phone10.length !== 10) {
+    return { success: false };
+  }
+  const normalizedPhone = `91${phone10}`;
+
+  // 1. Load WhatsApp configuration
+  let phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+  let accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
+
+  try {
+    const cfgTable = db.from('whatsapp_config');
+    if (cfgTable && typeof cfgTable.select === 'function') {
+      const { data: config } = await cfgTable
+        .select('id, account_id, phone_number_id, access_token')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (config) {
+        if (config.phone_number_id) phoneNumberId = config.phone_number_id;
+        if (config.access_token) {
+          try {
+            const { decrypt } = await import('@/lib/whatsapp/encryption');
+            accessToken = decrypt(config.access_token);
+          } catch {
+            accessToken = config.access_token;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Razorpay] WhatsApp config lookup error:', err);
+  }
+
+  const nameStr = (args.customerName || 'Valued Customer').trim();
+  const idStr = (args.receiptId || `REC-${Date.now()}`).trim();
+  const detailsStr = (args.description || 'Two-Wheeler Spare Parts Order').slice(0, 200).trim();
+  const rawAmt = typeof args.amount === 'number' ? args.amount.toFixed(2) : String(args.amount);
+  const amountStr = rawAmt.replace(/[^0-9.]/g, '') || '0.00';
+  const statusStr = (args.status || 'PAID').trim();
+  const dateStr = (
+    args.date ||
+    new Date().toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    })
+  ).trim();
+
+  // If Meta API credentials are present, attempt sending the approved template `payment_receipt_voucher`
+  if (phoneNumberId && accessToken) {
+    for (const langCode of ['en', 'en_US'] as const) {
+      try {
+        const payload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: normalizedPhone,
+          type: 'template',
+          template: {
+            name: 'payment_receipt_voucher',
+            language: { code: langCode },
+            components: [
+              {
+                type: 'body',
+                parameters: [
+                  { type: 'text', text: nameStr },
+                  { type: 'text', text: idStr },
+                  { type: 'text', text: detailsStr },
+                  { type: 'text', text: amountStr },
+                  { type: 'text', text: statusStr },
+                  { type: 'text', text: dateStr },
+                ],
+              },
+            ],
+          },
+        };
+
+        const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.messages?.[0]?.id) {
+          const messageId = data.messages[0].id;
+          return { success: true, messageId };
+        }
+      } catch (templateErr) {
+        console.warn(`[Razorpay] Meta template send attempt (${langCode}) failed:`, templateErr);
+      }
+    }
+  }
+
+  // Graceful fallback to text confirmation via sendWhatsAppPaymentConfirmation
+  const fallbackRecord: PaymentLinkRecord = {
+    order_id: idStr,
+    merchant_transaction_id: idStr,
+    customer_name: nameStr,
+    customer_phone: args.customerPhone,
+    part_details: detailsStr,
+    amount: Number(amountStr) || 0,
+    status: 'PAID',
+    payment_mode: args.paymentMode || 'Razorpay / UPI',
+    razorpay_payment_id: args.paymentId,
+    paid_at: new Date().toISOString(),
+  };
+
+  await sendWhatsAppPaymentConfirmation(fallbackRecord, args.paymentId).catch((err) => {
+    console.warn('[Razorpay] WhatsApp confirmation text send error:', err);
+  });
+
+  return { success: true, fallbackUsed: true };
 }

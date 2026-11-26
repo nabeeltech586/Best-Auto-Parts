@@ -122,6 +122,43 @@ export async function POST(request: Request) {
       });
     }
 
+    // Handle order.paid
+    if (eventType === 'order.paid') {
+      const orderEntity = event?.payload?.order?.entity;
+      const paymentEntity = event?.payload?.payment?.entity;
+      const paymentId = paymentEntity?.id || `pay_${Date.now()}`;
+      const paymentMode = paymentEntity?.method || 'UPI';
+      const amountPaise = orderEntity?.amount_paid || orderEntity?.amount || paymentEntity?.amount;
+      const amount = amountPaise ? amountPaise / 100 : undefined;
+
+      const orderRef =
+        orderEntity?.receipt ||
+        orderEntity?.notes?.order_id ||
+        orderEntity?.id;
+
+      console.log(
+        `[Razorpay Webhook] Processing order.paid for order ${orderRef}, payment ${paymentId}`
+      );
+
+      if (orderRef) {
+        await markPaymentAsPaid({
+          orderId: orderRef,
+          merchantTransactionId: orderRef,
+          razorpayPaymentId: paymentId,
+          paymentMode,
+          amount,
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Order paid event processed successfully',
+        orderId: orderRef,
+        deliveryOrderId: orderRef,
+        paymentId,
+      });
+    }
+
     // Acknowledge other events
     return NextResponse.json({
       success: true,

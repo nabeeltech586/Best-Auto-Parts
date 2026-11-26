@@ -6,6 +6,8 @@ import {
   verifyRazorpayWebhookSignature,
   markPaymentAsPaid,
   getPaymentLinkByTxnId,
+  creditBestPayLedgerBalance,
+  sendWhatsAppReceiptVoucherTemplate,
 } from './razorpay';
 
 vi.mock('@/lib/flows/admin-client', () => ({
@@ -262,6 +264,194 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(text).toContain('pay_ABC123456789');
       expect(text).toContain('₹85.00');
       expect(text).toContain('Kailashpur, Saharanpur, UP 247001');
+    });
+  });
+
+  describe('creditBestPayLedgerBalance', () => {
+    it('reduces contact pending_balance and logs debit_payment in mechanic_ledger_entries', async () => {
+      let updatedContactPayload: any = null;
+      let insertedLedgerPayload: any = null;
+
+      const mockDb = {
+        from: vi.fn((table: string) => {
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [
+                      {
+                        id: 'cont_101',
+                        name: 'Nabeel Pathan',
+                        account_id: 'acc_101',
+                        pending_balance: 2550,
+                        khata_stage: 'Running Monthly Khata',
+                      },
+                    ],
+                  }),
+                }),
+              }),
+              update: vi.fn((payload) => {
+                updatedContactPayload = payload;
+                return {
+                  eq: vi.fn().mockResolvedValue({ error: null }),
+                };
+              }),
+            };
+          }
+          if (table === 'mechanic_ledger_entries') {
+            return {
+              insert: vi.fn((payload) => {
+                insertedLedgerPayload = payload;
+                return Promise.resolve({ error: null });
+              }),
+            };
+          }
+          if (table === 'payment_links') {
+            return {
+              update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          return {};
+        }),
+      };
+
+      const result = await creditBestPayLedgerBalance({
+        amount: 1500,
+        paymentId: 'pay_test_credit_101',
+        orderId: 'ORD-TEST-101',
+        customerPhone: '+919761224004',
+        db: mockDb,
+      });
+
+      expect(result.credited).toBe(true);
+      expect(result.previousBalance).toBe(2550);
+      expect(result.newBalance).toBe(1050);
+
+      expect(updatedContactPayload.pending_balance).toBe(1050);
+      expect(updatedContactPayload.khata_stage).toBe('Running Monthly Khata');
+
+      expect(insertedLedgerPayload.amount).toBe(1500);
+      expect(insertedLedgerPayload.entry_type).toBe('debit_payment');
+      expect(insertedLedgerPayload.balance_after).toBe(1050);
+      expect(insertedLedgerPayload.reference_id).toBe('pay_test_credit_101');
+    });
+
+    it('settles balance to 0 and updates khata_stage to Settled This Month when full payment received', async () => {
+      let updatedContactPayload: any = null;
+
+      const mockDb = {
+        from: vi.fn((table: string) => {
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [
+                      {
+                        id: 'cont_102',
+                        name: 'Rashid Khan',
+                        account_id: 'acc_101',
+                        pending_balance: 1500,
+                        khata_stage: 'Running Monthly Khata',
+                      },
+                    ],
+                  }),
+                }),
+              }),
+              update: vi.fn((payload) => {
+                updatedContactPayload = payload;
+                return {
+                  eq: vi.fn().mockResolvedValue({ error: null }),
+                };
+              }),
+            };
+          }
+          if (table === 'mechanic_ledger_entries') {
+            return {
+              insert: vi.fn().mockResolvedValue({ error: null }),
+            };
+          }
+          return {};
+        }),
+      };
+
+      const result = await creditBestPayLedgerBalance({
+        amount: 1500,
+        paymentId: 'pay_test_credit_102',
+        ledgerId: 'cont_102',
+        db: mockDb,
+      });
+
+      expect(result.credited).toBe(true);
+      expect(result.previousBalance).toBe(1500);
+      expect(result.newBalance).toBe(0);
+      expect(updatedContactPayload.pending_balance).toBe(0);
+      expect(updatedContactPayload.khata_stage).toBe('Settled This Month');
+    });
+  });
+
+  describe('sendWhatsAppReceiptVoucherTemplate', () => {
+    it('gracefully falls back to text receipt when WhatsApp Cloud API credentials are not configured', async () => {
+      const { engineSendText } = await import('@/lib/flows/meta-send');
+
+      const mockDb = {
+        from: vi.fn((table: string) => {
+          if (table === 'whatsapp_config') {
+            return {
+              select: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({ data: null }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: 'c1', account_id: 'a1', user_id: 'u1' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'conversations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'conv1' } }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      };
+
+      const res = await sendWhatsAppReceiptVoucherTemplate({
+        customerName: 'Saud Bhai',
+        customerPhone: '919634722174',
+        receiptId: 'ORD-REC-999',
+        description: 'Bajaj Pulsar Brake Shoe',
+        amount: 350,
+        db: mockDb,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.fallbackUsed).toBe(true);
+      expect(engineSendText).toHaveBeenCalled();
     });
   });
 });
