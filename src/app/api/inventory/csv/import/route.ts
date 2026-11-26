@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { parseCsv, validateCsvRows } from '@/lib/inventory/csv';
 import { normalizeAlternateOemNumbers } from '@/lib/inventory/parts';
+import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 import type { CsvImportSummary } from '@/types/inventory';
 
 export async function POST(request: Request) {
@@ -158,6 +159,15 @@ export async function POST(request: Request) {
       skippedDuplicates: duplicateCount,
       errors,
     };
+
+    if (importedCount > 0) {
+      const importedSkus = dbRows.map((r) => r.sku).filter(Boolean);
+      void triggerCatalogSync({
+        accountId,
+        skus: importedSkus,
+        reason: `Bulk CSV Import (${importedCount} products)`,
+      });
+    }
 
     return NextResponse.json({
       success: true,

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 
 export interface SaleItemCandidate {
   part_id?: string;
@@ -353,6 +354,18 @@ export async function deductStockForSale(
           .or(`order_id.eq.${orderId},merchant_transaction_id.eq.${targetRef}`);
       } catch {
         // Non-fatal flag update
+      }
+    }
+
+    // 5. Trigger WhatsApp / Meta Catalog background synchronization
+    if (result.deductedCount > 0 && result.details.length > 0) {
+      const deductedSkus = result.details.map((d) => d.sku).filter(Boolean);
+      if (deductedSkus.length > 0) {
+        void triggerCatalogSync({
+          accountId: effectiveAccountId || undefined,
+          skus: deductedSkus,
+          reason: `Stock deducted for sale (${targetRef || orderId})`,
+        });
       }
     }
   } catch (err) {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeAlternateOemNumbers, validatePartPayload } from '@/lib/inventory/parts';
 import { getMatchingPartImage } from '@/lib/partImages';
+import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -194,6 +195,14 @@ export async function PATCH(request: Request, context: Params) {
     if (updateError) {
       console.error('[inventory/parts/[id] PATCH] Update failed:', updateError);
       return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    if (updated?.sku) {
+      void triggerCatalogSync({
+        accountId,
+        skus: [updated.sku],
+        reason: `Part updated (${updated.sku})`,
+      });
     }
 
     return NextResponse.json({ part: updated });

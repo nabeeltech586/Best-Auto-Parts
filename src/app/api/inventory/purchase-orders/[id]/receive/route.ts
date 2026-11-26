@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 import type { PurchaseOrderItem, InventoryMetrics } from '@/types/inventory';
 
 interface Params {
@@ -324,6 +325,15 @@ export async function POST(request: Request, context: Params) {
         total_cost_value: Math.round(totalCost * 100) / 100,
         total_selling_value: Math.round(totalSelling * 100) / 100,
       };
+    }
+
+    const restockedSkus = updatedPartsList.map((p) => p.sku).filter(Boolean);
+    if (restockedSkus.length > 0) {
+      void triggerCatalogSync({
+        accountId,
+        skus: restockedSkus,
+        reason: `PO #${po.po_number} received & restocked`,
+      });
     }
 
     return NextResponse.json({

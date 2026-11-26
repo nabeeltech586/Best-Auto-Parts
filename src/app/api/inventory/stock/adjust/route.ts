@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { calculateNewStock, STOCK_MOVEMENT_TYPES } from '@/lib/inventory/stock';
+import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 import type { StockMovementType } from '@/types/inventory';
 
 export async function POST(request: Request) {
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     // 2. Fallback client-side update with safety checks if RPC is not installed
     const { data: part, error: fetchError } = await supabase
       .from('parts_catalog')
-      .select('id, quantity_in_stock')
+      .select('id, sku, quantity_in_stock')
       .eq('id', part_id)
       .eq('account_id', accountId)
       .single();
@@ -93,6 +94,14 @@ export async function POST(request: Request) {
 
     if (movementError) {
       console.warn('[inventory/stock/adjust] Movement logging notice:', movementError);
+    }
+
+    if (part?.sku) {
+      void triggerCatalogSync({
+        accountId,
+        skus: [part.sku],
+        reason: `Manual stock adjustment (${movementType} ${deltaNum})`,
+      });
     }
 
     return NextResponse.json({

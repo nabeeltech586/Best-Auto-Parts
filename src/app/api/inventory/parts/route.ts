@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
 import { normalizeAlternateOemNumbers, validatePartPayload } from '@/lib/inventory/parts';
 import { getMatchingPartImage } from '@/lib/partImages';
+import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 import type { PartCatalogItem } from '@/types/inventory';
 
 export async function GET(request: Request) {
@@ -417,6 +418,14 @@ export async function POST(request: Request) {
         quantity_before: 0,
         quantity_after: quantity,
         reason: 'Initial inventory creation',
+      });
+    }
+
+    if (inserted?.sku) {
+      void triggerCatalogSync({
+        accountId,
+        skus: [inserted.sku],
+        reason: `Part created (${inserted.sku})`,
       });
     }
 

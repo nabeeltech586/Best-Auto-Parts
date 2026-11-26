@@ -23,6 +23,7 @@ import { resumeAwaitingReply, runAutomationsForTrigger } from '@/lib/automations
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
+import { handleCatalogOrderInbound } from '@/lib/whatsapp/catalog-order-handler'
 import { matchIcebreaker, executeIcebreaker } from '@/lib/whatsapp/icebreakers'
 import { isScratchOfferTrigger, handleScratchOfferFlow } from '@/lib/whatsapp/scratch-offer'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
@@ -102,6 +103,19 @@ interface WhatsAppMessage {
   button?: { text?: string; payload?: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /**
+   * Set when customer places an order from WhatsApp Catalog (type: 'order').
+   */
+  order?: {
+    catalog_id?: string
+    text?: string
+    product_items: Array<{
+      product_retailer_id: string
+      quantity: number
+      item_price: number
+      currency: string
+    }>
+  }
 }
 
 /** One entry of a failed status's `errors` array, as Meta sends it. */
@@ -692,7 +706,9 @@ async function processMessage(
       ? 'image'         // stickers are images
       : message.type === 'button'
         ? 'interactive' // template quick-reply tap (issue #478)
-        : 'text'        // reaction, unknown → text fallback
+        : message.type === 'order'
+          ? 'interactive' // catalog order
+          : 'text'        // reaction, unknown → text fallback
 
   const receivedAt = new Date(parseInt(message.timestamp) * 1000).toISOString()
 
@@ -870,6 +886,27 @@ async function processMessage(
   }
 
   // ============================================================
+  // WhatsApp Catalog Order Processing (message.type === 'order')
+  // ============================================================
+  let orderConsumed = false
+  if (!scratchConsumed && !icebreakerConsumed && !mediaConsumed && message.type === 'order' && message.order) {
+    await handleCatalogOrderInbound({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      senderPhone: contactRecord.phone || message.from,
+      customerName: contact?.profile?.name || contactRecord.name || 'Customer',
+      wamid: message.id,
+      order: message.order,
+    }).catch((err) => {
+      console.error('[webhook] catalog order error:', err)
+    })
+    orderConsumed = true
+  }
+
+  // ============================================================
   // Welcome & Language Flow dispatch.
   //
   // Handles:
@@ -880,7 +917,7 @@ async function processMessage(
   //
   // If consumed: takes precedence over generic flows, automations, and AI.
   // ============================================================
-  const welcomeResult = (scratchConsumed || icebreakerConsumed || mediaConsumed)
+  const welcomeResult = (scratchConsumed || icebreakerConsumed || mediaConsumed || orderConsumed)
     ? { consumed: true }
     : await handleWelcomeFlowInbound({
         db: supabaseAdmin(),
@@ -895,7 +932,7 @@ async function processMessage(
         console.error('[welcome-flow] dispatch error:', err)
         return { consumed: false }
       })
-  const welcomeConsumed = scratchConsumed || icebreakerConsumed || mediaConsumed || welcomeResult.consumed
+  const welcomeConsumed = scratchConsumed || icebreakerConsumed || mediaConsumed || orderConsumed || welcomeResult.consumed
 
   // ============================================================
   // Flow runner dispatch.
@@ -1253,6 +1290,24 @@ async function parseMessageContent(
         ...empty,
         contentText: label || payload,
         interactiveReplyId: payload || label,
+      }
+    }
+
+    case 'order': {
+      // Incoming WhatsApp Catalog Order (message.type === 'order')
+      const order = message.order
+      const items = Array.isArray(order?.product_items) ? order.product_items : []
+      const customerNote = order?.text ? `\n📝 Note: "${order.text.trim()}"` : ''
+      const itemSummaries = items
+        .map(
+          (it: any) =>
+            `• SKU: ${it.product_retailer_id} (Qty: ${it.quantity || 1}) — ₹${it.item_price || 0}`
+        )
+        .join('\n')
+      const orderText = `🛒 *WhatsApp Catalog Order*\n${itemSummaries || 'Catalog Items'}${customerNote}`
+      return {
+        ...empty,
+        contentText: orderText,
       }
     }
 

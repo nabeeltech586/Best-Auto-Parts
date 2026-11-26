@@ -26,6 +26,7 @@ import { PartDeleteDialog } from '@/components/inventory/part-delete-dialog';
 import { CsvImportModal } from '@/components/inventory/csv-import-modal';
 import { SuppliersManagerDialog } from '@/components/inventory/suppliers-manager-dialog';
 import { PoHistoryDialog } from '@/components/inventory/po-history-dialog';
+import { WhatsAppCatalogSyncDialog } from '@/components/inventory/whatsapp-catalog-sync-dialog';
 import { PurchaseOrderDrawer } from '@/components/inventory/purchase-order-drawer';
 import { useAuth } from '@/hooks/use-auth';
 import type {
@@ -79,6 +80,7 @@ export default function InventoryPage() {
   const [adjustingPart, setAdjustingPart] = useState<PartCatalogItem | null>(null);
   const [deletingPart, setDeletingPart] = useState<PartCatalogItem | null>(null);
   const [isCsvImportOpen, setIsCsvImportOpen] = useState(false);
+  const [isCatalogSyncOpen, setIsCatalogSyncOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [isSyncingPhotos, setIsSyncingPhotos] = useState(false);
   const hasAutoSynced = useRef(false);
@@ -521,6 +523,18 @@ export default function InventoryPage() {
             Sync Photos
           </Button>
 
+          {/* WhatsApp & Meta Catalog Sync */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsCatalogSyncOpen(true)}
+            className="gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-500/60 font-medium"
+            title="Sync inventory with WhatsApp & Meta Commerce Catalog"
+          >
+            <RefreshCw className="size-3.5 text-emerald-500" />
+            Sync to WhatsApp Catalog
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -736,6 +750,13 @@ export default function InventoryPage() {
       <CsvImportModal
         open={isCsvImportOpen}
         onOpenChange={setIsCsvImportOpen}
+        onSuccess={handleRefreshAll}
+      />
+
+      {/* WhatsApp & Meta Commerce Catalog Sync Dialog */}
+      <WhatsAppCatalogSyncDialog
+        open={isCatalogSyncOpen}
+        onOpenChange={setIsCatalogSyncOpen}
         onSuccess={handleRefreshAll}
       />
     </div>
