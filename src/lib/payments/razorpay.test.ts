@@ -257,6 +257,8 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(engineSendText).toHaveBeenCalledTimes(1);
       const text = (engineSendText as any).mock.calls[0][0].text;
       expect(text).toContain('PAYMENT RECEIPT — BEST AUTO PARTS');
+      expect(text).toContain('DELIVERY ORDER ID');
+      expect(text).toContain('Local Rider Delivery');
       expect(text).toContain('pay_ABC123456789');
       expect(text).toContain('₹85.00');
       expect(text).toContain('Kailashpur, Saharanpur, UP 247001');

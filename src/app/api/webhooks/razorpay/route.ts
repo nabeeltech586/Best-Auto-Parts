@@ -79,6 +79,7 @@ export async function POST(request: Request) {
         success: true,
         message: 'Payment link paid event processed successfully',
         orderId: referenceId,
+        deliveryOrderId: referenceId,
         paymentId,
       });
     }
@@ -115,6 +116,8 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: 'Payment captured event processed successfully',
+        orderId: orderRef,
+        deliveryOrderId: orderRef,
         paymentId,
       });
     }

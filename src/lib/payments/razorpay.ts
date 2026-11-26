@@ -34,6 +34,11 @@ export interface PaymentLinkRecord {
   paid_amount?: number;
   remaining_amount?: number;
   status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
+  delivery_status?: 'Confirmed' | 'Packed / Ready' | 'Out for Delivery (Local Rider)' | 'Delivered';
+  rider_name?: string;
+  rider_phone?: string;
+  delivered_at?: string;
+  delivery_notes?: string;
   razorpay_payment_link_id?: string;
   razorpay_payment_link_url?: string;
   razorpay_payment_id?: string;
@@ -500,21 +505,27 @@ export async function sendWhatsAppPaymentConfirmation(
   const resolvedPaymentId =
     paymentId || record.razorpay_payment_id || record.phonepe_transaction_id || 'VERIFIED';
 
+  const rawOrderId = record.order_id || record.merchant_transaction_id || 'ORDER';
+  const displayOrderId = rawOrderId.startsWith('#') ? rawOrderId : `#${rawOrderId}`;
+
   const confirmationText =
     `✅ *PAYMENT RECEIPT — BEST AUTO PARTS* 🏍️\n` +
+    `📦 *DELIVERY ORDER ID:* *${displayOrderId}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `• *Order ID:* #${record.order_id}\n` +
+    `• *Delivery Order ID:* *${displayOrderId}*\n` +
     `• *Item / Part:* ${record.part_details}\n` +
-    `• *Amount Paid:* ${amtFormatted}\n` +
+    `• *Amount Paid:* ${amtFormatted} (Full Payment Received ✅)\n` +
     `• *Payment Mode:* ${record.payment_mode || 'Razorpay / UPI'}\n` +
     `• *Razorpay Payment ID:* ${resolvedPaymentId}\n` +
     `• *Date & Time:* ${dateFormatted}\n` +
-    `• *Status:* Confirmed / Paid ✅\n` +
+    `• *Dispatch & Delivery:* Confirmed for Local Rider Delivery 🛵\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `Thank you for your payment! Your transaction is verified via Razorpay and our team is preparing your order for collection / dispatch.\n\n` +
+    `Thank you for your payment! Your transaction is verified via Razorpay.\n\n` +
+    `🛵 *Local Rider Delivery & Dispatch Info:*\n` +
+    `Your order is confirmed for Local Rider Delivery in Kailashpur / Saharanpur (or Store Pickup at Best Auto Parts, Kailashpur, Saharanpur, UP 247001; Support: +91 96347 22174). Our local rider will deliver your package shortly.\n\n` +
     `📍 *Store Address:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
     `🕒 *Timings:* 09:00 AM – 09:00 PM (Daily)\n` +
-    `📞 *Direct Helpline:* Saud Bhai (+91 96347 22174)`;
+    `📞 *Direct Helpline:* Saud Khan (+91 96347 22174)`;
 
   if (contact?.id && accountId && userId && conversationId) {
     await engineSendText({

@@ -336,6 +336,11 @@ export async function GET(request: Request) {
         paid_amount: parsed.paidAmount,
         remaining_amount: parsed.remainingAmount,
         status: parsed.status,
+        delivery_status: (link as any).delivery_status || (link as any).metadata?.delivery_status || 'Confirmed',
+        rider_name: (link as any).rider_name || (link as any).metadata?.rider_name || null,
+        rider_phone: (link as any).rider_phone || (link as any).metadata?.rider_phone || null,
+        delivered_at: (link as any).delivered_at || (link as any).metadata?.delivered_at || null,
+        delivery_notes: (link as any).delivery_notes || (link as any).metadata?.delivery_notes || null,
         part_details: stripPartialMetadataTag(link.part_details),
         contact_category: cat,
       });

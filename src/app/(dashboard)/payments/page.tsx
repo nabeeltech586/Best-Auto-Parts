@@ -22,6 +22,8 @@ import {
   AlertCircle,
   Wallet,
   Phone,
+  Bike,
+  Package,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +41,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SendPaymentLinkDialog } from '@/components/inbox/send-payment-link-dialog';
 import { CustomerReceiptDialog } from '@/components/payments/customer-receipt-dialog';
 import { RecordCustomerPaymentDialog } from '@/components/payments/record-customer-payment-dialog';
+import { LocalDeliveryDialog } from '@/components/orders/local-delivery-dialog';
 import { formatCurrency } from '@/lib/currency';
 import { stripPartialMetadataTag } from '@/lib/payments/partial-metadata';
 import { cn } from '@/lib/utils';
@@ -54,6 +57,11 @@ export interface PaymentLinkItem {
   paid_amount?: number;
   remaining_amount?: number;
   status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
+  delivery_status?: 'Confirmed' | 'Packed / Ready' | 'Out for Delivery (Local Rider)' | 'Delivered' | string;
+  rider_name?: string | null;
+  rider_phone?: string | null;
+  delivered_at?: string | null;
+  delivery_notes?: string | null;
   razorpay_payment_link_url?: string;
   razorpay_payment_link_id?: string;
   razorpay_payment_id?: string;
@@ -127,6 +135,7 @@ function PaymentsPageInner() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentLinkItem | null>(null);
   const [payingRecord, setPayingRecord] = useState<PaymentLinkItem | null>(null);
+  const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState<PaymentLinkItem | null>(null);
 
   // Sync state if URL search params change
   useEffect(() => {
@@ -645,6 +654,28 @@ function PaymentsPageInner() {
                       <span className="text-xs text-muted-foreground truncate" title={cleanPartDetails(item.part_details)}>
                         {cleanPartDetails(item.part_details)}
                       </span>
+                      {item.delivery_status && item.delivery_status !== 'Confirmed' ? (
+                        <div className="mt-1 flex items-center gap-1">
+                          {item.delivery_status === 'Delivered' ? (
+                            <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] px-1.5 py-0 gap-1 font-medium">
+                              <CheckCircle2 className="size-2.5" /> Delivered
+                            </Badge>
+                          ) : item.delivery_status === 'Out for Delivery (Local Rider)' ? (
+                            <Badge className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 text-[10px] px-1.5 py-0 gap-1 font-medium">
+                              <Bike className="size-2.5" /> Out for Delivery
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-[10px] px-1.5 py-0 gap-1 font-medium">
+                              <Package className="size-2.5" /> {item.delivery_status}
+                            </Badge>
+                          )}
+                          {item.rider_name && (
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[90px]" title={`Rider: ${item.rider_name}`}>
+                              • {item.rider_name}
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </TableCell>
 
@@ -796,6 +827,22 @@ function PaymentsPageInner() {
                         <span>Receipt</span>
                       </Button>
 
+                      {/* Local Rider Delivery Assignment Action */}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedDeliveryOrder(item)}
+                        className={cn(
+                          "h-8 px-2.5 text-xs gap-1 border-border text-foreground hover:bg-muted cursor-pointer",
+                          item.delivery_status === 'Out for Delivery (Local Rider)' && "border-indigo-500/30 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10",
+                          item.delivery_status === 'Delivered' && "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
+                        )}
+                        title="Assign Local Rider & Update Delivery Status"
+                      >
+                        <Bike className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>Delivery</span>
+                      </Button>
+
                       {/* For PENDING & PARTIAL rows: Show Send Payment Link via WhatsApp & Check Status */}
                       {item.status !== 'PAID' && (
                         <>
@@ -896,6 +943,29 @@ function PaymentsPageInner() {
         onOpenChange={(v) => !v && setPayingRecord(null)}
         order={payingRecord}
         onSuccess={() => fetchLinks(true)}
+      />
+
+      {/* Local Rider Delivery Assignment Modal */}
+      <LocalDeliveryDialog
+        open={Boolean(selectedDeliveryOrder)}
+        onOpenChange={(v) => !v && setSelectedDeliveryOrder(null)}
+        order={selectedDeliveryOrder}
+        onSuccess={(updated) => {
+          setLinks((prev) =>
+            prev.map((l) =>
+              l.order_id === updated.orderId || l.merchant_transaction_id === updated.orderId
+                ? {
+                    ...l,
+                    delivery_status: updated.deliveryStatus,
+                    rider_name: updated.riderName,
+                    rider_phone: updated.riderPhone,
+                    delivery_notes: updated.deliveryNotes,
+                  }
+                : l
+            )
+          );
+          fetchLinks(true);
+        }}
       />
     </div>
   );

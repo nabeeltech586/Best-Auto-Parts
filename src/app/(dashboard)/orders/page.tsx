@@ -24,6 +24,7 @@ import {
   Search,
   Building2,
   Receipt,
+  Bike,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -60,6 +61,7 @@ import type { PurchaseOrder, PurchaseOrderPaymentStatus } from '@/types/inventor
 import { SupplierReceiptDialog } from '@/components/orders/supplier-receipt-dialog';
 import { SendPoDialog } from '@/components/orders/send-po-dialog';
 import { StockReceivedDialog } from '@/components/orders/stock-received-dialog';
+import { LocalDeliveryDialog, type LocalDeliveryOrderTarget } from '@/components/orders/local-delivery-dialog';
 
 export default function OrderHistoryPage() {
   return (
@@ -95,6 +97,7 @@ function OrderHistoryPageInner() {
   const [selectedPoReceipt, setSelectedPoReceipt] = useState<PurchaseOrder | null>(null);
   const [selectedPoToSend, setSelectedPoToSend] = useState<PurchaseOrder | null>(null);
   const [selectedPoToThank, setSelectedPoToThank] = useState<PurchaseOrder | null>(null);
+  const [selectedDeliveryOrder, setSelectedDeliveryOrder] = useState<LocalDeliveryOrderTarget | null>(null);
 
   // Record Payment Dialog State for Purchase Orders
   const [payingPo, setPayingPo] = useState<PurchaseOrder | null>(null);
@@ -456,6 +459,25 @@ function OrderHistoryPageInner() {
           >
             <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setSelectedDeliveryOrder({
+                order_id: '',
+                customer_name: '',
+                customer_phone: '',
+                part_details: '',
+                delivery_status: 'Out for Delivery (Local Rider)',
+              })
+            }
+            className="gap-1.5 border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 cursor-pointer"
+            title="Assign Local Rider & Dispatch Delivery"
+          >
+            <Bike className="size-4 text-indigo-600 dark:text-indigo-400" />
+            <span>Local Rider Delivery</span>
           </Button>
 
           <Link
@@ -1103,6 +1125,13 @@ function OrderHistoryPageInner() {
         onOpenChange={(v) => !v && setSelectedPoToThank(null)}
         order={selectedPoToThank}
         onSentSuccess={fetchData}
+      />
+
+      {/* Local Rider Delivery Assignment Modal */}
+      <LocalDeliveryDialog
+        open={Boolean(selectedDeliveryOrder)}
+        onOpenChange={(v) => !v && setSelectedDeliveryOrder(null)}
+        order={selectedDeliveryOrder}
       />
     </div>
   );
