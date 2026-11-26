@@ -1482,43 +1482,37 @@ async function checkCustomerOrderPaymentStatus(
     }
 
     const shortRef = orderRef.slice(-6)
-    const bodyText = isHinglish
-      ? `📷 *Scan karke Pay karein: ₹${totalAmt.toFixed(2)}*\n` +
-        `Product: ${selectedPartName}\n` +
-        `Payee: Best Auto Parts (Saud Bhai)\n` +
-        `Order ID: #${shortRef}\n\n` +
-        `1. Apne PhonePe, Google Pay ya Paytm se scan karein.\n` +
-        `2. ₹${totalAmt.toFixed(2)} ka amount automatically pre-filled hai.\n` +
-        `3. Kripya agle 15 minutes ke andar payment complete karein.\n\n` +
-        `⏱️ *Yeh Dynamic QR agle 15 minutes ke liye valid hai.*\n` +
-        `✅ Payment verify hote hi order confirm ho jayega.`
-      : `📷 *Scan to Pay: ₹${totalAmt.toFixed(2)}*\n` +
-        `Product: ${selectedPartName}\n` +
-        `Payee: Best Auto Parts (Saud Bhai)\n` +
-        `Order ID: #${shortRef}\n\n` +
-        `1. Scan this dynamic QR using PhonePe, Google Pay, or Paytm.\n` +
-        `2. The amount ₹${totalAmt.toFixed(2)} is pre-filled.\n` +
-        `3. Please complete payment within 15 minutes.\n\n` +
-        `⏱️ *This Dynamic QR will expire in 15 minutes.*\n` +
-        `✅ Your order will be confirmed automatically once verified.`;
-
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://best-auto-parts-one.vercel.app'
-    const qrImageUrl = `${siteUrl}/api/payments/phonepe/qr/${encodeURIComponent(orderRef)}`
+    const payUrl = `${siteUrl}/pay?order=${encodeURIComponent(orderRef)}&amount=${totalAmt}`
 
-    let mediaMessageId: string | undefined
+    const bodyText = isHinglish
+      ? `💳 *Online Payment Link: ₹${totalAmt.toFixed(2)}*\n` +
+        `Product: ${selectedPartName}\n` +
+        `Payee: Best Auto Parts (Saud Bhai)\n` +
+        `Order ID: #${shortRef}\n\n` +
+        `👉 *Pay securely via Razorpay:* ${payUrl}\n\n` +
+        `1. UPI (Google Pay, PhonePe, Paytm, BHIM), Cards aur NetBanking supported hain.\n` +
+        `2. Payment complete hote hi aapko WhatsApp par instant receipt mil jayegi.`
+      : `💳 *Online Payment Link: ₹${totalAmt.toFixed(2)}*\n` +
+        `Product: ${selectedPartName}\n` +
+        `Payee: Best Auto Parts (Saud Bhai)\n` +
+        `Order ID: #${shortRef}\n\n` +
+        `👉 *Pay securely via Razorpay:* ${payUrl}\n\n` +
+        `1. Supports UPI (Google Pay, PhonePe, Paytm, BHIM), Cards, and NetBanking.\n` +
+        `2. Your order will be confirmed with an instant receipt once paid.`;
+
+    let textMessageId: string | undefined
     try {
-      const mediaRes = await engineSendMedia({
+      const textRes = await engineSendText({
         accountId,
         userId,
         conversationId,
         contactId,
-        kind: 'image',
-        link: qrImageUrl,
-        caption: bodyText,
+        text: bodyText,
       })
-      mediaMessageId = mediaRes?.whatsapp_message_id
-    } catch (mediaErr) {
-      console.warn('[welcome-flow] engineSendMedia fallback:', mediaErr)
+      textMessageId = textRes?.whatsapp_message_id
+    } catch (sendErr) {
+      console.warn('[welcome-flow] engineSendText fallback:', sendErr)
     }
 
     const res = await engineSendInteractiveButtons({
@@ -1534,7 +1528,7 @@ async function checkCustomerOrderPaymentStatus(
         { id: WELCOME_CALLBACKS.BACK_TO_MENU, title: 'Main Menu' },
       ],
     })
-    return { consumed: true, responseSent: bodyText, messageId: mediaMessageId || res.whatsapp_message_id }
+    return { consumed: true, responseSent: bodyText, messageId: textMessageId || res.whatsapp_message_id }
   }
 
   // UPI ID Payment / Same-phone Web Checkout Flow
@@ -1716,11 +1710,11 @@ async function checkCustomerOrderPaymentStatus(
   // Customer Claims Payment Done via WhatsApp text / typed UTR
   if (PAYMENT_CLAIM_REGEX.test(rawText)) {
     const text = isHinglish
-      ? `Ham aapka payment PhonePe gateway ke saath verify kar rahe hain. ⏳\n\n` +
+      ? `Ham aapka payment Razorpay gateway ke saath verify kar rahe hain. ⏳\n\n` +
         `Best Auto Parts ka system gateway se cryptographically verified confirmation milne par hi order confirm karta hai.\n` +
         `Jaise hi verification complete hogi, aapko official receipt send kar di jayegi!\n\n` +
         `Kisi bhi inquiry ke liye aap hamare store staff se baat kar sakte hain.`
-      : `We are verifying your transaction with the PhonePe gateway. ⏳\n\n` +
+      : `We are verifying your transaction with the Razorpay gateway. ⏳\n\n` +
         `Best Auto Parts confirms orders automatically once cryptographic gateway confirmation is received.\n` +
         `You will receive your official receipt here as soon as verification completes!\n\n` +
         `If you have questions, please feel free to speak with our store staff.`;

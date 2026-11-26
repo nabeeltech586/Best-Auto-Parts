@@ -1194,16 +1194,13 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     })
 
     expect(res.consumed).toBe(true)
-    // Dynamic QR image dispatch verified via engineSendMedia
-    expect(sentMedia.length).toBe(1)
-    const mediaCall = sentMedia[0]
-    expect(mediaCall.kind).toBe('image')
-    expect(mediaCall.link).toContain('/api/payments/phonepe/qr/')
-    expect(mediaCall.caption).toContain('Scan karke Pay karein: ₹340.00')
-    expect(mediaCall.caption).toContain('15 minutes')
-    expect(mediaCall.caption).toContain('Saud Bhai')
+    const textCall = sentTexts.find((t) => t.text.includes('Online Payment Link'))
+    expect(textCall).toBeDefined()
+    expect(textCall?.text).toContain('/pay?order=')
+    expect(textCall?.text).toContain('₹340.00')
+    expect(textCall?.text).toContain('Saud Bhai')
     // Guarantee stock privacy: no counts
-    expect(mediaCall.caption).not.toMatch(/\b(in stock|remaining|units left)\b/i)
+    expect(textCall?.text).not.toMatch(/\b(in stock|remaining|units left)\b/i)
 
     // Interactive button alternatives sent for same-phone users
     const btnCall = sentButtons[sentButtons.length - 1]
@@ -1382,7 +1379,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     expect(res.consumed).toBe(true)
     const txtCall = sentTexts[sentTexts.length - 1]
-    expect(txtCall.text).toContain('Ham aapka payment PhonePe gateway ke saath verify kar rahe hain')
+    expect(txtCall.text).toContain('Ham aapka payment Razorpay gateway ke saath verify kar rahe hain')
     // Order in DB MUST still be pending!
     const { data: orders } = await (db as any).from('orders').select('*')
     expect(orders[0].order_status).toBe('pending_payment')
@@ -1714,7 +1711,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
   // ------------------------------------------------------------
   // Test 45: Product search -> Click BUY_NOW -> Shows Store Pickup, Home Delivery, Online Payment
   // ------------------------------------------------------------
-  it('45. End-to-end: Product search -> BUY_NOW -> Online Payment -> PhonePe choices', async () => {
+  it('45. End-to-end: Product search -> BUY_NOW -> Online Payment -> Razorpay choices', async () => {
     const db = createFakeDb({
       contacts: [{ id: 'c-e2e', account_id: accountId, preferred_language: 'hinglish' }],
       parts_catalog: [samplePulsarClutchPart],

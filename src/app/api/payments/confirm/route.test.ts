@@ -163,6 +163,7 @@ describe('POST /api/payments/confirm', () => {
                       remaining_amount: 0,
                       status: 'PAID',
                       payment_mode: 'UPI / QR',
+                      razorpay_payment_id: 'ALREADY_PAID_UTR',
                       phonepe_transaction_id: 'ALREADY_PAID_UTR',
                       paid_at: '2026-11-25T08:00:00.000Z',
                     },

@@ -1022,8 +1022,8 @@ function OrderHistoryPageInner() {
                       className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                     >
                       <option value="Cash">Cash in Hand</option>
-                      <option value="UPI">UPI (GooglePay / PhonePe / Paytm)</option>
-                      <option value="PhonePe">PhonePe Direct / PG</option>
+                      <option value="UPI">UPI (GooglePay / Paytm / BHIM)</option>
+                      <option value="Razorpay">Razorpay Payment Link / Online</option>
                       <option value="Bank Transfer">Bank Transfer (IMPS / NEFT / RTGS)</option>
                       <option value="Cheque">Bank Cheque</option>
                     </select>

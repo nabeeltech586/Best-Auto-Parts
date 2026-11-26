@@ -23,6 +23,7 @@ interface PaymentData {
   customerName?: string
   partDetails?: string
   paymentMode?: string
+  razorpayPaymentId?: string
   phonepeTransactionId?: string
   paidAt?: string
 }
@@ -203,11 +204,11 @@ function PaymentStatusContent() {
                 {txnId}
               </span>
             </div>
-            {data?.phonepeTransactionId && (
+            {(data?.razorpayPaymentId || data?.phonepeTransactionId) && (
               <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">PhonePe Ref ID:</span>
+                <span className="text-slate-500">Payment Ref ID:</span>
                 <span className="font-mono text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                  {data.phonepeTransactionId}
+                  {data.razorpayPaymentId || data.phonepeTransactionId}
                 </span>
               </div>
             )}

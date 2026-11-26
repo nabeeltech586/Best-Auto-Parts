@@ -1,7 +1,7 @@
 import { redirect, RedirectType } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle2, AlertCircle, Phone, ArrowLeft, ShieldCheck, Clock, FileCheck2 } from 'lucide-react'
-import { getPaymentLinkByTxnId } from '@/lib/payments/phonepe-link'
+import { getPaymentLinkByTxnId } from '@/lib/payments/razorpay'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,10 +56,11 @@ export default async function PayRedirectPage({ params }: PayPageProps) {
     redirect(checkoutUrl, RedirectType.replace)
   }
 
-  // 3. Pending State -> Clean Redirect to PhonePe Gateway or BestPay Checkout
+  // 3. Pending State -> Redirect to Razorpay Payment Link or BestPay Checkout
   if (record.status === 'PENDING') {
-    if (record.phonepe_redirect_url) {
-      redirect(record.phonepe_redirect_url, RedirectType.replace)
+    const liveUrl = record.razorpay_payment_link_url || record.phonepe_redirect_url
+    if (liveUrl) {
+      redirect(liveUrl, RedirectType.replace)
     } else {
       const checkoutUrl = `/pay?order=${encodeURIComponent(record.order_id)}&phone=${encodeURIComponent(
         record.customer_phone

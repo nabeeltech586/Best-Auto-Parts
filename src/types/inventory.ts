@@ -334,7 +334,7 @@ export interface CreatePurchaseOrderPayload {
 // SUPPLIER / DISTRIBUTOR KHATA & PAYMENTS
 // ============================================================
 
-export type SupplierPaymentMode = 'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque' | 'PhonePe' | 'Cash / Quick Settle' | string;
+export type SupplierPaymentMode = 'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque' | 'Razorpay' | 'Cash / Quick Settle' | string;
 
 export interface SupplierPayment {
   id: string;

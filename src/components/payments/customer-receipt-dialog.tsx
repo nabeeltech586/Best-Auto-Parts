@@ -33,6 +33,7 @@ export interface ReceiptOrderData {
   part_details: string;
   amount: number;
   status: 'PENDING' | 'PAID' | 'FAILED' | string;
+  razorpay_payment_id?: string | null;
   phonepe_transaction_id?: string | null;
   payment_mode?: string | null;
   paid_at?: string | null;
@@ -73,7 +74,7 @@ export function CustomerReceiptDialog({
     `• Amount Paid: ${formatCurrency(order.amount)}\n` +
     `• Status: ${isPaid ? 'PAID (Success) ✅' : order.status}\n` +
     `• Payment Mode: ${order.payment_mode || 'UPI / QR'}\n` +
-    `• Transaction Ref / UTR: ${order.phonepe_transaction_id || 'VERIFIED'}\n` +
+    `• Transaction Ref / UTR: ${order.razorpay_payment_id || order.phonepe_transaction_id || 'VERIFIED'}\n` +
     `• Stock Status: Auto-Deducted (-1 Unit) ✅\n` +
     `• Date & Time: ${formattedDate}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -270,7 +271,7 @@ export function CustomerReceiptDialog({
             <div className="flex justify-between items-center pt-2">
               <span className="text-muted-foreground text-xs">Transaction Ref / UTR:</span>
               <span className="font-mono text-muted-foreground text-[11px] truncate max-w-[200px]">
-                {order.phonepe_transaction_id || 'VERIFIED'}
+                {order.razorpay_payment_id || order.phonepe_transaction_id || 'VERIFIED'}
               </span>
             </div>
 

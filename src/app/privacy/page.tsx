@@ -49,7 +49,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">4. Payment Processing Security</h2>
             <p>
-              Online payments are processed securely through PhonePe Payment Gateway (a regulated payment aggregator under the Reserve Bank of India).
+              Online payments are processed securely through Razorpay Payment Gateway (a regulated payment aggregator under the Reserve Bank of India).
               Transaction verification is performed through secure server-to-server APIs with SHA-256 HMAC cryptographic signatures.
             </p>
           </section>
@@ -61,7 +61,7 @@ export default function PrivacyPage() {
             </p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li>Authorized logistics and courier partners strictly for delivery execution.</li>
-              <li>PhonePe Payment Gateway for payment processing and dispute resolution.</li>
+              <li>Razorpay Payment Gateway for payment processing and dispute resolution.</li>
               <li>Legal or regulatory authorities if required under Indian law.</li>
             </ul>
           </section>

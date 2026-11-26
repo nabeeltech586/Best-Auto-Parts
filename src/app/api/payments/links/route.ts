@@ -425,6 +425,8 @@ export async function PATCH(request: Request) {
       paid_at: status === 'PAID' ? currentLink.paid_at || nowIso : currentLink.paid_at,
       updated_at: nowIso,
       part_details: updatedPartDetails,
+      razorpay_payment_id: body.utr || currentLink.razorpay_payment_id || currentLink.phonepe_transaction_id,
+      phonepe_transaction_id: body.utr || currentLink.phonepe_transaction_id,
     };
 
     if (status === 'PAID') {

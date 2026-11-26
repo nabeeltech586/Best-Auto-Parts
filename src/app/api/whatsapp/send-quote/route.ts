@@ -119,7 +119,7 @@ export async function POST(request: Request) {
         `• Grand Total Due: ${priceStr}\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
         linkLine +
-        `⚡ Supports UPI (Google Pay, PhonePe, Paytm, BHIM), Dynamic QR Code & Cash at shop.\n` +
+        `⚡ Supports Instant UPI (Google Pay, Paytm, PhonePe, BHIM), Cards & NetBanking via Razorpay.\n` +
         `📍 Counter Pickup: Kailashpur, Saharanpur, UP 247001\n` +
         `📞 Customer Care: Saud Bhai (+91 96347 22174)\n\n` +
         `Thank you for choosing *Best Auto Parts*!`;

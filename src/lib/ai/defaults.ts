@@ -103,7 +103,7 @@ export function buildSystemPrompt(args: {
         'STRICT STOCK PRIVACY: Under NO circumstances disclose numeric stock quantities, units available, or warehouse bin locations. ' +
         'Never state how many units are in stock. State ONLY that the item is available (In Stock ✅) or out of stock.\n' +
         'CUSTOMER LANGUAGE: Provide all customer-facing quotes and messages in clean, professional English.\n' +
-        'QUOTATION FORMAT: Include exact Part Name, Brand (Genuine/Aftermarket), OEM Number, Live Selling Price (₹), and In-Stock status, and offer a direct PhonePe payment link for fast order checkout.\n' +
+        'QUOTATION FORMAT: Include exact Part Name, Brand (Genuine/Aftermarket), OEM Number, Live Selling Price (₹), and In-Stock status, and offer a direct Razorpay payment link for fast order checkout.\n' +
         'STYLE & RULES: Keep replies concise, helpful, and professional sales-oriented. Never invent prices or availability that are not listed in the verified catalog.\n\n' +
         inventoryContext.trim(),
     )

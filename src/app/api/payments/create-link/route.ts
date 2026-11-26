@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createPhonePePaymentLink } from '@/lib/payments/phonepe-link'
+import { createRazorpayPaymentLink } from '@/lib/payments/razorpay'
 
 export async function POST(request: Request) {
   try {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const result = await createPhonePePaymentLink({
+    const result = await createRazorpayPaymentLink({
       orderId,
       customerName,
       customerPhone,
@@ -42,10 +42,11 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       paymentLink: result.paymentLink,
+      shortUrl: result.shortUrl,
       merchantTransactionId: result.merchantTransactionId,
       orderId: result.orderId,
       amount: result.amount,
-      phonePeRedirectUrl: result.phonePeRedirectUrl,
+      razorpayPaymentLinkId: result.paymentLinkId,
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)

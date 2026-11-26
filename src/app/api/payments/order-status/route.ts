@@ -78,7 +78,7 @@ export async function GET(request: Request) {
         remainingAmount: rawRemaining,
         status: effectiveStatus,
         paymentMode: existingLink.payment_mode || 'UPI / QR',
-        referenceId: existingLink.phonepe_transaction_id || 'VERIFIED',
+        referenceId: existingLink.razorpay_payment_id || existingLink.phonepe_transaction_id || 'VERIFIED',
         paidAt: existingLink.paid_at || null,
         createdAt: existingLink.created_at,
       });

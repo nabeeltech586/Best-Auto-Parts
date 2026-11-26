@@ -878,7 +878,7 @@ export function MessageComposer({
         onPick={handlePickQuickReply}
       />
 
-      {/* PhonePe Payment Link Dialog */}
+      {/* Razorpay Payment Link Dialog */}
       <SendPaymentLinkDialog
         open={paymentDialogOpen}
         onOpenChange={setPaymentDialogOpen}

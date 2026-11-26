@@ -57,7 +57,7 @@ export default function RefundPolicyPage() {
             </p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li><strong>Verification:</strong> Inspection is completed within 2 business days of receipt.</li>
-              <li><strong>Refund Processing:</strong> Refunds are processed back to the original payment source via PhonePe Payment Gateway.</li>
+              <li><strong>Refund Processing:</strong> Refunds are processed back to the original payment source via Razorpay Payment Gateway.</li>
               <li><strong>Bank Settlement Timeline:</strong> Funds typically credit to your UPI-linked bank account within <strong>5 to 7 business days</strong> depending on your issuing bank.</li>
             </ul>
           </section>

@@ -78,7 +78,7 @@ export async function POST(request: Request) {
         message: 'Payment Already Verified & Recorded!',
         status: 'PAID',
         order_id: existingLink.order_id || ord,
-        utr: existingLink.phonepe_transaction_id || cleanUtr,
+        utr: existingLink.razorpay_payment_id || existingLink.phonepe_transaction_id || cleanUtr,
         amount: Number(existingLink.amount) || rawAmt,
         total_amount: Number(existingLink.amount) || rawAmt,
         paid_amount: Number(existingLink.amount) || rawAmt,
@@ -123,6 +123,7 @@ export async function POST(request: Request) {
       const updatePayload: Record<string, unknown> = {
         status: newStatus,
         payment_mode: mode,
+        razorpay_payment_id: cleanUtr,
         phonepe_transaction_id: cleanUtr,
         part_details: updatedPartDetails,
         paid_at: nowIso,

@@ -75,7 +75,7 @@ export const META_ICEBREAKERS: Record<string, IcebreakerDef> = {
     ],
     responseTemplate:
       'Welcome Partner! 🔧 Your account has been tagged under *Mechanic / Wholesale*.\n\n' +
-      'Please send your bulk spare parts list (text or photo) — we will verify live stock and share our best wholesale quote (₹) along with a direct PhonePe payment link.',
+      'Please send your bulk spare parts list (text or photo) — we will verify live stock and share our best wholesale quote (₹) along with a direct Razorpay payment link.',
   },
   saud_bhai_call: {
     id: 'icebreaker_4_saud_bhai_call',

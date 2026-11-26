@@ -8,6 +8,7 @@
 import { engineSendText } from '@/lib/flows/meta-send';
 import { deductStockForSale } from '@/lib/inventory/stock-deduction';
 import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
+import { createRazorpayPaymentLink } from '@/lib/payments/razorpay';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface WhatsAppOrderItem {
@@ -160,23 +161,22 @@ export async function handleCatalogOrderInbound(
       console.warn('[catalog-order] orders table insert warning:', orderInsertErr.message);
     }
 
-    // 4. Insert into payment_links table
+    // 4. Generate Live Razorpay Payment Link & Record in BestPay Ledger
+    let paymentLinkUrl = '';
     try {
-      await db.from('payment_links').insert({
-        account_id: accountId,
-        order_id: orderId,
-        merchant_transaction_id: `BAP_${orderId}`,
-        customer_name: customerName,
-        customer_phone: senderPhone,
-        part_details: itemizedDescription,
+      const rzpRes = await createRazorpayPaymentLink({
+        orderId,
+        customerName,
+        customerPhone: senderPhone,
+        partDetails: itemizedDescription,
         amount: grandTotal,
-        status: 'PENDING',
-        payment_mode: 'UPI_COLLECT',
-        created_at: nowIso,
-        updated_at: nowIso,
+        accountId,
+        userId,
+        conversationId,
       });
+      paymentLinkUrl = rzpRes.shortUrl;
     } catch (plErr: any) {
-      console.warn('[catalog-order] payment_links insert warning:', plErr.message);
+      console.warn('[catalog-order] Razorpay payment link generation warning:', plErr.message);
     }
 
     // 5. Deduct inventory stock in parts_catalog and log in stock_movements
@@ -212,6 +212,10 @@ export async function handleCatalogOrderInbound(
       ? `\n📝 *Your Note:* "${order.text.trim()}"`
       : '';
 
+    const paymentLinkSection = paymentLinkUrl
+      ? `💳 *Pay Online via Razorpay Link:*\n👉 ${paymentLinkUrl}\n_(Instant UPI, Google Pay, PhonePe, Paytm, Cards & NetBanking)_\n\n`
+      : `💳 *Pay Online via Razorpay Link:*\n👉 https://best-auto-parts-one.vercel.app/pay?order=${orderId}&amount=${grandTotal}\n\n`;
+
     const confirmationText =
       `🛒 *ORDER CONFIRMATION — BEST AUTO PARTS* 🏍️\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -223,14 +227,11 @@ export async function handleCatalogOrderInbound(
       `${itemizedMsgLines}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💰 *Total Payable:* *₹${grandTotal.toFixed(2)}*${customerNoteLine}\n\n` +
+      paymentLinkSection +
       `📍 *Store Pickup & Delivery:*\n` +
       `Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
       `🕒 *Timings:* 09:00 AM – 09:00 PM (Daily)\n` +
       `🕌 *Friday Break:* 12:30 PM – 02:30 PM\n\n` +
-      `💳 *Instant UPI Payment:*\n` +
-      `• *UPI ID:* \`9761224004-2@ybl\`\n` +
-      `• *Name:* Saud Khan (Best Auto Parts)\n\n` +
-      `Please pay via any UPI App (GPay / PhonePe / Paytm / BHIM) and reply with the screenshot here for fast collection / dispatch!\n\n` +
       `📞 *Customer Care Helpline:* Saud Bhai (+91 96347 22174)`;
 
     await engineSendText({

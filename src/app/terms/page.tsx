@@ -41,7 +41,7 @@ export default function TermsPage() {
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">3. Pricing and Payments</h2>
             <p>
               All prices are quoted in Indian Rupees (₹ / INR) inclusive of applicable taxes. Online payments are processed securely through
-              PhonePe Payment Gateway via UPI ID, dynamic UPI QR code, and UPI Intent. We never ask for your UPI PIN, banking passwords, or OTPs.
+              Razorpay Payment Gateway via UPI, cards, and netbanking. We never ask for your UPI PIN, banking passwords, or OTPs.
             </p>
           </section>
 

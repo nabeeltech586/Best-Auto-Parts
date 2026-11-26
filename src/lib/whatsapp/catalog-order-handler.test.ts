@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { handleCatalogOrderInbound } from './catalog-order-handler';
+import { createRazorpayPaymentLink } from '@/lib/payments/razorpay';
 
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: vi.fn().mockResolvedValue({ success: true, messageId: 'wamid.msg123' }),
@@ -25,6 +26,18 @@ vi.mock('@/lib/inventory/stock-deduction', () => ({
 
 vi.mock('@/lib/catalog/meta-sync', () => ({
   triggerCatalogSync: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@/lib/payments/razorpay', () => ({
+  createRazorpayPaymentLink: vi.fn().mockResolvedValue({
+    success: true,
+    paymentLink: 'https://rzp.io/i/testOrderLink',
+    shortUrl: 'https://rzp.io/i/testOrderLink',
+    paymentLinkId: 'plink_order123',
+    merchantTransactionId: 'ORD-CAT-123',
+    orderId: 'ORD-CAT-123',
+    amount: 170,
+  }),
 }));
 
 describe('handleCatalogOrderInbound', () => {
@@ -167,10 +180,16 @@ describe('handleCatalogOrderInbound', () => {
     expect(insertedOrders[0].total_amount).toBe(170);
     expect(insertedOrders[0].quantity).toBe(2);
 
-    // Verify payment link inserted
-    expect(insertedPaymentLinks.length).toBe(1);
-    expect(insertedPaymentLinks[0].customer_name).toBe('Mohd Rashid');
-    expect(insertedPaymentLinks[0].amount).toBe(170);
+    // Verify Razorpay payment link created
+    expect(createRazorpayPaymentLink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: expect.stringMatching(/^ORD-CAT-/),
+        amount: 170,
+        customerName: 'Mohd Rashid',
+        customerPhone: fakePhone,
+        accountId: fakeAccountId,
+      })
+    );
 
     // Verify stock deduction called
     expect(deductStockForSale).toHaveBeenCalledWith(
@@ -181,14 +200,14 @@ describe('handleCatalogOrderInbound', () => {
       })
     );
 
-    // Verify WhatsApp reply sent with UPI details & Kailashpur address
+    // Verify WhatsApp reply sent with Razorpay link & Kailashpur address
     expect(engineSendText).toHaveBeenCalledTimes(1);
     const sentMessage = (engineSendText as any).mock.calls[0][0].text;
     expect(sentMessage).toContain('Mohd Rashid');
     expect(sentMessage).toContain('Hero Splendor Brake Shoe');
     expect(sentMessage).toContain('₹170.00');
-    expect(sentMessage).toContain('9761224004-2@ybl');
-    expect(sentMessage).toContain('Saud Khan');
+    expect(sentMessage).toContain('Pay Online via Razorpay Link');
+    expect(sentMessage).toContain('https://rzp.io/i/testOrderLink');
     expect(sentMessage).toContain('Kailashpur, Saharanpur, UP 247001');
     expect(sentMessage).toContain('+91 96347 22174');
   });

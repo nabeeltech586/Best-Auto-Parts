@@ -54,6 +54,9 @@ export interface PaymentLinkItem {
   paid_amount?: number;
   remaining_amount?: number;
   status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
+  razorpay_payment_link_url?: string;
+  razorpay_payment_link_id?: string;
+  razorpay_payment_id?: string;
   phonepe_redirect_url?: string;
   phonepe_transaction_id?: string;
   payment_mode?: string;
@@ -220,8 +223,11 @@ function PaymentsPageInner() {
     }
   };
 
-  // Generate customer payment URL (bound strictly to remaining balance if PARTIAL)
+  // Generate customer payment URL (live Razorpay Payment Link or checkout page)
   const getPayUrl = (item: PaymentLinkItem) => {
+    if (item.status !== 'PARTIAL' && item.razorpay_payment_link_url) {
+      return item.razorpay_payment_link_url;
+    }
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const payableAmount =
       item.status === 'PARTIAL' && item.remaining_amount !== undefined
@@ -739,8 +745,8 @@ function PaymentsPageInner() {
                                 : 'UPI / QR'
                               : 'UPI / QR'}
                           </span>
-                          <span className="text-muted-foreground font-mono text-[10px]" title={item.phonepe_transaction_id}>
-                            Ref: {item.phonepe_transaction_id || 'VERIFIED'}
+                          <span className="text-muted-foreground font-mono text-[10px]" title={item.razorpay_payment_id || item.phonepe_transaction_id}>
+                            Ref: {item.razorpay_payment_id || item.phonepe_transaction_id || 'VERIFIED'}
                           </span>
                         </>
                       ) : item.status === 'PARTIAL' ? (
@@ -804,8 +810,8 @@ function PaymentsPageInner() {
                               const payUrl = getPayUrl(item);
                               const msg =
                                 item.status === 'PARTIAL'
-                                  ? `⚡ *Payment Reminder / Balance Due — Best Auto Parts*\n\n• *Order ID:* #${item.order_id}\n• *Total Bill:* ${formatCurrency(item.amount)}\n• *Already Paid:* ${formatCurrency(item.paid_amount || 0)}\n• *Remaining Balance Due:* *${formatCurrency(remaining)}*\n\n👉 *Pay remaining balance securely:* ${payUrl}\n\n📍 Kailashpur, Saharanpur • +91 96347 22174`
-                                  : `⚡ *Payment Link — Best Auto Parts*\n\n• *Order ID:* #${item.order_id}\n• *Amount Due:* *${formatCurrency(item.amount)}*\n\n👉 *Pay securely here:* ${payUrl}\n\n📍 Kailashpur, Saharanpur • +91 96347 22174`;
+                                  ? `⚡ *Payment Reminder / Balance Due — Best Auto Parts*\n\n• *Order ID:* #${item.order_id}\n• *Total Bill:* ${formatCurrency(item.amount)}\n• *Already Paid:* ${formatCurrency(item.paid_amount || 0)}\n• *Remaining Balance Due:* *${formatCurrency(remaining)}*\n\n👉 *Pay remaining balance securely via Razorpay:* ${payUrl}\n\n📍 Kailashpur, Saharanpur • +91 96347 22174`
+                                  : `⚡ *Razorpay Payment Link — Best Auto Parts*\n\n• *Order ID:* #${item.order_id}\n• *Amount Due:* *${formatCurrency(item.amount)}*\n\n👉 *Pay securely here via Razorpay (UPI, GPay, Cards):* ${payUrl}\n\n📍 Kailashpur, Saharanpur • +91 96347 22174`;
                               const cleanDigits = item.customer_phone.replace(/[^0-9]/g, '');
                               const waUrl = `https://wa.me/${cleanDigits}?text=${encodeURIComponent(msg)}`;
                               window.open(waUrl, '_blank');

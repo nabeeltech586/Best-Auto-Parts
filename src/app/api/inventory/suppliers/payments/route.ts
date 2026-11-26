@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       const m = String(body.payment_mode).toLowerCase();
       if (m.includes('quick') || m.includes('settle')) paymentMode = 'Cash / Quick Settle';
       else if (m.includes('upi') || m.includes('gpay') || m.includes('paytm')) paymentMode = 'UPI';
-      else if (m.includes('phonepe')) paymentMode = 'PhonePe';
+      else if (m.includes('razorpay') || m.includes('phonepe')) paymentMode = 'Razorpay';
       else if (m.includes('bank') || m.includes('transfer') || m.includes('neft') || m.includes('rtgs') || m.includes('imps')) paymentMode = 'Bank Transfer';
       else if (m.includes('cash')) paymentMode = 'Cash';
       else if (m.includes('cheque') || m.includes('check')) paymentMode = 'Cheque';

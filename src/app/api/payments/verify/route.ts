@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { verifyAndSyncPaymentStatus, getPaymentLinkByTxnId } from '@/lib/payments/phonepe-link'
+import { verifyAndSyncPaymentStatus, getPaymentLinkByTxnId } from '@/lib/payments/razorpay'
 
 export async function GET(request: Request) {
   try {
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       customerName: record?.customer_name,
       partDetails: record?.part_details,
       paymentMode: record?.payment_mode,
-      phonepeTransactionId: record?.phonepe_transaction_id,
+      razorpayPaymentId: record?.razorpay_payment_id || record?.phonepe_transaction_id,
       paidAt: record?.paid_at,
     })
   } catch (err: unknown) {
