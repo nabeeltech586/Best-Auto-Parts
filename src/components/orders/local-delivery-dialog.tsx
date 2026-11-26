@@ -1,20 +1,15 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   Bike,
   Package,
   CheckCircle2,
   Clock,
-  Send,
   Loader2,
-  Phone,
   User,
   MapPin,
-  MessageSquare,
-  AlertCircle,
-  Truck,
 } from 'lucide-react';
 import {
   Dialog,
@@ -38,17 +33,26 @@ export type DeliveryStatusOption =
   | 'Delivered';
 
 export interface LocalDeliveryOrderTarget {
-  id?: string;
-  order_id: string;
-  merchant_transaction_id?: string;
-  customer_name?: string;
-  customer_phone?: string;
-  part_details?: string;
-  amount?: number;
-  delivery_status?: DeliveryStatusOption | string;
+  id?: string | null;
+  order_id?: string | null;
+  reference_id?: string | null;
+  referenceId?: string | null;
+  orderId?: string | null;
+  merchant_transaction_id?: string | null;
+  customer_name?: string | null;
+  customerName?: string | null;
+  customer_phone?: string | null;
+  customerPhone?: string | null;
+  part_details?: string | null;
+  amount?: number | string | null;
+  delivery_status?: DeliveryStatusOption | string | null;
+  deliveryStatus?: DeliveryStatusOption | string | null;
   rider_name?: string | null;
+  riderName?: string | null;
   rider_phone?: string | null;
+  riderPhone?: string | null;
   delivery_notes?: string | null;
+  deliveryNotes?: string | null;
 }
 
 interface LocalDeliveryDialogProps {
@@ -71,12 +75,135 @@ const COMMON_RIDERS = [
   { name: 'Store Express Delivery', phone: '+91 96347 22174' },
 ];
 
+function extractOrderDetails(order: LocalDeliveryOrderTarget | null | undefined) {
+  if (!order) {
+    return {
+      orderId: '',
+      customerName: 'Customer',
+      customerPhone: '',
+      partDetails: 'Motorcycle Spare Parts',
+      amount: 0,
+      deliveryStatus: 'Confirmed' as DeliveryStatusOption,
+      riderName: '',
+      riderPhone: '',
+      deliveryNotes: '',
+    };
+  }
+
+  const rawOrderId =
+    order.order_id ||
+    order.orderId ||
+    order.reference_id ||
+    order.referenceId ||
+    order.merchant_transaction_id ||
+    order.id ||
+    '';
+
+  const customerName =
+    order.customer_name || order.customerName || 'Customer';
+
+  const customerPhone =
+    order.customer_phone || order.customerPhone || '';
+
+  const partDetails =
+    order.part_details || 'Motorcycle Spare Parts';
+
+  const rawAmount = order.amount;
+  const numAmount =
+    typeof rawAmount === 'number' && !isNaN(rawAmount)
+      ? rawAmount
+      : Number(rawAmount) || 0;
+
+  const rawStatus = (order.delivery_status || order.deliveryStatus || 'Confirmed') as string;
+  let deliveryStatus: DeliveryStatusOption = 'Confirmed';
+  if (rawStatus === 'Packed / Ready') {
+    deliveryStatus = 'Packed / Ready';
+  } else if (rawStatus.includes('Out for Delivery')) {
+    deliveryStatus = 'Out for Delivery (Local Rider)';
+  } else if (rawStatus === 'Delivered') {
+    deliveryStatus = 'Delivered';
+  }
+
+  const riderName = order.rider_name || order.riderName || '';
+  const riderPhone = order.rider_phone || order.riderPhone || '';
+  const deliveryNotes = order.delivery_notes || order.deliveryNotes || '';
+
+  return {
+    orderId: String(rawOrderId).trim(),
+    customerName: String(customerName).trim(),
+    customerPhone: String(customerPhone).trim(),
+    partDetails: String(partDetails).trim(),
+    amount: numAmount,
+    deliveryStatus,
+    riderName: String(riderName).trim(),
+    riderPhone: String(riderPhone).trim(),
+    deliveryNotes: String(deliveryNotes).trim(),
+  };
+}
+
+function generatePreviewMessage(args: {
+  deliveryStatus: DeliveryStatusOption;
+  displayOrderId: string;
+  customerName: string;
+  riderName: string;
+  riderPhone: string;
+}): string | null {
+  const { deliveryStatus, displayOrderId, customerName, riderName, riderPhone } = args;
+  const custName = customerName || 'Customer';
+  const cleanRider = (riderName || '').trim() || 'Store Delivery Executive';
+  const cleanPhone = (riderPhone || '').trim() || '+91 96347 22174';
+
+  if (deliveryStatus === 'Out for Delivery (Local Rider)') {
+    return (
+      `🛵 *OUT FOR DELIVERY — ORDER ${displayOrderId}* 📦\n` +
+      `Hello ${custName}! Your auto parts order is packed and now *Out for Delivery* with our Local Rider.\n\n` +
+      `📦 *Delivery Order ID:* *${displayOrderId}*\n` +
+      `👤 *Local Rider Name:* *${cleanRider}*\n` +
+      `📞 *Rider Mobile Number:* *${cleanPhone}*\n` +
+      `📍 *Destination:* Kailashpur / Saharanpur Local Area\n\n` +
+      `Please keep your phone reachable. Our rider will contact you upon arriving at your location.\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📍 *Best Auto Parts:* Kailashpur, Saharanpur, UP 247001\n` +
+      `📞 *Customer Care:* Saud Khan (+91 96347 22174)`
+    );
+  }
+
+  if (deliveryStatus === 'Delivered') {
+    let timeStr = 'Just now';
+    try {
+      timeStr = new Date().toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch {
+      timeStr = 'Just now';
+    }
+
+    return (
+      `✅ *ORDER DELIVERED — ORDER ${displayOrderId}* 🏍️\n` +
+      `Dear ${custName}, your spare parts order has been successfully delivered by our local rider!\n\n` +
+      `📦 *Delivery Order ID:* *${displayOrderId}*\n` +
+      `👤 *Delivered By:* *${cleanRider}*\n` +
+      `📞 *Rider Contact:* *${cleanPhone}*\n` +
+      `🕒 *Delivered At:* ${timeStr}\n\n` +
+      `Thank you for trusting Best Auto Parts for your two-wheeler spare parts!\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `📍 *Best Auto Parts:* Kailashpur, Saharanpur, UP 247001\n` +
+      `📞 *Direct Helpline:* Saud Khan (+91 96347 22174)`
+    );
+  }
+
+  return null;
+}
+
 export function LocalDeliveryDialog({
   open,
   onOpenChange,
   order,
   onSuccess,
 }: LocalDeliveryDialogProps) {
+  // ALL hooks called unconditionally at the very top
   const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatusOption>('Confirmed');
   const [customOrderId, setCustomOrderId] = useState('');
   const [customCustomerName, setCustomCustomerName] = useState('');
@@ -92,95 +219,81 @@ export function LocalDeliveryDialog({
   // Sync state whenever selected order changes
   useEffect(() => {
     if (order) {
-      const currentStatus = (order.delivery_status as DeliveryStatusOption) || 'Confirmed';
-      setDeliveryStatus(currentStatus);
-      setCustomOrderId(order.order_id || '');
-      setCustomCustomerName(order.customer_name || '');
-      setCustomCustomerPhone(order.customer_phone || '');
-      setCustomPartDetails(order.part_details || '');
-      setRiderName(order.rider_name || '');
-      setRiderPhone(order.rider_phone || '');
-      setDeliveryNotes(order.delivery_notes || '');
+      const details = extractOrderDetails(order);
+      setDeliveryStatus(details.deliveryStatus);
+      setCustomOrderId(details.orderId);
+      setCustomCustomerName(details.customerName);
+      setCustomCustomerPhone(details.customerPhone);
+      setCustomPartDetails(details.partDetails);
+      setRiderName(details.riderName);
+      setRiderPhone(details.riderPhone);
+      setDeliveryNotes(details.deliveryNotes);
+      setNotifyCustomer(true);
+    } else {
+      setDeliveryStatus('Confirmed');
+      setCustomOrderId('');
+      setCustomCustomerName('');
+      setCustomCustomerPhone('');
+      setCustomPartDetails('');
+      setRiderName('');
+      setRiderPhone('');
+      setDeliveryNotes('');
       setNotifyCustomer(true);
     }
   }, [order]);
 
   // Lookup order details if customOrderId changed in blank mode
   const handleLookupOrder = async (idToLook: string) => {
-    const clean = idToLook.trim().replace(/^#/, '');
+    const clean = (idToLook || '').trim().replace(/^#/, '');
     if (!clean) return;
     setLookingUp(true);
     try {
       const res = await fetch(`/api/orders/delivery-status?orderId=${encodeURIComponent(clean)}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.customerName) setCustomCustomerName(data.customerName);
-        if (data.customerPhone) setCustomCustomerPhone(data.customerPhone);
-        if (data.deliveryStatus) setDeliveryStatus(data.deliveryStatus);
-        if (data.riderName) setRiderName(data.riderName);
-        if (data.riderPhone) setRiderPhone(data.riderPhone);
-        if (data.deliveryNotes) setDeliveryNotes(data.deliveryNotes);
-        toast.info(`Loaded details for Order #${clean}`);
+        if (data) {
+          if (data.customerName) setCustomCustomerName(String(data.customerName));
+          if (data.customerPhone) setCustomCustomerPhone(String(data.customerPhone));
+          if (data.deliveryStatus) {
+            const raw = String(data.deliveryStatus);
+            if (raw === 'Packed / Ready') setDeliveryStatus('Packed / Ready');
+            else if (raw.includes('Out for Delivery')) setDeliveryStatus('Out for Delivery (Local Rider)');
+            else if (raw === 'Delivered') setDeliveryStatus('Delivered');
+            else setDeliveryStatus('Confirmed');
+          }
+          if (data.riderName) setRiderName(String(data.riderName));
+          if (data.riderPhone) setRiderPhone(String(data.riderPhone));
+          if (data.deliveryNotes) setDeliveryNotes(String(data.deliveryNotes));
+          toast.info(`Loaded details for Order #${clean}`);
+        }
       }
     } catch {
-      // quiet
+      // safe fallback
     } finally {
       setLookingUp(false);
     }
   };
 
-  if (!order) return null;
+  const details = extractOrderDetails(order);
+  const effectiveOrderId = (customOrderId || details.orderId || 'ORDER').trim();
+  const displayOrderId = effectiveOrderId.startsWith('#') ? effectiveOrderId : `#${effectiveOrderId}`;
+  const effectiveCustName = (customCustomerName || details.customerName || 'Customer').trim();
+  const effectiveCustPhone = (customCustomerPhone || details.customerPhone || '').trim();
+  const effectiveParts = (customPartDetails || details.partDetails || 'Motorcycle Spare Parts').trim();
 
-  const rawOrderId = customOrderId || order.order_id || order.merchant_transaction_id || 'ORDER';
-  const displayOrderId = rawOrderId.startsWith('#') ? rawOrderId : `#${rawOrderId}`;
-  const effectiveCustName = customCustomerName || order.customer_name || 'Customer';
-  const effectiveCustPhone = customCustomerPhone || order.customer_phone || '';
-  const effectiveParts = customPartDetails || order.part_details || 'Motorcycle Spare Parts';
-
-  // Live WhatsApp message preview
-  const previewMessage = useMemo(() => {
-    const custName = effectiveCustName;
-    const cleanRider = riderName.trim() || 'Store Delivery Executive';
-    const cleanPhone = riderPhone.trim() || '+91 96347 22174';
-
-    if (deliveryStatus === 'Out for Delivery (Local Rider)') {
-      return (
-        `🛵 *OUT FOR DELIVERY — ORDER ${displayOrderId}* 📦\n` +
-        `Hello ${custName}! Your auto parts order is packed and now *Out for Delivery* with our Local Rider.\n\n` +
-        `📦 *Delivery Order ID:* *${displayOrderId}*\n` +
-        `👤 *Local Rider Name:* *${cleanRider}*\n` +
-        `📞 *Rider Mobile Number:* *${cleanPhone}*\n` +
-        `📍 *Destination:* Kailashpur / Saharanpur Local Area\n\n` +
-        `Please keep your phone reachable. Our rider will contact you upon arriving at your location.\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📍 *Best Auto Parts:* Kailashpur, Saharanpur, UP 247001\n` +
-        `📞 *Customer Care:* Saud Khan (+91 96347 22174)`
-      );
-    }
-
-    if (deliveryStatus === 'Delivered') {
-      return (
-        `✅ *ORDER DELIVERED — ORDER ${displayOrderId}* 🏍️\n` +
-        `Dear ${custName}, your spare parts order has been successfully delivered by our local rider!\n\n` +
-        `📦 *Delivery Order ID:* *${displayOrderId}*\n` +
-        `👤 *Delivered By:* *${cleanRider}*\n` +
-        `📞 *Rider Contact:* *${cleanPhone}*\n` +
-        `🕒 *Delivered At:* ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}\n\n` +
-        `Thank you for trusting Best Auto Parts for your two-wheeler spare parts!\n` +
-        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `📍 *Best Auto Parts:* Kailashpur, Saharanpur, UP 247001\n` +
-        `📞 *Direct Helpline:* Saud Khan (+91 96347 22174)`
-      );
-    }
-
-    return null;
-  }, [deliveryStatus, displayOrderId, order.customer_name, riderName, riderPhone]);
+  // Compute preview message cleanly without hook dependencies
+  const previewMessage = generatePreviewMessage({
+    deliveryStatus,
+    displayOrderId,
+    customerName: effectiveCustName,
+    riderName,
+    riderPhone,
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!order) return;
 
-    const targetOrderId = customOrderId.trim() || order.order_id;
+    const targetOrderId = (customOrderId || details.orderId || '').trim();
     if (!targetOrderId) {
       toast.error('Please specify a Delivery Order ID');
       return;
@@ -194,9 +307,9 @@ export function LocalDeliveryDialog({
         body: JSON.stringify({
           orderId: targetOrderId,
           deliveryStatus,
-          riderName: riderName.trim(),
-          riderPhone: riderPhone.trim(),
-          deliveryNotes: deliveryNotes.trim(),
+          riderName: (riderName || '').trim(),
+          riderPhone: (riderPhone || '').trim(),
+          deliveryNotes: (deliveryNotes || '').trim(),
           customerPhone: effectiveCustPhone,
           customerName: effectiveCustName,
           notifyCustomer,
@@ -216,11 +329,11 @@ export function LocalDeliveryDialog({
 
       if (onSuccess) {
         onSuccess({
-          orderId: order.order_id,
+          orderId: targetOrderId,
           deliveryStatus,
-          riderName: riderName.trim(),
-          riderPhone: riderPhone.trim(),
-          deliveryNotes: deliveryNotes.trim(),
+          riderName: (riderName || '').trim(),
+          riderPhone: (riderPhone || '').trim(),
+          deliveryNotes: (deliveryNotes || '').trim(),
         });
       }
 
@@ -233,9 +346,10 @@ export function LocalDeliveryDialog({
     }
   };
 
+  // Radix Dialog handles visibility via open prop cleanly
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+    <Dialog open={Boolean(open && order)} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[95vw] sm:max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-xl">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -247,7 +361,7 @@ export function LocalDeliveryDialog({
                   Local Rider Delivery Assignment
                 </DialogTitle>
                 <DialogDescription className="text-xs">
-                  Manage local delivery dispatch across Kailashpur & Saharanpur
+                  Manage local delivery dispatch across Kailashpur &amp; Saharanpur
                 </DialogDescription>
               </div>
             </div>
@@ -258,7 +372,7 @@ export function LocalDeliveryDialog({
         </DialogHeader>
 
         {/* Order Details Card */}
-        {!order.order_id ? (
+        {!details.orderId ? (
           <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs space-y-2.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -303,11 +417,13 @@ export function LocalDeliveryDialog({
               <div className="flex items-center gap-1.5 font-medium text-foreground">
                 <User className="size-3.5 text-muted-foreground" />
                 <span>{effectiveCustName}</span>
-                <span className="text-muted-foreground font-mono">({effectiveCustPhone})</span>
+                {effectiveCustPhone && (
+                  <span className="text-muted-foreground font-mono">({effectiveCustPhone})</span>
+                )}
               </div>
-              {order.amount ? (
+              {details.amount > 0 ? (
                 <span className="font-bold text-foreground">
-                  {formatCurrency(order.amount)}
+                  {formatCurrency(details.amount)}
                 </span>
               ) : null}
             </div>
@@ -469,7 +585,7 @@ export function LocalDeliveryDialog({
                   className="rounded border-border text-emerald-600 focus:ring-emerald-500 size-4"
                 />
                 <span className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                  Send real-time WhatsApp delivery alert to {order.customer_phone || 'customer'}
+                  Send real-time WhatsApp delivery alert to {effectiveCustPhone || 'customer'}
                 </span>
               </label>
 
@@ -488,7 +604,7 @@ export function LocalDeliveryDialog({
               size="sm"
               onClick={() => onOpenChange(false)}
               disabled={submitting}
-              className="text-xs"
+              className="text-xs cursor-pointer"
             >
               Cancel
             </Button>
@@ -496,7 +612,7 @@ export function LocalDeliveryDialog({
               type="submit"
               size="sm"
               disabled={submitting}
-              className="text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+              className="text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"
             >
               {submitting ? (
                 <>
