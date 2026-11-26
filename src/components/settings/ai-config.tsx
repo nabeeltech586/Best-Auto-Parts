@@ -323,7 +323,7 @@ export function AiConfig() {
                     id="ai-base-url"
                     value={baseUrl}
                     onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder="https://api.example.com/v1"
+                    placeholder="https://api.openai.com/v1"
                     disabled={disabled}
                     autoComplete="off"
                   />

@@ -34,6 +34,11 @@ CREATE INDEX IF NOT EXISTS idx_razorpay_payments_link_id
 CREATE INDEX IF NOT EXISTS idx_razorpay_payments_payment_id 
   ON public.razorpay_payments (razorpay_payment_id);
 
+-- Enforce strict unique index on razorpay_payment_id once assigned to guarantee idempotency
+CREATE UNIQUE INDEX IF NOT EXISTS uq_razorpay_payments_payment_id 
+  ON public.razorpay_payments (razorpay_payment_id)
+  WHERE razorpay_payment_id IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_razorpay_payments_order_id 
   ON public.razorpay_payments (order_id);
 

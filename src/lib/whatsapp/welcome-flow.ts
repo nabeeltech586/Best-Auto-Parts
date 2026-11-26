@@ -1482,7 +1482,13 @@ async function checkCustomerOrderPaymentStatus(
     }
 
     const shortRef = orderRef.slice(-6)
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://best-auto-parts-one.vercel.app'
+    const rawSiteUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      'https://best-auto-parts-one.vercel.app'
+    const siteUrl = rawSiteUrl.includes('example.com')
+      ? 'https://best-auto-parts-one.vercel.app'
+      : rawSiteUrl.replace(/\/+$/, '')
     const payUrl = `${siteUrl}/pay?order=${encodeURIComponent(orderRef)}&amount=${totalAmt}`
 
     const bodyText = isHinglish

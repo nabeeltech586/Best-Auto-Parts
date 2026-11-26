@@ -26,7 +26,7 @@ write guards:
 
 | Variable                  | Required | Purpose                                                        |
 | ------------------------- | -------- | -------------------------------------------------------------- |
-| `WACRM_BASE_URL`          | yes      | Your instance URL, e.g. `https://crm.example.com`              |
+| `WACRM_BASE_URL`          | yes      | Your instance URL, e.g. `https://best-auto-parts-one.vercel.app`              |
 | `WACRM_API_KEY`           | yes      | An API key from the dashboard                                  |
 | `WACRM_ENABLE_WRITES`     | no       | `true` to expose contact writes + message sending             |
 | `WACRM_ENABLE_BROADCASTS` | no       | `true` to expose mass broadcasts (needs `WACRM_ENABLE_WRITES`) |
@@ -43,7 +43,7 @@ Add to your MCP client config (e.g. `claude_desktop_config.json`, or
       "command": "npx",
       "args": ["-y", "wacrm-mcp"],
       "env": {
-        "WACRM_BASE_URL": "https://crm.example.com",
+        "WACRM_BASE_URL": "https://best-auto-parts-one.vercel.app",
         "WACRM_API_KEY": "wacrm_live_xxxxxxxxxxxxxxxxxxxxxxxx"
       }
     }
@@ -56,7 +56,7 @@ assistant change data or send messages, add the write guards:
 
 ```jsonc
 "env": {
-  "WACRM_BASE_URL": "https://crm.example.com",
+  "WACRM_BASE_URL": "https://best-auto-parts-one.vercel.app",
   "WACRM_API_KEY": "wacrm_live_xxxxxxxxxxxxxxxxxxxxxxxx",
   "WACRM_ENABLE_WRITES": "true",
   "WACRM_ENABLE_BROADCASTS": "true"

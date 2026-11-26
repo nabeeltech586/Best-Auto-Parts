@@ -6,6 +6,23 @@ vi.mock('@/lib/payments/razorpay', async () => {
   const actual = await vi.importActual<any>('@/lib/payments/razorpay');
   return {
     ...actual,
+    verifyRazorpayWebhookSignature: vi.fn((body, sig, secret) => {
+      if (!body || !sig) return false;
+      const sec = secret || process.env.RAZORPAY_WEBHOOK_SECRET || '';
+      if (!sec) return false;
+      const expected = crypto.createHmac('sha256', sec).update(body).digest('hex');
+      return expected === sig;
+    }),
+    processRazorpayPaymentSuccess: vi.fn().mockImplementation(async (input) => ({
+      success: true,
+      alreadyProcessed: false,
+      paymentId: input.paymentId,
+      orderId: input.orderId,
+      deliveryOrderId: input.orderId,
+      ledgerCredited: true,
+      receiptSent: true,
+      message: 'Payment processed successfully',
+    })),
     markPaymentAsPaid: vi.fn().mockResolvedValue({
       id: 'plink_1',
       order_id: 'ORD-CAT-101',
@@ -97,12 +114,12 @@ describe('Razorpay Webhook Route (/api/webhooks/razorpay)', () => {
     expect(json.orderId).toBe('ORD-CAT-101');
     expect(json.paymentId).toBe('pay_live_554433');
 
-    const { markPaymentAsPaid } = await import('@/lib/payments/razorpay');
-    expect(markPaymentAsPaid).toHaveBeenCalledWith(
+    const { processRazorpayPaymentSuccess } = await import('@/lib/payments/razorpay');
+    expect(processRazorpayPaymentSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         orderId: 'ORD-CAT-101',
-        razorpayPaymentId: 'pay_live_554433',
-        razorpayPaymentLinkId: 'plink_998877',
+        paymentId: 'pay_live_554433',
+        paymentLinkId: 'plink_998877',
         paymentMode: 'upi',
         amount: 85,
       })
@@ -147,11 +164,11 @@ describe('Razorpay Webhook Route (/api/webhooks/razorpay)', () => {
     expect(json.success).toBe(true);
     expect(json.paymentId).toBe('pay_direct_112233');
 
-    const { markPaymentAsPaid } = await import('@/lib/payments/razorpay');
-    expect(markPaymentAsPaid).toHaveBeenCalledWith(
+    const { processRazorpayPaymentSuccess } = await import('@/lib/payments/razorpay');
+    expect(processRazorpayPaymentSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         orderId: 'ORD-CAT-202',
-        razorpayPaymentId: 'pay_direct_112233',
+        paymentId: 'pay_direct_112233',
         paymentMode: 'card',
         amount: 350,
       })

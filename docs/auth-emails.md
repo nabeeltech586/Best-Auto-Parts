@@ -18,7 +18,7 @@ forwards to the page the flow needs:
 | Password reset | `/forgot-password` | `/auth/callback?next=/reset-password` |
 
 "The app's own origin" is the origin the browser loaded the page from
-(`window.location.origin`) — `https://crm.example.com` in production,
+(`window.location.origin`) — `https://best-auto-parts-one.vercel.app` in production,
 `http://localhost:3000` in local dev. No environment variable is
 involved.
 
@@ -39,11 +39,11 @@ the whole story behind "the confirmation link points at localhost".
 
 Dashboard → **Authentication → URL Configuration**:
 
-1. **Site URL** — your production origin, e.g. `https://crm.example.com`.
+1. **Site URL** — your production origin, e.g. `https://best-auto-parts-one.vercel.app`.
 2. **Redirect URLs** — add a wildcard for every origin the app runs on:
 
    ```text
-   https://crm.example.com/**
+   https://best-auto-parts-one.vercel.app/**
    http://localhost:3000/**
    ```
 
@@ -62,8 +62,8 @@ reads them from its environment. In the `.env` next to your
 `docker-compose.yml`:
 
 ```env
-SITE_URL=https://crm.example.com
-ADDITIONAL_REDIRECT_URLS=https://crm.example.com/**,http://localhost:3000/**
+SITE_URL=https://best-auto-parts-one.vercel.app
+ADDITIONAL_REDIRECT_URLS=https://best-auto-parts-one.vercel.app/**,http://localhost:3000/**
 ```
 
 (Older setups name these `GOTRUE_SITE_URL` and `GOTRUE_URI_ALLOW_LIST`.)

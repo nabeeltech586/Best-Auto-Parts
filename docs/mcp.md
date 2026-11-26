@@ -28,7 +28,7 @@ other API call.
          "command": "npx",
          "args": ["-y", "wacrm-mcp"],
          "env": {
-           "WACRM_BASE_URL": "https://crm.example.com",
+           "WACRM_BASE_URL": "https://best-auto-parts-one.vercel.app",
            "WACRM_API_KEY": "wacrm_live_xxxxxxxxxxxxxxxxxxxxxxxx"
          }
        }

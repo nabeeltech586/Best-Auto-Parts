@@ -2,10 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import { POST } from './route';
 
-vi.mock('@/lib/flows/admin-client', () => ({
-  supabaseAdmin: vi.fn(),
-}));
-
 vi.mock('@/lib/payments/razorpay', () => ({
   verifyRazorpayWebhookSignature: vi.fn((body, sig, secret) => {
     if (!body || !sig) return false;
@@ -14,52 +10,36 @@ vi.mock('@/lib/payments/razorpay', () => ({
     const expected = crypto.createHmac('sha256', sec).update(body).digest('hex');
     return expected === sig;
   }),
-  markPaymentAsPaid: vi.fn().mockResolvedValue({
-    id: 'plink_1',
-    order_id: 'ORD-CAT-101',
-    status: 'PAID',
-  }),
-  creditBestPayLedgerBalance: vi.fn().mockResolvedValue({
-    credited: true,
-    contactId: 'cont_1',
-    previousBalance: 2550,
-    newBalance: 1050,
-  }),
-  sendWhatsAppReceiptVoucherTemplate: vi.fn().mockResolvedValue({
-    success: true,
-    messageId: 'wamid.HBgM...',
+  processRazorpayPaymentSuccess: vi.fn().mockImplementation(async (input) => {
+    if (input.paymentId === 'pay_already_processed') {
+      return {
+        success: true,
+        alreadyProcessed: true,
+        paymentId: input.paymentId,
+        orderId: input.orderId,
+        deliveryOrderId: input.orderId,
+        message: 'Already processed (idempotent)',
+      };
+    }
+    return {
+      success: true,
+      alreadyProcessed: false,
+      paymentId: input.paymentId,
+      orderId: input.orderId,
+      deliveryOrderId: input.orderId,
+      ledgerCredited: true,
+      receiptSent: true,
+      message: 'Payment processed successfully',
+    };
   }),
 }));
 
 describe('POST /api/razorpay/webhook', () => {
   const webhookSecret = 'test_webhook_secret_999';
 
-  beforeEach(async () => {
+  beforeEach(() => {
     process.env.RAZORPAY_WEBHOOK_SECRET = webhookSecret;
     vi.clearAllMocks();
-
-    const { supabaseAdmin } = await import('@/lib/flows/admin-client');
-    (supabaseAdmin as any).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === 'razorpay_payments') {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                limit: vi.fn().mockResolvedValue({
-                  data: [], // not paid yet (not duplicate)
-                  error: null,
-                }),
-              }),
-            }),
-            update: vi.fn().mockReturnValue({
-              or: vi.fn().mockResolvedValue({ error: null }),
-              eq: vi.fn().mockResolvedValue({ error: null }),
-            }),
-          };
-        }
-        return {};
-      }),
-    });
   });
 
   it('returns 400 when x-razorpay-signature header is missing', async () => {
@@ -92,7 +72,7 @@ describe('POST /api/razorpay/webhook', () => {
     expect(json.error).toContain('Invalid signature');
   });
 
-  it('processes payment_link.paid event and credits BestPay ledger', async () => {
+  it('processes payment_link.paid event and delegates to processRazorpayPaymentSuccess', async () => {
     const payload = {
       event: 'payment_link.paid',
       payload: {
@@ -146,40 +126,22 @@ describe('POST /api/razorpay/webhook', () => {
     expect(json.orderId).toBe('ORD-CAT-1500');
     expect(json.ledgerCredited).toBe(true);
 
-    const { markPaymentAsPaid, creditBestPayLedgerBalance, sendWhatsAppReceiptVoucherTemplate } =
-      await import('@/lib/payments/razorpay');
-
-    expect(markPaymentAsPaid).toHaveBeenCalledWith(
+    const { processRazorpayPaymentSuccess } = await import('@/lib/payments/razorpay');
+    expect(processRazorpayPaymentSuccess).toHaveBeenCalledWith(
       expect.objectContaining({
         orderId: 'ORD-CAT-1500',
-        razorpayPaymentId: 'pay_live_776655',
-        razorpayPaymentLinkId: 'plink_776655',
+        paymentId: 'pay_live_776655',
+        paymentLinkId: 'plink_776655',
         paymentMode: 'upi',
         amount: 1500,
-      })
-    );
-
-    expect(creditBestPayLedgerBalance).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amount: 1500,
-        paymentId: 'pay_live_776655',
-        orderId: 'ORD-CAT-1500',
         ledgerId: 'MECH-007',
-        customerPhone: '+919761224004',
-      })
-    );
-
-    expect(sendWhatsAppReceiptVoucherTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({
         customerName: 'Nabeel Pathan',
         customerPhone: '+919761224004',
-        receiptId: 'ORD-CAT-1500',
-        amount: 1500,
       })
     );
   });
 
-  it('processes payment.captured event and credits BestPay ledger', async () => {
+  it('processes payment.captured event successfully', async () => {
     const payload = {
       event: 'payment.captured',
       payload: {
@@ -222,7 +184,7 @@ describe('POST /api/razorpay/webhook', () => {
     expect(json.orderId).toBe('ORD-CAT-850');
   });
 
-  it('processes order.paid event and credits BestPay ledger', async () => {
+  it('processes order.paid event successfully', async () => {
     const payload = {
       event: 'order.paid',
       payload: {
@@ -272,25 +234,6 @@ describe('POST /api/razorpay/webhook', () => {
   });
 
   it('handles idempotency by returning 200 without reprocessing when already paid', async () => {
-    const { supabaseAdmin } = await import('@/lib/flows/admin-client');
-    (supabaseAdmin as any).mockReturnValue({
-      from: vi.fn((table: string) => {
-        if (table === 'razorpay_payments') {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                limit: vi.fn().mockResolvedValue({
-                  data: [{ id: 'row_1', status: 'paid', razorpay_payment_id: 'pay_already_processed' }],
-                  error: null,
-                }),
-              }),
-            }),
-          };
-        }
-        return {};
-      }),
-    });
-
     const payload = {
       event: 'payment.captured',
       payload: {
@@ -325,8 +268,6 @@ describe('POST /api/razorpay/webhook', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.message).toContain('Already processed (idempotent)');
-
-    const { markPaymentAsPaid } = await import('@/lib/payments/razorpay');
-    expect(markPaymentAsPaid).not.toHaveBeenCalled();
+    expect(json.alreadyProcessed).toBe(true);
   });
 });

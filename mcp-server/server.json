@@ -19,7 +19,7 @@
       "environmentVariables": [
         {
           "name": "WACRM_BASE_URL",
-          "description": "Base URL of your wacrm instance, e.g. https://crm.example.com",
+          "description": "Base URL of your wacrm instance, e.g. https://best-auto-parts-one.vercel.app",
           "isRequired": true,
           "isSecret": false,
           "format": "string"

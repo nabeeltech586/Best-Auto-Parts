@@ -95,8 +95,12 @@ function isHostAllowed(
 }
 
 function getBaseUrl(request: Request): string {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (explicit) return explicit.replace(/\/+$/, "");
+  const explicit = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    ""
+  ).trim();
+  if (explicit && !explicit.includes("example.com")) return explicit.replace(/\/+$/, "");
 
   const allowList = parseAllowedHosts();
   const forwardedHost = request.headers
@@ -134,7 +138,11 @@ function getBaseUrl(request: Request): string {
       "[POST /api/account/invitations] could not derive base URL from request; falling back to marketing domain",
     );
   }
-  return "https://wacrm.tech";
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "https://best-auto-parts-one.vercel.app"
+  ).replace(/\/+$/, "");
 }
 
 const MAX_LABEL_LEN = 80;

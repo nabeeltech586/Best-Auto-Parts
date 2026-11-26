@@ -100,11 +100,15 @@ export function getRazorpayConfig() {
     '';
   const keySecret = process.env.RAZORPAY_KEY_SECRET || '';
   const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
-  const appUrl = (
+  let appUrl = (
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     'https://best-auto-parts-one.vercel.app'
   ).replace(/\/+$/, '');
+
+  if (!appUrl || appUrl.includes('example.com') || !appUrl.startsWith('http')) {
+    appUrl = 'https://best-auto-parts-one.vercel.app';
+  }
 
   return {
     keyId: keyId.trim(),
@@ -349,10 +353,7 @@ export async function getPaymentLinkByTxnId(
   return localLinkCache.get(clean) || null;
 }
 
-/**
- * Marks payment as PAID, updates orders & payment_links, deducts stock, and sends WhatsApp receipt.
- */
-export async function markPaymentAsPaid(args: {
+export interface MarkPaymentAsPaidInput {
   merchantTransactionId?: string;
   orderId?: string;
   razorpayPaymentId: string;
@@ -360,7 +361,14 @@ export async function markPaymentAsPaid(args: {
   paymentMode?: string;
   paidAt?: string;
   amount?: number;
-}): Promise<PaymentLinkRecord | null> {
+  skipReceipt?: boolean;
+  skipLedgerCredit?: boolean;
+}
+
+/**
+ * Marks payment as PAID, updates orders & payment_links, deducts stock, and sends WhatsApp receipt.
+ */
+export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<PaymentLinkRecord | null> {
   const db = supabaseAdmin();
   const nowIso = args.paidAt || new Date().toISOString();
   const targetId =
@@ -370,6 +378,7 @@ export async function markPaymentAsPaid(args: {
     '';
 
   const record = await getPaymentLinkByTxnId(targetId);
+  const alreadyPaid = record?.status === 'PAID';
 
   const updates: Record<string, unknown> = {
     status: 'PAID',
@@ -444,12 +453,14 @@ export async function markPaymentAsPaid(args: {
         updated_at: nowIso,
       };
       let qRzp = rzpTable.update(rzpUpdates);
-      if (args.razorpayPaymentLinkId) {
-        qRzp = qRzp.or(
-          `razorpay_payment_link_id.eq.${args.razorpayPaymentLinkId},order_id.eq.${targetId},ledger_id.eq.${targetId}`
-        );
-      } else {
-        qRzp = qRzp.or(`order_id.eq.${targetId},ledger_id.eq.${targetId}`);
+      if (typeof qRzp.or === 'function') {
+        if (args.razorpayPaymentLinkId) {
+          qRzp = qRzp.or(
+            `razorpay_payment_link_id.eq.${args.razorpayPaymentLinkId},order_id.eq.${targetId},ledger_id.eq.${targetId}`
+          );
+        } else {
+          qRzp = qRzp.or(`order_id.eq.${targetId},ledger_id.eq.${targetId}`);
+        }
       }
       await qRzp;
     }
@@ -457,39 +468,330 @@ export async function markPaymentAsPaid(args: {
     console.warn('[Razorpay] razorpay_payments update notice:', rzpErr);
   }
 
-  // Deduct inventory stock in parts_catalog and log in stock_movements
+  // Deduct inventory stock in parts_catalog and log in stock_movements (skip if already paid)
   const targetRecord = record || (await getPaymentLinkByTxnId(targetId));
-  if (targetRecord) {
+  if (targetRecord && !alreadyPaid) {
     await deductStockForPaidOrder(targetRecord, db).catch((err) => {
       console.warn('[Razorpay] Stock deduction error:', err);
     });
 
-    // Credit customer/mechanic balance in BestPay ledger
-    await creditBestPayLedgerBalance({
-      amount: args.amount || targetRecord.amount || 0,
-      paymentId: args.razorpayPaymentId,
-      orderId: targetRecord.order_id,
-      ledgerId: targetRecord.merchant_transaction_id?.startsWith('LEDGER_')
-        ? targetRecord.merchant_transaction_id
-        : undefined,
-      customerPhone: targetRecord.customer_phone,
-      customerName: targetRecord.customer_name,
-      paymentMode: args.paymentMode,
-      description: targetRecord.part_details,
-      db,
-    }).catch((err) => {
-      console.warn('[Razorpay] creditBestPayLedgerBalance error:', err);
-    });
+    if (!args.skipLedgerCredit) {
+      // Credit customer/mechanic balance in BestPay ledger
+      await creditBestPayLedgerBalance({
+        amount: args.amount || targetRecord.amount || 0,
+        paymentId: args.razorpayPaymentId,
+        orderId: targetRecord.order_id,
+        ledgerId: targetRecord.merchant_transaction_id?.startsWith('LEDGER_')
+          ? targetRecord.merchant_transaction_id
+          : undefined,
+        customerPhone: targetRecord.customer_phone,
+        customerName: targetRecord.customer_name,
+        paymentMode: args.paymentMode,
+        description: targetRecord.part_details,
+        db,
+      }).catch((err) => {
+        console.warn('[Razorpay] creditBestPayLedgerBalance error:', err);
+      });
+    }
   }
 
-  // Trigger WhatsApp payment receipt confirmation to customer
-  if (targetRecord && targetRecord.customer_phone) {
+  // Trigger WhatsApp payment receipt confirmation to customer (skip if already paid or explicitly skipped)
+  if (targetRecord && targetRecord.customer_phone && !alreadyPaid && !args.skipReceipt) {
     await sendWhatsAppPaymentConfirmation(targetRecord, args.razorpayPaymentId).catch((err) => {
       console.warn('[Razorpay] WhatsApp confirmation send failed:', err);
     });
   }
 
   return targetRecord;
+}
+
+// In-memory deduplication set to prevent concurrent duplicate event processing within the process lifetime
+const inFlightPaymentLocks = new Set<string>();
+const processedPaymentCache = new Set<string>();
+
+export interface ProcessRazorpayPaymentInput {
+  paymentId: string;
+  orderId?: string;
+  paymentLinkId?: string;
+  paymentMode?: string;
+  amount?: number;
+  customerPhone?: string;
+  customerName?: string;
+  description?: string;
+  ledgerId?: string;
+  rawWebhookPayload?: Record<string, unknown>;
+  sourceEvent?: string;
+}
+
+export interface ProcessRazorpayPaymentResult {
+  success: boolean;
+  alreadyProcessed: boolean;
+  paymentId: string;
+  orderId?: string;
+  deliveryOrderId?: string;
+  ledgerCredited?: boolean;
+  receiptSent?: boolean;
+  message?: string;
+}
+
+/**
+ * Handles payment success events with strict atomic idempotency.
+ * Guarantees that only the single first event for a given razorpay_payment_id
+ * executes stock deduction, ledger crediting, and WhatsApp receipt dispatch.
+ * All subsequent or concurrent duplicate events return immediately with HTTP 200.
+ */
+export async function processRazorpayPaymentSuccess(
+  input: ProcessRazorpayPaymentInput
+): Promise<ProcessRazorpayPaymentResult> {
+  const {
+    paymentId,
+    orderId,
+    paymentLinkId,
+    paymentMode = 'UPI',
+    amount,
+    customerPhone,
+    customerName,
+    description,
+    ledgerId,
+    rawWebhookPayload,
+    sourceEvent,
+  } = input;
+
+  const targetRef = orderId || paymentLinkId || paymentId;
+
+  // 1. In-Memory Check: If already processed or currently in-flight, return 200 immediately
+  if (processedPaymentCache.has(paymentId)) {
+    console.log(
+      `[Razorpay Webhook] Payment ${paymentId} already processed (in-memory cached). Suppressing duplicates.`
+    );
+    return {
+      success: true,
+      alreadyProcessed: true,
+      paymentId,
+      orderId: targetRef,
+      deliveryOrderId: targetRef,
+      message: 'Already processed (in-memory cached)',
+    };
+  }
+
+  if (inFlightPaymentLocks.has(paymentId)) {
+    console.log(
+      `[Razorpay Webhook] Payment ${paymentId} currently in-flight by concurrent event. Suppressing duplicate.`
+    );
+    return {
+      success: true,
+      alreadyProcessed: true,
+      paymentId,
+      orderId: targetRef,
+      deliveryOrderId: targetRef,
+      message: 'Concurrent event deduplicated (in-flight)',
+    };
+  }
+
+  inFlightPaymentLocks.add(paymentId);
+
+  const db = supabaseAdmin();
+  const nowIso = new Date().toISOString();
+  let claimed = false;
+
+  try {
+    // 2. Database Atomic Transition in public.razorpay_payments
+    // We update status to 'paid' ONLY WHERE status != 'paid'.
+    try {
+      const rzpTable = db.from('razorpay_payments');
+      if (rzpTable && typeof rzpTable.update === 'function') {
+        let filterOr = `razorpay_payment_id.eq.${paymentId}`;
+        if (paymentLinkId) filterOr += `,razorpay_payment_link_id.eq.${paymentLinkId}`;
+        if (orderId) filterOr += `,order_id.eq.${orderId}`;
+
+        const updatePayload: Record<string, unknown> = {
+          status: 'paid',
+          razorpay_payment_id: paymentId,
+          payment_method: paymentMode,
+          raw_webhook_payload: rawWebhookPayload || {},
+          paid_at: nowIso,
+          updated_at: nowIso,
+        };
+
+        let updQuery = rzpTable.update(updatePayload);
+        if (typeof updQuery.neq === 'function') {
+          updQuery = updQuery.neq('status', 'paid');
+        }
+        if (typeof updQuery.or === 'function') {
+          updQuery = updQuery.or(filterOr);
+        }
+
+        if (typeof updQuery.select === 'function') {
+          const { data: updatedRows, error: updErr } = await updQuery.select('id, status');
+          if (!updErr && updatedRows && updatedRows.length > 0) {
+            claimed = true;
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.warn('[Razorpay Webhook] Atomic update attempt notice:', dbErr);
+    }
+
+    // If not claimed by update, check if it was already marked 'paid' in DB
+    if (!claimed) {
+      try {
+        const rzpTable = db.from('razorpay_payments');
+        if (rzpTable && typeof rzpTable.select === 'function') {
+          let checkQ = rzpTable.select('id, status, razorpay_payment_id');
+          let filterOr = `razorpay_payment_id.eq.${paymentId}`;
+          if (paymentLinkId) filterOr += `,razorpay_payment_link_id.eq.${paymentLinkId}`;
+          if (orderId) filterOr += `,order_id.eq.${orderId}`;
+          if (typeof checkQ.or === 'function') checkQ = checkQ.or(filterOr);
+
+          if (typeof checkQ.limit === 'function') {
+            const { data: existingRows } = await checkQ.limit(1);
+            if (existingRows && existingRows.length > 0) {
+              if (existingRows[0].status === 'paid') {
+                console.log(
+                  `[Razorpay Webhook] Payment ${paymentId} already marked 'paid' in DB. Suppressing duplicate.`
+                );
+                processedPaymentCache.add(paymentId);
+                return {
+                  success: true,
+                  alreadyProcessed: true,
+                  paymentId,
+                  orderId: targetRef,
+                  deliveryOrderId: targetRef,
+                  message: 'Already processed in DB (idempotent)',
+                };
+              }
+            } else {
+              // No row existed yet! Atomically insert with status 'paid'
+              try {
+                const { data: inserted, error: insErr } = await rzpTable
+                  .insert({
+                    razorpay_payment_id: paymentId,
+                    razorpay_payment_link_id: paymentLinkId || null,
+                    order_id: orderId || null,
+                    ledger_id: ledgerId || null,
+                    amount: amount || 0,
+                    currency: 'INR',
+                    status: 'paid',
+                    customer_name: customerName,
+                    customer_phone: customerPhone,
+                    description: description,
+                    payment_method: paymentMode,
+                    raw_webhook_payload: rawWebhookPayload || {},
+                    paid_at: nowIso,
+                    created_at: nowIso,
+                    updated_at: nowIso,
+                  })
+                  .select('id');
+
+                if (!insErr && inserted && inserted.length > 0) {
+                  claimed = true;
+                }
+              } catch {
+                // Another thread may have inserted concurrently
+              }
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn('[Razorpay Webhook] DB idempotency check notice:', checkErr);
+      }
+    }
+
+    // 3. Fallback check on payment_links table
+    if (!claimed) {
+      const existingLink = await getPaymentLinkByTxnId(targetRef);
+      if (existingLink && existingLink.status === 'PAID') {
+        console.log(
+          `[Razorpay Webhook] Payment link ${targetRef} already marked PAID. Suppressing duplicate.`
+        );
+        processedPaymentCache.add(paymentId);
+        return {
+          success: true,
+          alreadyProcessed: true,
+          paymentId,
+          orderId: existingLink.order_id || targetRef,
+          deliveryOrderId: existingLink.order_id || targetRef,
+          message: 'Already processed in payment_links (idempotent)',
+        };
+      }
+      // If neither has it as paid, grant claim to execute once
+      claimed = true;
+    }
+
+    // Mark as processed in cache immediately so subsequent events in this runtime are ignored
+    processedPaymentCache.add(paymentId);
+
+    // 4. Update payment_links, orders & deduct stock (skipping redundant receipt & ledger)
+    const paidRecord = await markPaymentAsPaid({
+      orderId: orderId || targetRef,
+      merchantTransactionId: targetRef,
+      razorpayPaymentId: paymentId,
+      razorpayPaymentLinkId: paymentLinkId,
+      paymentMode,
+      amount,
+      skipReceipt: true,
+      skipLedgerCredit: true,
+    });
+
+    const effectivePhone = customerPhone || paidRecord?.customer_phone;
+    const effectiveName = customerName || paidRecord?.customer_name;
+    const effectiveAmount = amount || paidRecord?.amount || 0;
+    const effectiveDescription =
+      description || paidRecord?.part_details || 'Two-Wheeler Spare Parts Order';
+
+    // 5. Credit BestPay Ledger balance in contacts and mechanic_ledger_entries (ONCE ONLY)
+    let ledgerCredited = false;
+    try {
+      const creditResult = await creditBestPayLedgerBalance({
+        amount: effectiveAmount,
+        paymentId,
+        orderId: targetRef,
+        ledgerId: ledgerId || (targetRef?.startsWith('LEDGER_') ? targetRef : undefined),
+        customerPhone: effectivePhone,
+        customerName: effectiveName,
+        paymentMode,
+        description: effectiveDescription,
+        db,
+      });
+      ledgerCredited = Boolean(creditResult.credited);
+    } catch (creditErr) {
+      console.warn('[Razorpay Webhook] Ledger credit warning:', creditErr);
+    }
+
+    // 6. Send Meta WhatsApp template payment_receipt_voucher (ONCE ONLY)
+    let receiptSent = false;
+    if (effectivePhone) {
+      try {
+        const waResult = await sendWhatsAppReceiptVoucherTemplate({
+          customerName: effectiveName,
+          customerPhone: effectivePhone,
+          receiptId: targetRef,
+          description: effectiveDescription,
+          amount: effectiveAmount,
+          paymentMode,
+          paymentId,
+          status: 'PAID',
+          db,
+        });
+        receiptSent = Boolean(waResult.success);
+      } catch (waErr) {
+        console.warn('[Razorpay Webhook] WhatsApp template receipt warning:', waErr);
+      }
+    }
+
+    return {
+      success: true,
+      alreadyProcessed: false,
+      paymentId,
+      orderId: targetRef,
+      deliveryOrderId: targetRef,
+      ledgerCredited,
+      receiptSent,
+      message: `Payment processed successfully for event ${sourceEvent || 'unknown'}`,
+    };
+  } finally {
+    inFlightPaymentLocks.delete(paymentId);
+  }
 }
 
 /**

@@ -2,174 +2,158 @@
  * src/app/api/webhooks/razorpay/route.ts
  *
  * Razorpay Webhook Handler for Best Auto Parts CRM
- * Verifies x-razorpay-signature with RAZORPAY_WEBHOOK_SECRET (HMAC SHA256)
- * Processes payment_link.paid and payment.captured events:
- * - Updates BestPay status to PAID with razorpay_payment_id (pay_...)
- * - Deducts stock for sold parts
- * - Sends automated WhatsApp payment receipt to customer
+ * - Verifies x-razorpay-signature with RAZORPAY_WEBHOOK_SECRET (HMAC SHA256)
+ * - Enforces strict atomic idempotency via processRazorpayPaymentSuccess:
+ *   * Suppresses concurrent duplicate events (payment_link.paid, payment.captured, order.paid)
+ *   * Guarantees only one WhatsApp receipt and one BestPay ledger credit per transaction
+ * - Always returns HTTP 200 once signature is verified to prevent Razorpay retry loops
  */
 
 import { NextResponse } from 'next/server';
 import {
   verifyRazorpayWebhookSignature,
-  markPaymentAsPaid,
-  getPaymentLinkByTxnId,
+  processRazorpayPaymentSuccess,
 } from '@/lib/payments/razorpay';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  // 1. Signature Verification
+  const signature =
+    request.headers.get('x-razorpay-signature') ||
+    request.headers.get('X-Razorpay-Signature');
+
+  if (!signature) {
+    console.warn('[Razorpay Webhook] Missing x-razorpay-signature header');
+    return NextResponse.json(
+      { error: 'Missing x-razorpay-signature header' },
+      { status: 400 }
+    );
+  }
+
+  let rawBody = '';
   try {
-    const signature =
-      request.headers.get('x-razorpay-signature') ||
-      request.headers.get('X-Razorpay-Signature');
+    rawBody = await request.text();
+  } catch {
+    return NextResponse.json({ error: 'Missing request body' }, { status: 400 });
+  }
 
-    if (!signature) {
-      console.warn('[Razorpay Webhook] Missing x-razorpay-signature header');
-      return NextResponse.json(
-        { error: 'Missing x-razorpay-signature header' },
-        { status: 400 }
-      );
-    }
+  if (!rawBody) {
+    console.warn('[Razorpay Webhook] Missing request body');
+    return NextResponse.json({ error: 'Missing request body' }, { status: 400 });
+  }
 
-    const rawBody = await request.text();
-    if (!rawBody) {
-      console.warn('[Razorpay Webhook] Missing request body');
-      return NextResponse.json({ error: 'Missing request body' }, { status: 400 });
-    }
+  const isValid = verifyRazorpayWebhookSignature(rawBody, signature);
+  if (!isValid) {
+    console.warn('[Razorpay Webhook] Invalid signature verification failed');
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+  }
 
-    const isValid = verifyRazorpayWebhookSignature(rawBody, signature);
-    if (!isValid) {
-      console.warn('[Razorpay Webhook] Invalid signature verification failed');
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    }
-
+  // 2. Verified Event Processing (Always return 200 to prevent retry loops)
+  try {
     const event = JSON.parse(rawBody);
     const eventType = event?.event;
     console.log(`[Razorpay Webhook] Received verified event: ${eventType}`);
 
-    // Handle payment_link.paid
-    if (eventType === 'payment_link.paid') {
+    // Supported payment success events
+    if (
+      eventType === 'payment_link.paid' ||
+      eventType === 'payment.captured' ||
+      eventType === 'order.paid'
+    ) {
       const plinkEntity = event?.payload?.payment_link?.entity;
       const paymentEntity = event?.payload?.payment?.entity;
+      const orderEntity = event?.payload?.order?.entity;
 
       const paymentLinkId = plinkEntity?.id;
-      const referenceId = plinkEntity?.reference_id; // Order ID
       const paymentId = paymentEntity?.id || `pay_${Date.now()}`;
       const paymentMode = paymentEntity?.method || 'UPI';
-      const amountPaise = plinkEntity?.amount_paid || plinkEntity?.amount || paymentEntity?.amount;
-      const amount = amountPaise ? amountPaise / 100 : undefined;
 
-      const orderRef = referenceId || paymentLinkId;
+      const amountPaise =
+        plinkEntity?.amount_paid ||
+        plinkEntity?.amount ||
+        paymentEntity?.amount ||
+        orderEntity?.amount_paid ||
+        orderEntity?.amount;
+      const amount = amountPaise ? Number(amountPaise) / 100 : 0;
 
-      console.log(
-        `[Razorpay Webhook] Processing payment_link.paid for order ${orderRef}, payment ${paymentId}`
-      );
-
-      await markPaymentAsPaid({
-        orderId: referenceId,
-        merchantTransactionId: referenceId,
-        razorpayPaymentId: paymentId,
-        razorpayPaymentLinkId: paymentLinkId,
-        paymentMode,
-        amount,
-      });
-
-      return NextResponse.json({
-        success: true,
-        message: 'Payment link paid event processed successfully',
-        orderId: referenceId,
-        deliveryOrderId: referenceId,
-        paymentId,
-      });
-    }
-
-    // Handle payment.captured
-    if (eventType === 'payment.captured') {
-      const paymentEntity = event?.payload?.payment?.entity;
-      const paymentId = paymentEntity?.id || `pay_${Date.now()}`;
-      const paymentMode = paymentEntity?.method || 'UPI';
-      const amountPaise = paymentEntity?.amount;
-      const amount = amountPaise ? amountPaise / 100 : undefined;
-
-      // Extract Order reference from notes, description, or reference
-      const orderRef =
+      // Extract reference ID / Order ID / Ledger ID
+      const referenceId =
+        plinkEntity?.reference_id ||
         paymentEntity?.notes?.order_id ||
         paymentEntity?.notes?.reference_id ||
-        paymentEntity?.description ||
-        paymentEntity?.order_id;
-
-      console.log(
-        `[Razorpay Webhook] Processing payment.captured for order ${orderRef}, payment ${paymentId}`
-      );
-
-      if (orderRef) {
-        await markPaymentAsPaid({
-          orderId: orderRef,
-          merchantTransactionId: orderRef,
-          razorpayPaymentId: paymentId,
-          paymentMode,
-          amount,
-        });
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: 'Payment captured event processed successfully',
-        orderId: orderRef,
-        deliveryOrderId: orderRef,
-        paymentId,
-      });
-    }
-
-    // Handle order.paid
-    if (eventType === 'order.paid') {
-      const orderEntity = event?.payload?.order?.entity;
-      const paymentEntity = event?.payload?.payment?.entity;
-      const paymentId = paymentEntity?.id || `pay_${Date.now()}`;
-      const paymentMode = paymentEntity?.method || 'UPI';
-      const amountPaise = orderEntity?.amount_paid || orderEntity?.amount || paymentEntity?.amount;
-      const amount = amountPaise ? amountPaise / 100 : undefined;
-
-      const orderRef =
         orderEntity?.receipt ||
         orderEntity?.notes?.order_id ||
-        orderEntity?.id;
+        paymentEntity?.description ||
+        paymentEntity?.order_id ||
+        paymentLinkId;
 
-      console.log(
-        `[Razorpay Webhook] Processing order.paid for order ${orderRef}, payment ${paymentId}`
-      );
+      const ledgerId =
+        plinkEntity?.notes?.ledger_id ||
+        paymentEntity?.notes?.ledger_id ||
+        orderEntity?.notes?.ledger_id;
 
-      if (orderRef) {
-        await markPaymentAsPaid({
-          orderId: orderRef,
-          merchantTransactionId: orderRef,
-          razorpayPaymentId: paymentId,
-          paymentMode,
-          amount,
-        });
-      }
+      const customerName =
+        plinkEntity?.customer?.name ||
+        paymentEntity?.notes?.customer_name ||
+        orderEntity?.notes?.customer_name ||
+        'Valued Customer';
+
+      const customerPhone =
+        plinkEntity?.customer?.contact ||
+        paymentEntity?.contact ||
+        paymentEntity?.notes?.customer_phone ||
+        orderEntity?.notes?.customer_phone;
+
+      const description =
+        plinkEntity?.description ||
+        paymentEntity?.description ||
+        'Two-Wheeler Spare Parts Order';
+
+      // Atomic idempotent execution
+      const result = await processRazorpayPaymentSuccess({
+        paymentId,
+        orderId: referenceId,
+        paymentLinkId,
+        paymentMode,
+        amount,
+        customerPhone,
+        customerName,
+        description,
+        ledgerId,
+        rawWebhookPayload: event,
+        sourceEvent: eventType,
+      });
 
       return NextResponse.json({
         success: true,
-        message: 'Order paid event processed successfully',
-        orderId: orderRef,
-        deliveryOrderId: orderRef,
-        paymentId,
+        message: result.alreadyProcessed
+          ? 'Already processed (idempotent)'
+          : 'Payment processed successfully',
+        paymentId: result.paymentId,
+        orderId: result.orderId,
+        deliveryOrderId: result.deliveryOrderId,
+        ledgerCredited: result.ledgerCredited,
+        alreadyProcessed: result.alreadyProcessed,
       });
     }
 
-    // Acknowledge other events
+    // Acknowledge other events (e.g. payment_link.expired, etc.)
     return NextResponse.json({
       success: true,
       message: `Event acknowledged: ${eventType}`,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[Razorpay Webhook] Unexpected error:', message);
+    console.error('[Razorpay Webhook] Processing warning:', message);
+    // Always return HTTP 200 once signature is valid so Razorpay never enters a retry loop
     return NextResponse.json(
-      { error: message || 'Webhook processing failed' },
-      { status: 500 }
+      {
+        success: true,
+        message: 'Event acknowledged with warning',
+        warning: message,
+      },
+      { status: 200 }
     );
   }
 }

@@ -25,7 +25,7 @@ const { requireApiKey } = await import("./api-context");
 const KEY = generateApiKey().plaintext;
 
 function reqWith(authHeader?: string): Request {
-  return new Request("https://crm.example.com/api/v1/me", {
+  return new Request("https://best-auto-parts-one.vercel.app/api/v1/me", {
     headers: authHeader ? { authorization: authHeader } : {},
   });
 }

@@ -8,6 +8,7 @@ import {
   getPaymentLinkByTxnId,
   creditBestPayLedgerBalance,
   sendWhatsAppReceiptVoucherTemplate,
+  processRazorpayPaymentSuccess,
 } from './razorpay';
 
 vi.mock('@/lib/flows/admin-client', () => ({
@@ -452,6 +453,140 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(res.success).toBe(true);
       expect(res.fallbackUsed).toBe(true);
       expect(engineSendText).toHaveBeenCalled();
+    });
+  });
+
+  describe('processRazorpayPaymentSuccess', () => {
+    it('executes payment once and idempotently suppresses duplicate events for same paymentId', async () => {
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      (supabaseAdmin as any).mockReturnValue({
+        from: vi.fn((table: string) => {
+          if (table === 'razorpay_payments') {
+            return {
+              update: vi.fn().mockReturnValue({
+                neq: vi.fn().mockReturnValue({
+                  or: vi.fn().mockReturnValue({
+                    select: vi.fn().mockResolvedValue({
+                      data: [{ id: 'rzp_1', status: 'paid' }],
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [{ id: 'rzp_1', status: 'paid' }],
+                    error: null,
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'payment_links') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  order: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({
+                        data: {
+                          id: 'link_1',
+                          order_id: 'ORD-IDEMP-001',
+                          merchant_transaction_id: 'ORD-IDEMP-001',
+                          customer_name: 'Saud Khan',
+                          customer_phone: '919634722174',
+                          amount: 100,
+                          status: 'PENDING',
+                        },
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+              update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ error: null }),
+                or: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          if (table === 'orders') {
+            return {
+              update: vi.fn().mockReturnValue({
+                or: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [{ id: 'c1', pending_balance: 500, khata_stage: 'Running' }],
+                  }),
+                }),
+                eq: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: 'c1', account_id: 'a1', user_id: 'u1' },
+                    }),
+                  }),
+                }),
+              }),
+              update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          if (table === 'mechanic_ledger_entries') {
+            return {
+              insert: vi.fn().mockResolvedValue({ error: null }),
+            };
+          }
+          if (table === 'conversations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'conv1' } }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      });
+
+      const firstCall = await processRazorpayPaymentSuccess({
+        paymentId: 'pay_atomic_test_999',
+        orderId: 'ORD-IDEMP-001',
+        paymentLinkId: 'plink_atomic_999',
+        amount: 100,
+        customerPhone: '919634722174',
+        customerName: 'Saud Khan',
+        sourceEvent: 'payment_link.paid',
+      });
+
+      expect(firstCall.success).toBe(true);
+      expect(firstCall.alreadyProcessed).toBe(false);
+
+      // Second concurrent or duplicate event for the SAME paymentId
+      const secondCall = await processRazorpayPaymentSuccess({
+        paymentId: 'pay_atomic_test_999',
+        orderId: 'ORD-IDEMP-001',
+        paymentLinkId: 'plink_atomic_999',
+        amount: 100,
+        customerPhone: '919634722174',
+        customerName: 'Saud Khan',
+        sourceEvent: 'payment.captured',
+      });
+
+      expect(secondCall.success).toBe(true);
+      expect(secondCall.alreadyProcessed).toBe(true);
+      expect(secondCall.message).toContain('Already processed');
     });
   });
 });
