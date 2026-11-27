@@ -5,10 +5,12 @@ import {
   executeIcebreaker,
   sendGreetingMenu,
   META_ICEBREAKERS,
+  SUB_BUTTONS,
 } from './icebreakers';
+import { detectLockedSubService } from '@/lib/ai/auto-reply';
 
 vi.mock('@/lib/flows/meta-send', () => ({
-  engineSendText: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.123' }),
+  engineSendText: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.text123' }),
   engineSendInteractiveButtons: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.btn123' }),
 }));
 
@@ -16,7 +18,7 @@ vi.mock('@/lib/contacts/tag-write', () => ({
   addContactTagIfAbsent: vi.fn().mockResolvedValue(true),
 }));
 
-describe('Icebreakers & Slash Commands', () => {
+describe('Icebreakers, Sub-Menus & Slash Commands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -42,8 +44,7 @@ describe('Icebreakers & Slash Commands', () => {
     it('matches /parts and rate check keywords', () => {
       const match1 = matchIcebreaker('/parts');
       expect(match1?.id).toBe(META_ICEBREAKERS.rate_check.id);
-      expect(match1?.responseTemplate).toContain('Best Auto Parts');
-      expect(match1?.responseTemplate).toContain('Bike Brand & Model');
+      expect(match1?.isSubMenu).toBe(true);
 
       const matchBtn = matchIcebreaker('', 'btn_spare_parts');
       expect(matchBtn?.id).toBe(META_ICEBREAKERS.rate_check.id);
@@ -52,8 +53,7 @@ describe('Icebreakers & Slash Commands', () => {
     it('matches /itr and ITR/insurance keywords', () => {
       const match1 = matchIcebreaker('/itr');
       expect(match1?.id).toBe(META_ICEBREAKERS.itr_insurance.id);
-      expect(match1?.responseTemplate).toContain('Vehicle Insurance');
-      expect(match1?.responseTemplate).toContain('Saud Khan (+91 96347 22174)');
+      expect(match1?.isSubMenu).toBe(true);
 
       const matchBtn = matchIcebreaker('', 'btn_itr_insurance');
       expect(matchBtn?.id).toBe(META_ICEBREAKERS.itr_insurance.id);
@@ -62,8 +62,7 @@ describe('Icebreakers & Slash Commands', () => {
     it('matches /rto and road tax / challan keywords', () => {
       const match1 = matchIcebreaker('/rto');
       expect(match1?.id).toBe(META_ICEBREAKERS.rto_tax.id);
-      expect(match1?.responseTemplate).toContain('RTO Road Tax, E-Challan');
-      expect(match1?.responseTemplate).toContain('Saud Khan (+91 96347 22174)');
+      expect(match1?.isSubMenu).toBe(true);
 
       const matchBtn = matchIcebreaker('', 'btn_rto_tax');
       expect(matchBtn?.id).toBe(META_ICEBREAKERS.rto_tax.id);
@@ -72,8 +71,7 @@ describe('Icebreakers & Slash Commands', () => {
     it('matches /mechanic and mechanic desk keywords', () => {
       const match1 = matchIcebreaker('/mechanic');
       expect(match1?.id).toBe(META_ICEBREAKERS.mechanic_desk.id);
-      expect(match1?.responseTemplate).toContain('Mechanic Partner Desk');
-      expect(match1?.responseTemplate).toContain('Kailashpur, Dehradun Road');
+      expect(match1?.isSubMenu).toBe(true);
     });
 
     it('matches /location and store location keywords', () => {
@@ -89,6 +87,19 @@ describe('Icebreakers & Slash Commands', () => {
       expect(match1?.responseTemplate).toContain('WhatsApp Digital Catalog');
       expect(match1?.responseTemplate).toContain('wa.me/c/919634722174');
     });
+
+    it('matches sub-buttons by ID and keywords', () => {
+      expect(matchIcebreaker('', 'btn_brand_bajaj')?.id).toBe(SUB_BUTTONS.brand_bajaj.id);
+      expect(matchIcebreaker('', 'btn_brand_hero')?.id).toBe(SUB_BUTTONS.brand_hero.id);
+      expect(matchIcebreaker('', 'btn_brand_honda')?.id).toBe(SUB_BUTTONS.brand_honda.id);
+      expect(matchIcebreaker('', 'btn_service_insurance')?.id).toBe(SUB_BUTTONS.service_insurance.id);
+      expect(matchIcebreaker('', 'btn_service_itr')?.id).toBe(SUB_BUTTONS.service_itr.id);
+      expect(matchIcebreaker('', 'btn_service_road_tax')?.id).toBe(SUB_BUTTONS.service_road_tax.id);
+      expect(matchIcebreaker('', 'btn_service_echallan')?.id).toBe(SUB_BUTTONS.service_echallan.id);
+      expect(matchIcebreaker('', 'btn_service_border_tax')?.id).toBe(SUB_BUTTONS.service_border_tax.id);
+      expect(matchIcebreaker('', 'btn_mechanic_partner')?.id).toBe(SUB_BUTTONS.mechanic_partner.id);
+      expect(matchIcebreaker('', 'btn_shop_location')?.id).toBe(SUB_BUTTONS.shop_location.id);
+    });
   });
 
   describe('executeIcebreaker', () => {
@@ -96,9 +107,13 @@ describe('Icebreakers & Slash Commands', () => {
       from: vi.fn(() => ({
         update: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
+        neq: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
         ilike: vi.fn().mockReturnThis(),
-        maybeSingle: vi.fn().mockResolvedValue({ data: null }),
+        maybeSingle: vi.fn().mockResolvedValue({
+          data: { name: 'Nabeel Pathan', phone: '9634722174' },
+        }),
         insert: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: { id: 'tag-1' } }),
       })),
@@ -119,7 +134,7 @@ describe('Icebreakers & Slash Commands', () => {
       expect(res.whatsappMessageId).toBe('wamid.btn123');
     });
 
-    it('dispatches deterministic response for /parts', async () => {
+    it('dispatches 3-button brand sub-menu for /parts', async () => {
       const res = await executeIcebreaker({
         db: mockDb,
         accountId: 'acc-1',
@@ -130,9 +145,159 @@ describe('Icebreakers & Slash Commands', () => {
       });
 
       expect(res.handled).toBe(true);
-      expect(res.icebreakerId).toBe('icebreaker_1_rate_check');
-      expect(res.responseSent).toContain('Best Auto Parts');
-      expect(res.whatsappMessageId).toBe('wamid.123');
+      expect(res.icebreakerId).toBe(META_ICEBREAKERS.rate_check.id);
+      expect(res.responseSent).toContain('Please select your bike brand:');
+      expect(res.whatsappMessageId).toBe('wamid.btn123');
+    });
+
+    it('dispatches 2-button sub-menu for /itr', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '/itr',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe(META_ICEBREAKERS.itr_insurance.id);
+      expect(res.responseSent).toContain('select the service you need help with:');
+      expect(res.whatsappMessageId).toBe('wamid.btn123');
+    });
+
+    it('dispatches 3-button sub-menu for /rto', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '/rto',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe(META_ICEBREAKERS.rto_tax.id);
+      expect(res.responseSent).toContain('select the RTO / Tax service you require:');
+      expect(res.whatsappMessageId).toBe('wamid.btn123');
+    });
+
+    it('dispatches 2-button sub-menu for /mechanic', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '/mechanic',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe(META_ICEBREAKERS.mechanic_desk.id);
+      expect(res.responseSent).toContain('How can we assist you today?');
+      expect(res.whatsappMessageId).toBe('wamid.btn123');
+    });
+
+    it('dispatches deterministic reply for brand sub-button tap (btn_brand_hero)', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '',
+        interactiveReplyId: 'btn_brand_hero',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe('btn_brand_hero');
+      expect(res.responseSent).toContain('Hero Spare Parts');
+      expect(res.responseSent).toContain('Splendor Plus/Pro');
+      expect(res.whatsappMessageId).toBe('wamid.text123');
+    });
+
+    it('dispatches deterministic reply and triggers case auto-create for btn_service_insurance', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '',
+        interactiveReplyId: 'btn_service_insurance',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe('btn_service_insurance');
+      expect(res.responseSent).toContain('Vehicle Insurance Desk');
+      expect(res.responseSent).toContain('Third-Party or Comprehensive');
+      expect(res.whatsappMessageId).toBe('wamid.text123');
+    });
+
+    it('dispatches deterministic reply and triggers case auto-create for btn_service_echallan', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: 'UP11AY1234',
+        interactiveReplyId: 'btn_service_echallan',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe('btn_service_echallan');
+      expect(res.responseSent).toContain('E-Challan Settlement Service');
+      expect(res.responseSent).toContain('Parivahan portal');
+      expect(res.whatsappMessageId).toBe('wamid.text123');
+    });
+  });
+
+  describe('detectLockedSubService', () => {
+    it('locks AI context onto Hero Spare Parts when customer tapped Hero button', () => {
+      const messages = [
+        { role: 'user', content: 'btn_brand_hero' },
+        { role: 'assistant', content: 'Selected: *Hero Spare Parts*\nPlease share your Bike Model' },
+        { role: 'user', content: 'Need clutch plate and chain set for Splendor Plus' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked?.service).toBe('Hero Spare Parts');
+      expect(locked?.guideline).toContain('LOCKED ON HERO SPARE PARTS');
+    });
+
+    it('locks AI context onto Vehicle Insurance when customer tapped Insurance button', () => {
+      const messages = [
+        { role: 'user', content: 'btn_service_insurance' },
+        { role: 'assistant', content: 'Vehicle Insurance Desk — Best Auto Parts' },
+        { role: 'user', content: 'UP11AY4567 Pulsar 150 first party' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked?.service).toBe('Vehicle Insurance');
+      expect(locked?.guideline).toContain('LOCKED ON VEHICLE INSURANCE');
+      expect(locked?.guideline).toContain('Never guess insurance premiums');
+    });
+
+    it('locks AI context onto E-Challan Service when customer tapped Challan button', () => {
+      const messages = [
+        { role: 'user', content: 'btn_service_echallan' },
+        { role: 'assistant', content: 'E-Challan Settlement Service' },
+        { role: 'user', content: 'Check my challan for UP11BZ9988' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked?.service).toBe('E-Challan Service');
+      expect(locked?.guideline).toContain('LOCKED ON E-CHALLAN SETTLEMENT');
+    });
+
+    it('returns null when no specific sub-service button was selected', () => {
+      const messages = [
+        { role: 'user', content: 'Hello, what are your shop hours?' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked).toBeNull();
     });
   });
 });

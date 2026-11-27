@@ -28,7 +28,7 @@ export function IcebreakersPanel() {
   const [editTexts, setEditTexts] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     Object.values(META_ICEBREAKERS).forEach((item) => {
-      init[item.id] = item.responseTemplate;
+      init[item.id] = item.responseTemplate || '';
     });
     return init;
   });

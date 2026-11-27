@@ -30,6 +30,142 @@ import { triggerMatches } from '@/lib/automations/engine'
 import { isWithinTimeWindow } from '@/lib/automations/time-of-day'
 import type { Automation, ConditionStepConfig } from '@/types'
 
+/**
+ * Detects whether the customer recently selected a sub-service button or inquiry topic,
+ * locking the AI assistant strictly onto that sub-service.
+ */
+export function detectLockedSubService(
+  messages: { role: string; content: string }[]
+): { service: string; guideline: string } | null {
+  const recent = messages.slice(-10).reverse();
+
+  for (const m of recent) {
+    const text = (m.content || '').toLowerCase();
+
+    // 1. Bajaj Spare Parts
+    if (
+      text.includes('btn_brand_bajaj') ||
+      text.includes('bajaj spare parts') ||
+      text.includes('selected: *bajaj spare parts*')
+    ) {
+      return {
+        service: 'Bajaj Spare Parts',
+        guideline:
+          'LOCKED ON BAJAJ SPARE PARTS: The customer is inquiring about Bajaj motorcycle spare parts (e.g., Pulsar, Platina, CT100, Avenger). Keep live inventory search active. Quote exact part name, genuine OEM vs aftermarket pricing, and stock status. If part name or bike model is missing, ask for it concisely.',
+      };
+    }
+
+    // 2. Hero Spare Parts
+    if (
+      text.includes('btn_brand_hero') ||
+      text.includes('hero spare parts') ||
+      text.includes('selected: *hero spare parts*')
+    ) {
+      return {
+        service: 'Hero Spare Parts',
+        guideline:
+          'LOCKED ON HERO SPARE PARTS: The customer is inquiring about Hero motorcycle/scooter spare parts (e.g., Splendor, HF Deluxe, Glamour, Passion, Pleasure, Maestro). Keep live inventory search active. Quote exact part name, genuine OEM vs aftermarket pricing, and stock status. If part name or bike model is missing, ask for it concisely.',
+      };
+    }
+
+    // 3. Honda Spare Parts
+    if (
+      text.includes('btn_brand_honda') ||
+      text.includes('honda spare parts') ||
+      text.includes('selected: *honda spare parts*')
+    ) {
+      return {
+        service: 'Honda Spare Parts',
+        guideline:
+          'LOCKED ON HONDA SPARE PARTS: The customer is inquiring about Honda motorcycle/scooter spare parts (e.g., Activa, Shine, SP 125, Unicorn, Dio). Keep live inventory search active. Quote exact part name, genuine OEM vs aftermarket pricing, and stock status. If part name or bike model is missing, ask for it concisely.',
+      };
+    }
+
+    // 4. Vehicle Insurance
+    if (
+      text.includes('btn_service_insurance') ||
+      text.includes('vehicle insurance desk') ||
+      (text.includes('vehicle insurance') && !text.includes('itr'))
+    ) {
+      return {
+        service: 'Vehicle Insurance',
+        guideline:
+          'LOCKED ON VEHICLE INSURANCE: The customer is inquiring about Vehicle Insurance. Focus exclusively on insurance details: (1) Vehicle Type (Two-Wheeler/Car/Commercial), (2) RC photo or Registration Number, and (3) Policy Preference (Third-Party or Comprehensive). Never guess insurance premiums. Note that Saud Khan (+91 96347 22174) will check all portals and share the best quote.',
+      };
+    }
+
+    // 5. Annual ITR Filing
+    if (
+      text.includes('btn_service_itr') ||
+      text.includes('annual income tax return') ||
+      text.includes('annual itr filing') ||
+      (text.includes('itr') && !text.includes('insurance'))
+    ) {
+      return {
+        service: 'Annual ITR Filing',
+        guideline:
+          'LOCKED ON ANNUAL ITR FILING: The customer is inquiring about Income Tax Return filing. Focus exclusively on ITR details: (1) Full Name as per PAN, (2) PAN & Aadhaar Number, (3) Mobile & Email, and (4) Source of Income (Salary/Business/Other). Never fabricate tax calculations or government refunds. Note that Saud Khan (+91 96347 22174) will review and guide them.',
+      };
+    }
+
+    // 6. RTO Road Tax
+    if (
+      text.includes('btn_service_road_tax') ||
+      text.includes('rto road tax service') ||
+      (text.includes('road tax') && !text.includes('challan') && !text.includes('border'))
+    ) {
+      return {
+        service: 'RTO Road Tax',
+        guideline:
+          'LOCKED ON RTO ROAD TAX: The customer is inquiring about RTO Road Tax. Focus exclusively on Road Tax: (1) Vehicle Registration Number (e.g., UP11...), and (2) State Name & Tax Period (Quarterly/Annual/Lifetime). Never invent road tax fees. Note that Saud Khan (+91 96347 22174) will check the Vahan portal and share the exact dues.',
+      };
+    }
+
+    // 7. E-Challan Service
+    if (
+      text.includes('btn_service_echallan') ||
+      text.includes('e-challan settlement') ||
+      text.includes('e-challan service') ||
+      text.includes('echallan') ||
+      text.includes('challan')
+    ) {
+      return {
+        service: 'E-Challan Service',
+        guideline:
+          'LOCKED ON E-CHALLAN SETTLEMENT: The customer is inquiring about Traffic E-Challans. Focus exclusively on Challan verification & settlement: (1) Vehicle Registration Number, and (2) Last 5 digits of Chassis/Engine number. Never guess fine amounts or violation details. Note that Saud Khan (+91 96347 22174) will check the Parivahan portal and assist in settlement.',
+      };
+    }
+
+    // 8. State Border Tax
+    if (
+      text.includes('btn_service_border_tax') ||
+      text.includes('state border tax entry') ||
+      text.includes('border tax')
+    ) {
+      return {
+        service: 'State Border Tax',
+        guideline:
+          'LOCKED ON STATE BORDER TAX: The customer is inquiring about State Border Entry Tax. Focus exclusively on Border Tax: (1) Vehicle Registration Number, (2) Entry State Name (e.g., Uttarakhand, Haryana, Delhi, HP, Rajasthan), and (3) Entry Date & Duration. Never invent border tax amounts. Note that Saud Khan (+91 96347 22174) will generate the official entry pass.',
+      };
+    }
+
+    // 9. Mechanic Partner
+    if (
+      text.includes('btn_mechanic_partner') ||
+      text.includes('mechanic partner program') ||
+      text.includes('mechanic partner')
+    ) {
+      return {
+        service: 'Mechanic Partner',
+        guideline:
+          'LOCKED ON MECHANIC PARTNER PROGRAM: The customer is a local two-wheeler mechanic. Highlight priority packing, dedicated Mechanic Khata ledger tracking, and special loyalty gifts. Strictly NEVER mention or offer wholesale rates. Invite them to send their bike parts list or photo.',
+      };
+    }
+  }
+
+  return null;
+}
+
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
   accountId: string
@@ -238,7 +374,15 @@ export async function dispatchInboundToAiReply(
       'For English: "You\'re most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!" ' +
       'For Hinglish: "Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!"';
 
-    const effectiveUserPrompt = [config.systemPrompt, languageInstruction]
+    const lockedContext = detectLockedSubService(messages);
+    const lockedInstruction = lockedContext
+      ? `\n\n8. ACTIVE LOCKED SUB-SERVICE:\n${lockedContext.guideline}\nDo not mix services or switch to other unrelated categories unless the customer explicitly asks to change.`
+      : '';
+
+    const effectiveUserPrompt = [
+      config.systemPrompt,
+      languageInstruction + lockedInstruction,
+    ]
       .filter(Boolean)
       .join('\n\n')
 
