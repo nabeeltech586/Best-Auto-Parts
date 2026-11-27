@@ -633,18 +633,26 @@ function OrderHistoryPageInner() {
               const isReceived = po.status === 'RECEIVED';
               const isExpanded = expandedPoId === po.id;
               const formattedDate = po.created_at
-                ? new Date(po.created_at).toLocaleDateString('en-IN', {
-                    day: 'numeric',
+                ? new Date(po.created_at).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    day: '2-digit',
                     month: 'short',
                     year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
                   })
                 : '—';
 
               const confirmedDateStr = po.confirmed_at
-                ? new Date(po.confirmed_at).toLocaleDateString('en-IN', {
-                    day: 'numeric',
+                ? new Date(po.confirmed_at).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    day: '2-digit',
                     month: 'short',
                     year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
                   })
                 : null;
 

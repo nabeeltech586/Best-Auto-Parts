@@ -28,6 +28,11 @@ vi.mock('@/lib/payments/razorpay', async () => {
       order_id: 'ORD-CAT-101',
       status: 'PAID',
     }),
+    processRazorpayPaymentFailure: vi.fn().mockImplementation(async (input) => ({
+      success: true,
+      status: 'failed',
+      paymentId: input.paymentId,
+    })),
   };
 });
 
@@ -173,5 +178,44 @@ describe('Razorpay Webhook Route (/api/webhooks/razorpay)', () => {
         amount: 350,
       })
     );
+  });
+
+  it('handles payment.failed event by delegating to processRazorpayPaymentFailure without stock deduction', async () => {
+    const payload = {
+      event: 'payment.failed',
+      payload: {
+        payment: {
+          entity: {
+            id: 'pay_failed_webhook_test',
+            amount: 250000,
+            method: 'upi',
+            description: 'Failed transaction test',
+            notes: { order_id: 'ORD-FAIL-202' },
+          },
+        },
+      },
+    };
+
+    const rawBody = JSON.stringify(payload);
+    const validSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    const req = new Request('http://localhost:3000/api/webhooks/razorpay', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-razorpay-signature': validSignature,
+      },
+      body: rawBody,
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.status).toBe('failed');
+    expect(json.message).toContain('Payment failure recorded. Stock left unchanged.');
   });
 });

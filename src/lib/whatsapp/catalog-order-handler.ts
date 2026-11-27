@@ -179,28 +179,12 @@ export async function handleCatalogOrderInbound(
       console.warn('[catalog-order] Razorpay payment link generation warning:', plErr.message);
     }
 
-    // 5. Deduct inventory stock in parts_catalog and log in stock_movements
-    await deductStockForSale(db, {
-      accountId,
-      orderId,
-      items: itemizedList.map((it) => ({
-        sku: it.sku,
-        part_id: it.partId,
-        name: it.partName,
-        quantity: it.quantity,
-      })),
-      referenceId: wamid,
-      reason: `WhatsApp Catalog Order #${orderId} (${customerName})`,
-    });
+    // 5. Note on Stock Deduction:
+    // Stock is NOT deducted on order creation. Stock is deducted ONLY inside the atomic
+    // payment-confirmation flow (payment_link.paid / payment.captured / order.paid)
+    // after claiming the idempotency lock in Razorpay webhook handler.
 
-    // 6. Non-blocking real-time sync back to Meta Catalog for affected SKUs
-    void triggerCatalogSync({
-      accountId,
-      skus: affectedSkus,
-      reason: `Order #${orderId} stock deduction`,
-    });
-
-    // 7. Send immediate WhatsApp Order Confirmation Receipt
+    // 6. Send immediate WhatsApp Order Confirmation with Razorpay Payment Link
     const itemizedMsgLines = itemizedList
       .map(
         (it, idx) =>

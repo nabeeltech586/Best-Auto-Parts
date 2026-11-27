@@ -38,6 +38,7 @@ function PaymentStatusContent() {
   const [error, setError] = useState<string | null>(null)
   const [pollCount, setPollCount] = useState(0)
   const [isPending, startTransition] = useTransition()
+  const [redirectCountdown, setRedirectCountdown] = useState(4)
 
   const checkStatus = useCallback(async () => {
     if (!txnId) {
@@ -77,6 +78,26 @@ function PaymentStatusContent() {
       return () => clearTimeout(timer)
     }
   }, [data?.status, pollCount, checkStatus])
+
+  // Auto-redirect to WhatsApp after 4s countdown on success
+  useEffect(() => {
+    if (data?.status !== 'PAID') return
+    if (redirectCountdown <= 0) {
+      if (typeof window !== 'undefined') window.location.href = 'https://wa.me/919634722174'
+      return
+    }
+    const timer = setInterval(() => {
+      setRedirectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          if (typeof window !== 'undefined') window.location.href = 'https://wa.me/919634722174'
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [data?.status, redirectCountdown])
 
   // Mock simulate payment for testing
   const simulatePaymentSuccess = async () => {
@@ -212,6 +233,23 @@ function PaymentStatusContent() {
                 </span>
               </div>
             )}
+            {data?.paidAt && (
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-500">Date & Time:</span>
+                <span className="text-slate-700 text-xs flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  {new Date(data.paidAt).toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
+                  })}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Store Info Card */}
@@ -222,6 +260,16 @@ function PaymentStatusContent() {
             <p>Kailashpur, Saharanpur, UP 247001 • Timing: 09:00 AM – 09:00 PM</p>
             <p className="text-slate-500">Saud Bhai: +91 96347 22174</p>
           </div>
+
+          {/* Auto Redirect Banner */}
+          {status === 'PAID' && (
+            <div className="mt-4 p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
+              <p className="text-xs text-emerald-800">
+                Redirecting to WhatsApp in{' '}
+                <strong className="font-mono text-emerald-700 font-bold text-sm">{redirectCountdown}s</strong>...
+              </p>
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="mt-6 flex flex-col gap-2.5">
@@ -254,16 +302,8 @@ function PaymentStatusContent() {
               className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-xl transition shadow-sm text-sm"
             >
               <Phone className="w-4 h-4" />
-              Help / Chat on WhatsApp
+              Return to WhatsApp
             </a>
-
-            <Link
-              href="/"
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition text-sm"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Return to Store
-            </Link>
           </div>
         </div>
       </div>

@@ -191,14 +191,8 @@ describe('handleCatalogOrderInbound', () => {
       })
     );
 
-    // Verify stock deduction called
-    expect(deductStockForSale).toHaveBeenCalledWith(
-      mockDb,
-      expect.objectContaining({
-        accountId: fakeAccountId,
-        referenceId: 'wamid.order.unique.456',
-      })
-    );
+    // Verify stock is NOT deducted on order creation (stock deducts ONLY when payment succeeds)
+    expect(deductStockForSale).not.toHaveBeenCalled();
 
     // Verify WhatsApp reply sent with Razorpay link & Kailashpur address
     expect(engineSendText).toHaveBeenCalledTimes(1);

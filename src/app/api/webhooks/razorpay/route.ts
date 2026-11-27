@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import {
   verifyRazorpayWebhookSignature,
   processRazorpayPaymentSuccess,
+  processRazorpayPaymentFailure,
 } from '@/lib/payments/razorpay';
 
 export const dynamic = 'force-dynamic';
@@ -135,6 +136,46 @@ export async function POST(request: Request) {
         deliveryOrderId: result.deliveryOrderId,
         ledgerCredited: result.ledgerCredited,
         alreadyProcessed: result.alreadyProcessed,
+      });
+    }
+
+    // Explicit payment failure event: log failure, keep stock 100% untouched
+    if (eventType === 'payment.failed') {
+      const paymentEntity = event?.payload?.payment?.entity;
+      const paymentId = paymentEntity?.id || `pay_${Date.now()}`;
+      const paymentLinkId = paymentEntity?.payment_link_id;
+      const paymentMode = paymentEntity?.method || 'UPI';
+      const amountPaise = paymentEntity?.amount;
+      const amount = amountPaise ? Number(amountPaise) / 100 : 0;
+      const referenceId =
+        paymentEntity?.notes?.order_id ||
+        paymentEntity?.notes?.reference_id ||
+        paymentEntity?.description ||
+        paymentLinkId;
+      const customerName = paymentEntity?.notes?.customer_name || 'Valued Customer';
+      const customerPhone = paymentEntity?.contact || paymentEntity?.notes?.customer_phone;
+      const description = paymentEntity?.description || 'Two-Wheeler Spare Parts Order';
+
+      const failResult = await processRazorpayPaymentFailure({
+        paymentId,
+        orderId: referenceId,
+        paymentLinkId,
+        paymentMode,
+        amount,
+        customerPhone,
+        customerName,
+        description,
+        errorCode: paymentEntity?.error_code,
+        errorDescription: paymentEntity?.error_description,
+        rawWebhookPayload: event,
+        sourceEvent: eventType,
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: 'Payment failure recorded. Stock left unchanged.',
+        paymentId: failResult.paymentId,
+        status: failResult.status,
       });
     }
 

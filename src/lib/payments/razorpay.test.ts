@@ -9,6 +9,7 @@ import {
   creditBestPayLedgerBalance,
   sendWhatsAppReceiptVoucherTemplate,
   processRazorpayPaymentSuccess,
+  processRazorpayPaymentFailure,
 } from './razorpay';
 
 vi.mock('@/lib/flows/admin-client', () => ({
@@ -256,15 +257,18 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       // Verify stock deduction called
       expect(deductStockForSale).toHaveBeenCalledTimes(1);
 
-      // Verify WhatsApp confirmation receipt sent
-      expect(engineSendText).toHaveBeenCalledTimes(1);
-      const text = (engineSendText as any).mock.calls[0][0].text;
-      expect(text).toContain('PAYMENT RECEIPT — BEST AUTO PARTS');
-      expect(text).toContain('DELIVERY ORDER ID');
-      expect(text).toContain('Local Rider Delivery');
-      expect(text).toContain('pay_ABC123456789');
-      expect(text).toContain('₹85.00');
-      expect(text).toContain('Kailashpur, Saharanpur, UP 247001');
+      // Verify WhatsApp confirmation receipt sent (two messages: Receipt and Delivery Confirmation)
+      expect(engineSendText).toHaveBeenCalledTimes(2);
+      const text1 = (engineSendText as any).mock.calls[0][0].text;
+      expect(text1).toContain('PAYMENT RECEIPT — BEST AUTO PARTS');
+      expect(text1).toContain('ORD-CAT-555');
+      expect(text1).toContain('pay_ABC123456789');
+      expect(text1).toContain('₹85.00');
+
+      const text2 = (engineSendText as any).mock.calls[1][0].text;
+      expect(text2).toContain('ORDER CONFIRMED & READY FOR DISPATCH');
+      expect(text2).toContain('Local Rider Delivery in Kailashpur / Saharanpur');
+      expect(text2).toContain('Kailashpur, Saharanpur, UP 247001');
     });
   });
 
@@ -459,9 +463,10 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(res.fallbackUsed).toBe(true);
       // Meta template endpoint should NOT be called since paid templates are disabled by default
       expect(fetchSpy).not.toHaveBeenCalled();
-      expect(engineSendText).toHaveBeenCalled();
-      const textSent = (engineSendText as any).mock.calls.slice(-1)[0][0].text;
-      expect(textSent).toContain('PAYMENT RECEIPT — BEST AUTO PARTS');
+      expect(engineSendText).toHaveBeenCalledTimes(2);
+      const allTexts = (engineSendText as any).mock.calls.map((c: any) => c[0].text);
+      expect(allTexts.some((t: string) => typeof t === 'string' && t.includes('PAYMENT RECEIPT — BEST AUTO PARTS'))).toBe(true);
+      expect(allTexts.some((t: string) => typeof t === 'string' && t.includes('ORDER CONFIRMED & READY FOR DISPATCH'))).toBe(true);
     });
 
     it('attempts template send when ENABLE_PAID_WHATSAPP_TEMPLATES is explicitly true', async () => {
@@ -702,6 +707,68 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(secondCall.success).toBe(true);
       expect(secondCall.alreadyProcessed).toBe(true);
       expect(secondCall.message).toContain('Already processed');
+    });
+  });
+
+  describe('processRazorpayPaymentFailure', () => {
+    it('records failed status in razorpay_payments and payment_links without deducting stock', async () => {
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      const { deductStockForSale } = await import('@/lib/inventory/stock-deduction');
+
+      let updatedLink: any = null;
+      let insertedRzp: any = null;
+
+      (supabaseAdmin as any).mockReturnValue({
+        from: vi.fn((table: string) => {
+          if (table === 'razorpay_payments') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({ data: [] }),
+                }),
+              }),
+              insert: vi.fn((payload) => {
+                insertedRzp = payload;
+                return Promise.resolve({ data: payload, error: null });
+              }),
+            };
+          }
+          if (table === 'payment_links') {
+            return {
+              update: vi.fn((payload) => {
+                updatedLink = payload;
+                return {
+                  or: vi.fn().mockReturnValue({
+                    neq: vi.fn().mockResolvedValue({ error: null }),
+                  }),
+                };
+              }),
+            };
+          }
+          return {};
+        }),
+      });
+
+      const res = await processRazorpayPaymentFailure({
+        paymentId: 'pay_fail_123',
+        orderId: 'ORD-FAIL-001',
+        paymentLinkId: 'plink_fail_123',
+        amount: 250,
+        customerPhone: '919634722174',
+        customerName: 'Saud Khan',
+        description: 'Brake Disc for Pulsar',
+        errorCode: 'BAD_REQUEST_ERROR',
+        errorDescription: 'Payment failed at bank',
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.status).toBe('failed');
+      expect(insertedRzp.status).toBe('failed');
+      expect(insertedRzp.amount).toBe(250);
+      expect(updatedLink.status).toBe('FAILED');
+
+      // Verify stock was NOT deducted on failure
+      expect(deductStockForSale).not.toHaveBeenCalled();
     });
   });
 });

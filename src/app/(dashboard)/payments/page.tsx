@@ -325,12 +325,14 @@ function PaymentsPageInner() {
     if (!dateString) return '—';
     try {
       const d = new Date(dateString);
-      return d.toLocaleDateString('en-IN', {
+      return d.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         day: '2-digit',
         month: 'short',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+        hour12: true,
       });
     } catch {
       return dateString;
@@ -796,9 +798,16 @@ function PaymentsPageInner() {
                   </TableCell>
 
                   <TableCell>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(item.created_at)}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-medium text-foreground">
+                        {formatDate(item.paid_at || item.created_at)}
+                      </span>
+                      {item.paid_at && item.paid_at !== item.created_at && (
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          Created: {formatDate(item.created_at)}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
 
                   <TableCell className="text-right">

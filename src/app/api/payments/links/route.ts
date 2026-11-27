@@ -346,6 +346,13 @@ export async function GET(request: Request) {
       });
     }
 
+    // Sort payment entries clearly newest first by paid_at or created_at
+    filteredLinks.sort((a, b) => {
+      const timeA = new Date(((a as any).paid_at || (a as any).created_at) as string).getTime() || 0;
+      const timeB = new Date(((b as any).paid_at || (b as any).created_at) as string).getTime() || 0;
+      return timeB - timeA;
+    });
+
     return NextResponse.json({
       links: filteredLinks,
       metrics: {

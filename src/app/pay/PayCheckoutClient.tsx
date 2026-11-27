@@ -93,14 +93,14 @@ export default function PayCheckoutClient() {
   // 5-Minute Live Session Countdown Timer (300 seconds)
   const [secondsLeft, setSecondsLeft] = useState(300);
 
-  // Auto-redirect countdown (8s) back to CRM on completed / already paid view
-  const [redirectCountdown, setRedirectCountdown] = useState(8);
+  // Auto-redirect countdown (4s) back to WhatsApp on completed / already paid view
+  const [redirectCountdown, setRedirectCountdown] = useState(4);
   const [isRedirectPaused, setIsRedirectPaused] = useState(false);
 
-  // Dedicated navigation to CRM /payments using window.location.assign
-  const navigateToCrm = useCallback(() => {
+  // Dedicated customer redirect to WhatsApp chat (https://wa.me/919634722174)
+  const redirectToWhatsApp = useCallback(() => {
     if (typeof window !== 'undefined') {
-      window.location.assign('/payments');
+      window.location.href = 'https://wa.me/919634722174';
     }
   }, []);
 
@@ -194,8 +194,8 @@ export default function PayCheckoutClient() {
     return `${minutes}:${seconds}`;
   }, [secondsLeft]);
 
-  // Auto-redirect timer (8s) on the Completed / Already Paid view
-  // Calls window.location.assign('/payments') when countdown reaches 0
+  // Auto-redirect timer (4s) on the Completed / Already Paid view
+  // Redirects to https://wa.me/919634722174 when countdown reaches 0
   // Pauses automatically if paused by user or if the receipt preview modal is open
   useEffect(() => {
     const isCompletedView = isAlreadyPaid || paymentStage === 'completed';
@@ -204,7 +204,7 @@ export default function PayCheckoutClient() {
     }
 
     if (redirectCountdown <= 0) {
-      navigateToCrm();
+      redirectToWhatsApp();
       return;
     }
 
@@ -212,7 +212,7 @@ export default function PayCheckoutClient() {
       setRedirectCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          navigateToCrm();
+          redirectToWhatsApp();
           return 0;
         }
         return prev - 1;
@@ -220,7 +220,7 @@ export default function PayCheckoutClient() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isAlreadyPaid, paymentStage, isRedirectPaused, showReceiptModal, redirectCountdown, navigateToCrm]);
+  }, [isAlreadyPaid, paymentStage, isRedirectPaused, showReceiptModal, redirectCountdown, redirectToWhatsApp]);
 
   // UPI Configuration bound STRICTLY to payableAmount (remainingAmount if partial)
   const upiId = '9761224004-2@ybl';
@@ -457,42 +457,22 @@ export default function PayCheckoutClient() {
                 <span>📄 View / Download Digital Receipt</span>
               </Button>
 
-              <div className="grid grid-cols-2 gap-2">
-                <a
-                  href={`https://wa.me/919634722174?text=${encodeURIComponent(
-                    `Hello Saud Bhai, mera Order #${liveData.orderId} (${formatCurrency(
-                      liveData.totalAmount
-                    )}) successfully paid hai. Please dispatch update dein.`
-                  )}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer"
-                >
-                  <Phone className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>WhatsApp Support</span>
-                </a>
+              <a
+                href="https://wa.me/919634722174"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-semibold transition cursor-pointer shadow-sm"
+              >
+                <Phone className="h-4 w-4" />
+                <span>Return to WhatsApp</span>
+              </a>
 
-                <a
-                  href="/payments"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigateToCrm();
-                  }}
-                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-700 text-xs font-semibold transition cursor-pointer select-none shadow-sm"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-                  <span>← Back to CRM</span>
-                </a>
-              </div>
-
-              {/* 8-Second Auto-Redirect Indicator with Pause/Resume */}
+              {/* 4-Second Auto-Redirect Indicator with Pause/Resume */}
               <div className="flex items-center justify-center gap-2 text-[11px] text-slate-500 pt-1">
                 <span>
                   {isRedirectPaused || showReceiptModal ? (
                     <span className="text-amber-700 font-medium">Auto-redirect paused</span>
                   ) : (
                     <>
-                      Auto-redirecting to CRM in{' '}
+                      Auto-redirecting to WhatsApp in{' '}
                       <strong className="font-mono text-emerald-700 font-bold">{redirectCountdown}s</strong>...
                     </>
                   )}
