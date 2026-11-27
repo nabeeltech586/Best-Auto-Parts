@@ -50,6 +50,7 @@ export interface RazorpayPaymentRecord {
   paid_at?: string;
   created_at?: string;
   updated_at?: string;
+  stock_deducted?: boolean;
 }
 
 export interface PaymentLinkRecord {
@@ -78,6 +79,7 @@ export interface PaymentLinkRecord {
   paid_at?: string;
   created_at?: string;
   updated_at?: string;
+  stock_deducted?: boolean;
 }
 
 export interface RazorpayLinkResult {
@@ -378,10 +380,11 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
     '';
 
   const record = await getPaymentLinkByTxnId(targetId);
-  const alreadyPaid = record?.status === 'PAID';
+  const alreadyPaid = record?.status === 'PAID' || record?.stock_deducted === true;
 
   const updates: Record<string, unknown> = {
     status: 'PAID',
+    stock_deducted: true,
     razorpay_payment_id: args.razorpayPaymentId,
     phonepe_transaction_id: args.razorpayPaymentId, // Keep for backward-compat
     payment_mode: args.paymentMode || 'Razorpay / UPI',
@@ -425,17 +428,55 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
     if (record.merchant_transaction_id) localLinkCache.set(record.merchant_transaction_id, record);
   }
 
-  // Update orders table if order exists
+  // Check and update orders table if order exists
   const effectiveOrderId = record?.order_id || args.orderId;
+  let orderAlreadyPaid = false;
   if (effectiveOrderId) {
     try {
+      const { data: ord } = await db
+        .from('orders')
+        .select('order_status, payment_status, stock_deducted, metadata')
+        .or(`id.eq.${effectiveOrderId},metadata->>order_id.eq.${effectiveOrderId},catalog_order_id.eq.${effectiveOrderId}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (ord) {
+        if (
+          ord.payment_status === 'PAID' ||
+          ord.order_status === 'paid' ||
+          ord.stock_deducted === true ||
+          ord.metadata?.stock_deducted === true
+        ) {
+          orderAlreadyPaid = true;
+        }
+      }
+
       await db
         .from('orders')
         .update({
           order_status: 'paid',
+          payment_status: 'PAID',
+          status: 'PAID',
+          stock_deducted: true,
           updated_at: nowIso,
         })
         .or(`id.eq.${effectiveOrderId},metadata->>order_id.eq.${effectiveOrderId},catalog_order_id.eq.${effectiveOrderId}`);
+    } catch {
+      // non-fatal
+    }
+
+    // Also update payments table
+    try {
+      await db
+        .from('payments')
+        .update({
+          payment_status: 'paid',
+          status: 'PAID',
+          utr: args.razorpayPaymentId,
+          paid_at: nowIso,
+          updated_at: nowIso,
+        })
+        .or(`order_id.eq.${effectiveOrderId},merchant_transaction_id.eq.${effectiveOrderId}`);
     } catch {
       // non-fatal
     }
@@ -468,9 +509,10 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
     console.warn('[Razorpay] razorpay_payments update notice:', rzpErr);
   }
 
-  // Deduct inventory stock in parts_catalog and log in stock_movements (skip if already paid)
+  // Deduct inventory stock in parts_catalog (strictly once, skipped if already paid)
+  const isAlreadyDeducted = alreadyPaid || orderAlreadyPaid;
   const targetRecord = record || (await getPaymentLinkByTxnId(targetId));
-  if (targetRecord && !alreadyPaid) {
+  if (targetRecord && !isAlreadyDeducted) {
     await deductStockForPaidOrder(targetRecord, db).catch((err) => {
       console.warn('[Razorpay] Stock deduction error:', err);
     });
@@ -497,7 +539,7 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
 
   // Trigger WhatsApp payment receipt confirmation to customer (skip if already paid or explicitly skipped)
   if (targetRecord && targetRecord.customer_phone && !alreadyPaid && !args.skipReceipt) {
-    await sendWhatsAppPaymentConfirmation(targetRecord, args.razorpayPaymentId).catch((err) => {
+    await sendWhatsAppPaymentConfirmation(targetRecord, args.razorpayPaymentId, db).catch((err) => {
       console.warn('[Razorpay] WhatsApp confirmation send failed:', err);
     });
   }
@@ -940,10 +982,62 @@ export async function processRazorpayPaymentFailure(
       await linkTable
         .update({
           status: 'FAILED',
+          stock_deducted: false,
           updated_at: nowIso,
         })
         .or(filterOr)
         .neq('status', 'PAID');
+    }
+
+    // 3. Mark orders as FAILED if not already PAID
+    try {
+      const orderTable = db.from('orders');
+      if (orderTable && typeof orderTable.update === 'function') {
+        let qOrd = orderTable.update({
+          order_status: 'failed',
+          payment_status: 'FAILED',
+          status: 'FAILED',
+          updated_at: nowIso,
+        });
+        if (typeof qOrd.or === 'function') {
+          qOrd = qOrd.or(
+            `id.eq.${targetRef},metadata->>order_id.eq.${targetRef},catalog_order_id.eq.${targetRef}`
+          );
+        }
+        if (typeof qOrd.neq === 'function') {
+          qOrd = qOrd.neq('payment_status', 'PAID');
+          if (typeof qOrd.neq === 'function') {
+            qOrd = qOrd.neq('order_status', 'paid');
+          }
+        }
+        await qOrd;
+      }
+    } catch (ordErr) {
+      console.warn('[Razorpay Webhook] orders failure update notice:', ordErr);
+    }
+
+    // 4. Mark payments as FAILED if not already PAID
+    try {
+      const paymentsTable = db.from('payments');
+      if (paymentsTable && typeof paymentsTable.update === 'function') {
+        let qPay = paymentsTable.update({
+          payment_status: 'failed',
+          status: 'FAILED',
+          updated_at: nowIso,
+        });
+        if (typeof qPay.or === 'function') {
+          qPay = qPay.or(`order_id.eq.${targetRef},merchant_transaction_id.eq.${targetRef}`);
+        }
+        if (typeof qPay.neq === 'function') {
+          qPay = qPay.neq('payment_status', 'paid');
+          if (typeof qPay.neq === 'function') {
+            qPay = qPay.neq('status', 'PAID');
+          }
+        }
+        await qPay;
+      }
+    } catch (payErr) {
+      console.warn('[Razorpay Webhook] payments failure update notice:', payErr);
     }
 
     console.log(`[Razorpay Webhook] Payment ${paymentId} failed logged. Stock left unchanged.`);
@@ -962,9 +1056,10 @@ export async function processRazorpayPaymentFailure(
  */
 export async function sendWhatsAppPaymentConfirmation(
   record: PaymentLinkRecord,
-  paymentId?: string
+  paymentId?: string,
+  customDb?: any
 ): Promise<void> {
-  const db = supabaseAdmin();
+  const db = customDb || supabaseAdmin();
   const phone = record.customer_phone;
   const cleanPhone = normalizePhone(phone);
 
@@ -1004,13 +1099,20 @@ export async function sendWhatsAppPaymentConfirmation(
   let accountId = record.account_id || contact?.account_id;
   let userId = contact?.user_id;
   if (!accountId) {
-    const { data: acc } = await db
-      .from('accounts')
-      .select('id, owner_user_id')
-      .limit(1)
-      .maybeSingle();
-    accountId = acc?.id;
-    userId = userId || acc?.owner_user_id;
+    try {
+      const accQuery = db.from('accounts');
+      if (accQuery && typeof accQuery.select === 'function') {
+        const { data: acc } = await accQuery
+          .select('id, owner_user_id')
+          .limit(1)
+          .maybeSingle();
+        accountId = acc?.id;
+        userId = userId || acc?.owner_user_id;
+      }
+    } catch {}
+    if (!accountId) {
+      accountId = 'acc_default';
+    }
   }
 
   // 3. Find or create conversation
@@ -1417,6 +1519,8 @@ export interface SendReceiptVoucherInput {
   paymentId?: string;
   status?: string;
   date?: string;
+  accountId?: string;
+  userId?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db?: any;
 }
@@ -1499,9 +1603,10 @@ export async function sendWhatsAppReceiptVoucherTemplate(
     payment_mode: args.paymentMode || 'Razorpay / UPI',
     razorpay_payment_id: args.paymentId,
     paid_at: new Date().toISOString(),
+    account_id: args.accountId || 'acc_default',
   };
 
-  await sendWhatsAppPaymentConfirmation(fallbackRecord, args.paymentId).catch((err) => {
+  await sendWhatsAppPaymentConfirmation(fallbackRecord, args.paymentId, args.db).catch((err) => {
     console.warn('[Razorpay] WhatsApp confirmation text send error:', err);
   });
 

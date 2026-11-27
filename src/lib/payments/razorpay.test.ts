@@ -270,6 +270,77 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(text2).toContain('Local Rider Delivery in Kailashpur / Saharanpur');
       expect(text2).toContain('Kailashpur, Saharanpur, UP 247001');
     });
+
+    it('idempotently skips stock deduction if payment or order was already marked paid', async () => {
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      const { deductStockForSale } = await import('@/lib/inventory/stock-deduction');
+
+      (supabaseAdmin as any).mockReturnValue({
+        from: vi.fn((table: string) => {
+          if (table === 'payment_links') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  order: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({
+                        data: {
+                          id: 'link_already_paid',
+                          order_id: 'ORD-ALREADY-PAID',
+                          status: 'PAID',
+                          stock_deducted: true,
+                        },
+                        error: null,
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+              update: vi.fn().mockReturnValue({
+                eq: vi.fn().mockResolvedValue({ error: null }),
+                or: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          if (table === 'orders') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: {
+                        payment_status: 'PAID',
+                        stock_deducted: true,
+                      },
+                    }),
+                  }),
+                }),
+              }),
+              update: vi.fn().mockReturnValue({
+                or: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          if (table === 'payments') {
+            return {
+              update: vi.fn().mockReturnValue({
+                or: vi.fn().mockResolvedValue({ error: null }),
+              }),
+            };
+          }
+          return {};
+        }),
+      });
+
+      await markPaymentAsPaid({
+        orderId: 'ORD-ALREADY-PAID',
+        razorpayPaymentId: 'pay_duplicate_123',
+        skipReceipt: true,
+      });
+
+      // Deduct stock must NOT be called again
+      expect(deductStockForSale).not.toHaveBeenCalled();
+    });
   });
 
   describe('creditBestPayLedgerBalance', () => {
@@ -471,7 +542,7 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
 
     it('sends free session text receipt and suppresses paid templates', async () => {
       const { engineSendText } = await import('@/lib/flows/meta-send');
-      const fetchSpy = vi.fn();
+      const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
       global.fetch = fetchSpy;
 
       const mockDb = {
@@ -483,6 +554,32 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
                   limit: vi.fn().mockReturnValue({
                     maybeSingle: vi.fn().mockResolvedValue({
                       data: { phone_number_id: 'phone_123', access_token: 'token_123' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: 'c1', account_id: 'a1', user_id: 'u1' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'conversations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'conv1' } }),
                     }),
                   }),
                 }),
@@ -761,6 +858,72 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(updatedLink.status).toBe('FAILED');
 
       // Verify stock was NOT deducted on failure
+      expect(deductStockForSale).not.toHaveBeenCalled();
+    });
+
+    it('handles payment_link.expired and payment_link.cancelled without deducting stock', async () => {
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      const { deductStockForSale } = await import('@/lib/inventory/stock-deduction');
+
+      let updatedLink: any = null;
+      let insertedRzp: any = null;
+
+      (supabaseAdmin as any).mockReturnValue({
+        from: vi.fn((table: string) => {
+          if (table === 'razorpay_payments') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({ data: [] }),
+                }),
+              }),
+              insert: vi.fn((payload) => {
+                insertedRzp = payload;
+                return Promise.resolve({ data: payload, error: null });
+              }),
+            };
+          }
+          if (table === 'payment_links') {
+            return {
+              update: vi.fn((payload) => {
+                updatedLink = payload;
+                return {
+                  or: vi.fn().mockReturnValue({
+                    neq: vi.fn().mockResolvedValue({ error: null }),
+                  }),
+                };
+              }),
+            };
+          }
+          if (table === 'orders' || table === 'payments') {
+            const chainable: any = {
+              neq: vi.fn(() => chainable),
+              then: (resolve: any) => Promise.resolve({ error: null }).then(resolve),
+            };
+            return {
+              update: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue(chainable),
+              }),
+            };
+          }
+          return {};
+        }),
+      });
+
+      const resExpired = await processRazorpayPaymentFailure({
+        paymentId: 'plink_expired_001',
+        orderId: 'ORD-EXP-001',
+        paymentLinkId: 'plink_expired_001',
+        amount: 500,
+        customerPhone: '919634722174',
+        customerName: 'Saud Khan',
+        sourceEvent: 'payment_link.expired',
+      });
+
+      expect(resExpired.success).toBe(true);
+      expect(resExpired.status).toBe('failed');
+      expect(insertedRzp.status).toBe('failed');
+      expect(updatedLink.status).toBe('FAILED');
       expect(deductStockForSale).not.toHaveBeenCalled();
     });
   });

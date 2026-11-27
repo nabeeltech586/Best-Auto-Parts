@@ -140,21 +140,36 @@ export async function POST(request: Request) {
     }
 
     // Explicit payment failure event: log failure, keep stock 100% untouched
-    if (eventType === 'payment.failed') {
+    if (
+      eventType === 'payment.failed' ||
+      eventType === 'payment_link.expired' ||
+      eventType === 'payment_link.cancelled'
+    ) {
+      const plinkEntity = event?.payload?.payment_link?.entity;
       const paymentEntity = event?.payload?.payment?.entity;
-      const paymentId = paymentEntity?.id || `pay_${Date.now()}`;
-      const paymentLinkId = paymentEntity?.payment_link_id;
+      const paymentId = paymentEntity?.id || plinkEntity?.id || `pay_fail_${Date.now()}`;
+      const paymentLinkId = plinkEntity?.id || paymentEntity?.payment_link_id;
       const paymentMode = paymentEntity?.method || 'UPI';
-      const amountPaise = paymentEntity?.amount;
+      const amountPaise = paymentEntity?.amount || plinkEntity?.amount || 0;
       const amount = amountPaise ? Number(amountPaise) / 100 : 0;
       const referenceId =
+        plinkEntity?.reference_id ||
         paymentEntity?.notes?.order_id ||
         paymentEntity?.notes?.reference_id ||
         paymentEntity?.description ||
         paymentLinkId;
-      const customerName = paymentEntity?.notes?.customer_name || 'Valued Customer';
-      const customerPhone = paymentEntity?.contact || paymentEntity?.notes?.customer_phone;
-      const description = paymentEntity?.description || 'Two-Wheeler Spare Parts Order';
+      const customerName =
+        plinkEntity?.customer?.name ||
+        paymentEntity?.notes?.customer_name ||
+        'Valued Customer';
+      const customerPhone =
+        plinkEntity?.customer?.contact ||
+        paymentEntity?.contact ||
+        paymentEntity?.notes?.customer_phone;
+      const description =
+        plinkEntity?.description ||
+        paymentEntity?.description ||
+        'Two-Wheeler Spare Parts Order';
 
       const failResult = await processRazorpayPaymentFailure({
         paymentId,
@@ -165,8 +180,8 @@ export async function POST(request: Request) {
         customerPhone,
         customerName,
         description,
-        errorCode: paymentEntity?.error_code,
-        errorDescription: paymentEntity?.error_description,
+        errorCode: paymentEntity?.error_code || eventType,
+        errorDescription: paymentEntity?.error_description || `Event: ${eventType}`,
         rawWebhookPayload: event,
         sourceEvent: eventType,
       });

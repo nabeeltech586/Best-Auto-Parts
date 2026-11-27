@@ -21,6 +21,7 @@ const sentButtons: any[] = []
 const sentLists: any[] = []
 const sentTexts: any[] = []
 const sentMedia: any[] = []
+const sentCtaUrls: any[] = []
 
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendInteractiveButtons: vi.fn(async (args: any) => {
@@ -38,6 +39,10 @@ vi.mock('@/lib/flows/meta-send', () => ({
   engineSendMedia: vi.fn(async (args: any) => {
     sentMedia.push(args)
     return { whatsapp_message_id: `wamid.media.${sentMedia.length}` }
+  }),
+  engineSendInteractiveCtaUrl: vi.fn(async (args: any) => {
+    sentCtaUrls.push(args)
+    return { whatsapp_message_id: `wamid.cta.${sentCtaUrls.length}` }
   }),
   loadAccountMetaCredentials: vi.fn(async () => ({
     phoneNumberId: 'phone-num-id-123',
@@ -57,6 +62,7 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     sentLists.length = 0
     sentTexts.length = 0
     sentMedia.length = 0
+    sentCtaUrls.length = 0
     vi.clearAllMocks()
   })
 
@@ -1143,9 +1149,9 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
   })
 
   // ------------------------------------------------------------
-  // Test 31: Online Payment Options & Same-phone link
+  // Test 31: Online Payment creates fresh pending order & Razorpay link
   // ------------------------------------------------------------
-  it('31. Online Payment menu: displays UPI ID and Scan QR choices with secure web checkout link', async () => {
+  it('31. Online Payment menu: generates fresh pending order, live Razorpay link, and sends CTA URL button', async () => {
     const db = createFakeDb({
       contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
       orders: [],
@@ -1163,14 +1169,12 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     })
 
     expect(res.consumed).toBe(true)
-    const btnCall = sentButtons[sentButtons.length - 1]
-    expect(btnCall.bodyText).toContain('Online Payment ke liye kripya apna tarika chuniye')
-    expect(btnCall.bodyText).toContain('https://best-auto-parts-one.vercel.app/pay?order=')
-    expect(btnCall.buttons).toEqual([
-      { id: 'PAY_UPI_ID', title: 'UPI ID Payment' },
-      { id: 'PAY_SCAN_QR', title: 'Scan QR Code' },
-    ])
-    expect(validateInteractivePayload({ kind: 'buttons', body: btnCall.bodyText, buttons: btnCall.buttons }).ok).toBe(true)
+    const ctaCall = sentCtaUrls[sentCtaUrls.length - 1]
+    expect(ctaCall).toBeDefined()
+    expect(ctaCall.bodyText).toContain('ONLINE PAYMENT — BEST AUTO PARTS')
+    expect(ctaCall.bodyText).toContain('/pay')
+    expect(ctaCall.buttonText).toBe('Pay Now Online')
+    expect(ctaCall.url).toContain('/pay')
   })
 
   // ------------------------------------------------------------
@@ -1758,11 +1762,11 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
       interactiveReplyId: WELCOME_CALLBACKS.BUY_ONLINE_PAY,
     })
     expect(resPay.consumed).toBe(true)
-    const payCall = sentButtons[sentButtons.length - 1]
-    expect(payCall.buttons).toEqual([
-      { id: 'PAY_UPI_ID', title: 'UPI ID Payment' },
-      { id: 'PAY_SCAN_QR', title: 'Scan QR Code' },
-    ])
+    const ctaCall = sentCtaUrls[sentCtaUrls.length - 1]
+    expect(ctaCall).toBeDefined()
+    expect(ctaCall.buttonText).toBe('Pay Now Online')
+    expect(ctaCall.bodyText).toContain('ONLINE PAYMENT — BEST AUTO PARTS')
+    expect(ctaCall.url).toContain('/pay')
   })
 
   // ------------------------------------------------------------
@@ -2579,5 +2583,61 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
     expect(resTvs.consumed).toBe(true)
     expect(sentTexts.length).toBe(1)
     expect(sentTexts[0].text).toContain('exclusively in *Bajaj, Hero, and Honda*')
+  })
+
+  // ------------------------------------------------------------
+  // Test 70: Repeat purchase creates fresh pending order & link without reusing old PAID order
+  // ------------------------------------------------------------
+  it('70. Repeat purchase: creates brand-new PENDING order and Razorpay link even when customer has prior PAID order', async () => {
+    const existingPaidOrderId = 'ORD-PRIOR-PAID-888'
+    const db = createFakeDb({
+      contacts: [{ id: contactId, account_id: accountId, preferred_language: 'hinglish' }],
+      orders: [
+        {
+          id: existingPaidOrderId,
+          account_id: accountId,
+          contact_id: contactId,
+          order_status: 'completed',
+          payment_status: 'PAID',
+          stock_deducted: true,
+          metadata: {
+            order_id: existingPaidOrderId,
+            part_name: 'Pulsar 150 Spark Plug',
+            stock_deducted: true,
+          },
+        },
+      ],
+      payments: [
+        {
+          id: 'pay-prior-1',
+          account_id: accountId,
+          order_id: existingPaidOrderId,
+          payment_status: 'paid',
+          amount: 150,
+        },
+      ],
+    })
+
+    // Customer taps Online Payment for a new purchase
+    const res = await handleWelcomeFlowInbound({
+      db: db as any,
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      inboundText: 'Online Payment',
+      interactiveReplyId: WELCOME_CALLBACKS.BUY_ONLINE_PAY,
+    })
+
+    expect(res.consumed).toBe(true)
+    // Must NOT state "Payment Already Received!"
+    const ctaCall = sentCtaUrls[sentCtaUrls.length - 1]
+    expect(ctaCall).toBeDefined()
+    expect(ctaCall.bodyText).not.toContain('Payment Already Received')
+    expect(ctaCall.bodyText).toContain('ONLINE PAYMENT — BEST AUTO PARTS')
+    expect(ctaCall.buttonText).toBe('Pay Now Online')
+    expect(ctaCall.url).toContain('/pay?order=ORD-')
+    // Order ID in CTA URL must be newly generated and NOT the old paid order ID
+    expect(ctaCall.url).not.toContain(existingPaidOrderId)
   })
 })

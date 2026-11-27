@@ -2,6 +2,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   engineSendInteractiveButtons,
+  engineSendInteractiveCtaUrl,
   engineSendInteractiveList,
   engineSendMedia,
   engineSendText,
@@ -19,6 +20,7 @@ import {
 import { cleanCustomerFacingPartName } from '@/lib/ai/stock-privacy'
 import { formatVehicleFitment } from '@/lib/inventory/fitment'
 import { PaymentService } from '@/lib/payments/payment-service'
+import { createRazorpayPaymentLink } from '@/lib/payments/razorpay'
 import {
   isClosingOrGratitudeMessage,
   isHinglishClosing,
@@ -260,54 +262,278 @@ export interface ActiveProductSession {
   partName: string
   unitPrice: number
   partId?: string
+  sku?: string
   updatedAt: number
 }
 
 export const activeProductSessions = new Map<string, ActiveProductSession>()
+
+export interface ActiveCustomerOrder {
+  orderId: string
+  partName: string
+  unitPrice: number
+  totalAmount: number
+  partId?: string
+  sku?: string
+  customerName: string
+  customerPhone: string
+  deliveryMethod?: 'PICKUP' | 'DELIVERY' | 'ONLINE'
+  checkoutUrl?: string
+  paymentLinkId?: string
+}
+
+export const activePendingOrderSessions = new Map<string, ActiveCustomerOrder>()
 
 export async function resolveActiveProduct(
   db: SupabaseClient,
   conversationId: string,
   contactId: string,
   accountId: string
-): Promise<{ partName: string; unitPrice: number; partId?: string }> {
+): Promise<{ partName: string; unitPrice: number; partId?: string; sku?: string }> {
   // 1. Check in-memory session cache
   const cached =
     activeProductSessions.get(conversationId) ||
     activeProductSessions.get(`${accountId}:${contactId}`)
   if (cached && Date.now() - cached.updatedAt < 3600000 && cached.unitPrice > 0) {
-    return { partName: cached.partName, unitPrice: cached.unitPrice, partId: cached.partId }
+    return {
+      partName: cached.partName,
+      unitPrice: cached.unitPrice,
+      partId: cached.partId,
+      sku: cached.sku,
+    }
   }
 
-  // 2. Check latest order for this conversation / contact
+  // 2. Scan recent conversation messages for quoted products
+  try {
+    const { data: recentMsgs } = await db
+      .from('messages')
+      .select('content_text, created_at')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (recentMsgs && recentMsgs.length > 0) {
+      for (const msg of recentMsgs) {
+        const text = msg.content_text || ''
+        const productMatch = text.match(/•\s*\*Product:\*\s*([^\n\r]+)/i)
+        const priceMatch = text.match(/•\s*\*Price:\*\s*₹\s*([0-9]+(?:\.[0-9]+)?)/i)
+        if (productMatch && priceMatch) {
+          const parsedPrice = parseFloat(priceMatch[1])
+          if (!isNaN(parsedPrice) && parsedPrice > 0) {
+            const parsedName = productMatch[1].replace(/[*_]/g, '').trim()
+            const sessionData: ActiveProductSession = {
+              partName: parsedName,
+              unitPrice: parsedPrice,
+              updatedAt: Date.now(),
+            }
+            activeProductSessions.set(conversationId, sessionData)
+            activeProductSessions.set(`${accountId}:${contactId}`, sessionData)
+            return {
+              partName: parsedName,
+              unitPrice: parsedPrice,
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Check latest PENDING order for this conversation / contact (never reuse PAID order!)
   try {
     const { data: latestOrder } = await db
       .from('orders')
-      .select('unit_price, total_amount, part_id, metadata')
+      .select('unit_price, total_amount, part_id, order_status, payment_status, metadata')
       .eq('account_id', accountId)
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (latestOrder && Number(latestOrder.unit_price) > 0) {
+    // STRICT: Only use order if it's NOT already paid!
+    if (
+      latestOrder &&
+      Number(latestOrder.unit_price) > 0 &&
+      latestOrder.payment_status !== 'PAID' &&
+      latestOrder.order_status !== 'paid'
+    ) {
       const partName =
         latestOrder.metadata?.part_name || 'Bajaj Front Disc Brake Pad Set'
       return {
         partName,
         unitPrice: Number(latestOrder.unit_price),
         partId: latestOrder.part_id || undefined,
+        sku: latestOrder.metadata?.sku || undefined,
       }
     }
   } catch {
     // Ignore DB fetch failure
   }
 
-  // 3. Standard active catalog default: Bajaj Front Disc Brake Pad Set ₹340
+  // 4. Standard active catalog default: Bajaj Front Disc Brake Pad Set ₹340
   return {
     partName: 'Bajaj Front Disc Brake Pad Set',
     unitPrice: 340,
+    sku: 'BAP-BP-001',
   }
+}
+
+/**
+ * Creates a brand-new PENDING order in orders, payment_links, and payments.
+ * NEVER reuses an existing PAID order. Stock is NOT deducted on creation.
+ */
+export async function createCustomerPendingOrder(params: {
+  db: SupabaseClient
+  accountId: string
+  userId?: string
+  contactId: string
+  conversationId: string
+  deliveryMethod?: 'PICKUP' | 'DELIVERY' | 'ONLINE'
+  deliveryAddress?: string
+  preferredLanguage?: 'en' | 'hinglish'
+}): Promise<ActiveCustomerOrder> {
+  const {
+    db,
+    accountId,
+    userId,
+    contactId,
+    conversationId,
+    deliveryMethod = 'PICKUP',
+    deliveryAddress,
+    preferredLanguage = 'en',
+  } = params
+
+  let customerName = 'Valued Customer'
+  let customerPhone = '+919634722174'
+  try {
+    const { data: c } = await db
+      .from('contacts')
+      .select('name, phone')
+      .eq('id', contactId)
+      .maybeSingle()
+    if (c?.name?.trim()) customerName = c.name.trim()
+    if (c?.phone?.trim()) customerPhone = c.phone.trim()
+  } catch {
+    // ignore
+  }
+
+  const product = await resolveActiveProduct(db, conversationId, contactId, accountId)
+  const ts = Date.now().toString(36).toUpperCase()
+  const rand = Math.random().toString(36).substring(2, 6).toUpperCase()
+  const orderId = `ORD-${ts}-${rand}`
+  const nowIso = new Date().toISOString()
+
+  // 1. Insert into orders table (status='PENDING', payment_status='PENDING', stock_deducted=false)
+  try {
+    await db.from('orders').insert({
+      account_id: accountId,
+      contact_id: contactId,
+      conversation_id: conversationId,
+      part_id: product.partId || null,
+      quantity: 1,
+      unit_price: product.unitPrice,
+      total_amount: product.unitPrice,
+      currency: 'INR',
+      fulfillment_type: deliveryMethod === 'DELIVERY' ? 'home_delivery' : 'store_pickup',
+      delivery_method: deliveryMethod,
+      delivery_address:
+        deliveryAddress ||
+        (deliveryMethod === 'DELIVERY'
+          ? 'Home Delivery (Kailashpur / Saharanpur)'
+          : 'Store Pickup / Best Auto Parts, Kailashpur, Saharanpur'),
+      order_status: 'pending_payment',
+      status: 'PENDING',
+      payment_status: 'PENDING',
+      stock_deducted: false,
+      customer_language: preferredLanguage,
+      metadata: {
+        order_id: orderId,
+        part_name: product.partName,
+        sku: product.sku || null,
+        initiator_user_id: userId,
+        items: [
+          {
+            partId: product.partId || null,
+            sku: product.sku || null,
+            partName: product.partName,
+            name: product.partName,
+            quantity: 1,
+            unitPrice: product.unitPrice,
+            lineTotal: product.unitPrice,
+          },
+        ],
+        stock_deducted: false,
+      },
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+  } catch (ordErr) {
+    console.warn('[welcome-flow] createCustomerPendingOrder orders insert warning:', ordErr)
+  }
+
+  // 2. Insert into payment_links table (status='PENDING', stock_deducted=false)
+  try {
+    await db.from('payment_links').insert({
+      account_id: accountId,
+      order_id: orderId,
+      merchant_transaction_id: orderId,
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      part_details: `${product.partName} (x1)`,
+      amount: product.unitPrice,
+      status: 'PENDING',
+      delivery_status: 'Confirmed',
+      stock_deducted: false,
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+  } catch (plErr) {
+    console.warn('[welcome-flow] createCustomerPendingOrder payment_links insert warning:', plErr)
+  }
+
+  // 3. Insert into payments table (payment_status='pending', status='PENDING')
+  try {
+    await db.from('payments').insert({
+      account_id: accountId,
+      order_id: orderId,
+      merchant_transaction_id: orderId,
+      payment_method: deliveryMethod === 'ONLINE' ? 'RAZORPAY_LINK' : 'CASH',
+      amount: product.unitPrice,
+      currency: 'INR',
+      payment_status: 'pending',
+      status: 'PENDING',
+      settlement_status: 'unsettled',
+      metadata: {
+        order_id: orderId,
+        part_name: product.partName,
+        sku: product.sku || null,
+        delivery_method: deliveryMethod,
+        stock_deducted: false,
+      },
+      created_at: nowIso,
+      updated_at: nowIso,
+    })
+  } catch (payErr) {
+    console.warn('[welcome-flow] createCustomerPendingOrder payments insert warning:', payErr)
+  }
+
+  const orderSession: ActiveCustomerOrder = {
+    orderId,
+    partName: product.partName,
+    unitPrice: product.unitPrice,
+    totalAmount: product.unitPrice,
+    partId: product.partId,
+    sku: product.sku,
+    customerName,
+    customerPhone,
+    deliveryMethod,
+  }
+
+  activePendingOrderSessions.set(conversationId, orderSession)
+  activePendingOrderSessions.set(`${accountId}:${contactId}`, orderSession)
+
+  return orderSession
 }
 
 export async function setContactLanguage(
@@ -1182,9 +1408,20 @@ export async function handleWelcomeFlowInbound(
     interactiveReplyId === WELCOME_CALLBACKS.BUY_WANT ||
     /^(buy\s*now|kharidna\s*hai|i\s*want\s*to\s*buy)$/i.test(rawText)
   ) {
+    const pendingOrder = await createCustomerPendingOrder({
+      db,
+      accountId,
+      userId,
+      contactId,
+      conversationId,
+      preferredLanguage: isHinglish ? 'hinglish' : 'en',
+    })
+
     const bodyText = isHinglish
-      ? 'Bahut badhiya! Aap product store se pickup karna chahenge, home delivery chahiye ya online payment karna chahenge?'
-      : 'Great! Would you prefer to pick up the product from our store, get home delivery, or pay online?'
+      ? `Bahut badhiya! 😊 Aapka order *#${pendingOrder.orderId.replace(/^ORD-/, '')}* (${pendingOrder.partName} — ₹${pendingOrder.unitPrice.toFixed(2)}) initiate ho gaya hai.\n\n` +
+        `Aap product store se pickup karna chahenge, home delivery chahiye ya online payment karna chahenge?`
+      : `Great! 😊 Order *#${pendingOrder.orderId.replace(/^ORD-/, '')}* for ${pendingOrder.partName} (₹${pendingOrder.unitPrice.toFixed(2)}) has been initiated.\n\n` +
+        `Would you prefer to pick up the product from our store, get home delivery, or pay online?`
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -1271,154 +1508,158 @@ async function checkCustomerOrderPaymentStatus(
 }
 
   // ------------------------------------------------------------
-  // 8A. Online Payment Flow (PhonePe Gateway Track 2)
+  // 8A. Online Payment Flow (Razorpay Live Payment Link)
   // ------------------------------------------------------------
   if (
     interactiveReplyId === WELCOME_CALLBACKS.BUY_ONLINE_PAY ||
     interactiveReplyId === WELCOME_CALLBACKS.PAY_RETRY ||
     /^(online\s*payment|pay\s*online|online\s*pay)$/i.test(rawText)
   ) {
-    const { partName: selectedPartName, unitPrice: selectedUnitPrice, partId: selectedPartId } =
-      await resolveActiveProduct(db, conversationId, contactId, accountId)
+    // Resolve active pending order or create a fresh one (NEVER block on old PAID order!)
+    let activeOrder =
+      activePendingOrderSessions.get(conversationId) ||
+      activePendingOrderSessions.get(`${accountId}:${contactId}`)
 
-    let customerName = 'Customer'
-    let customerPhone = ''
-    try {
-      const { data: c } = await db
-        .from('contacts')
-        .select('name, phone')
-        .eq('id', contactId)
-        .maybeSingle()
-      if (c?.name) customerName = c.name
-      if (c?.phone) customerPhone = c.phone
-    } catch {
-      // ignore
+    if (!activeOrder) {
+      activeOrder = await createCustomerPendingOrder({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        deliveryMethod: 'ONLINE',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+      })
     }
 
-    // Check live payment status for this customer first
-    const livePayment = await checkCustomerOrderPaymentStatus(db, contactId, customerPhone)
+    const { orderId, partName, unitPrice, customerName, customerPhone } = activeOrder
 
-    // CASE A: Full Payment Already Completed
-    if (livePayment && livePayment.status === 'PAID') {
-      const bodyText = isHinglish
-        ? `✅ *Payment Already Received!*\n\n` +
-          `Aapka order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) fully paid hai. Best Auto Parts ko chunne ke liye shukriya!\n\n` +
-          `Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.\n` +
-          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`
-        : `✅ *Payment Already Received!*\n\n` +
-          `Your order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) is fully paid. Thank you for choosing *Best Auto Parts*!\n\n` +
-          `Our team is preparing your spare parts for dispatch or counter pickup.\n` +
-          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`;
+    // Create fresh live Razorpay Payment Link for exact order amount
+    let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
+      orderId
+    )}&amount=${unitPrice}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
+      customerPhone
+    )}&item=${encodeURIComponent(partName)}`
+    let paymentLinkId = `plink_${orderId.toLowerCase()}_${Date.now()}`
 
-      const res = await engineSendText({
+    try {
+      const rzpRes = await createRazorpayPaymentLink({
+        orderId,
+        customerName,
+        customerPhone,
+        partDetails: `${partName} (x1)`,
+        amount: unitPrice,
+        accountId,
+        userId,
+        conversationId,
+        notes: {
+          order_id: orderId,
+          contact_phone: customerPhone,
+        },
+      })
+      if (rzpRes?.shortUrl) {
+        checkoutLink = rzpRes.shortUrl
+        paymentLinkId = rzpRes.paymentLinkId || paymentLinkId
+      }
+    } catch (rzpErr) {
+      console.warn('[welcome-flow] createRazorpayPaymentLink warning, using fallback:', rzpErr)
+    }
+
+    const nowIso = new Date().toISOString()
+    try {
+      await db
+        .from('orders')
+        .update({
+          delivery_method: 'ONLINE',
+          metadata: {
+            order_id: orderId,
+            part_name: partName,
+            razorpay_payment_link_id: paymentLinkId,
+            payment_url: checkoutLink,
+            stock_deducted: false,
+          },
+          updated_at: nowIso,
+        })
+        .or(`id.eq.${orderId},metadata->>order_id.eq.${orderId}`)
+    } catch {}
+
+    try {
+      await db
+        .from('payment_links')
+        .update({
+          razorpay_payment_link_id: paymentLinkId,
+          razorpay_payment_link_url: checkoutLink,
+          updated_at: nowIso,
+        })
+        .eq('order_id', orderId)
+    } catch {}
+
+    try {
+      await db
+        .from('payments')
+        .update({
+          checkout_url: checkoutLink,
+          updated_at: nowIso,
+        })
+        .eq('order_id', orderId)
+    } catch {}
+
+    activeOrder.checkoutUrl = checkoutLink
+    activeOrder.paymentLinkId = paymentLinkId
+
+    const shortRef = orderId.replace(/^ORD-/, '').slice(-6)
+    const bodyText = isHinglish
+      ? `💳 *ONLINE PAYMENT — BEST AUTO PARTS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• *Order ID:* *#${shortRef}*\n` +
+        `• *Part / Item:* ${partName}\n` +
+        `• *Quantity:* 1\n` +
+        `• *Total Amount:* *₹${unitPrice.toFixed(2)}* (All taxes included)\n` +
+        `• *Payment Status:* PENDING\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Apne phone se 1-click secure payment karne ke liye niche link par tap karein:\n` +
+        `👉 ${checkoutLink}\n\n` +
+        `✅ UPI (Google Pay, PhonePe, Paytm), Cards aur NetBanking supported hain.\n` +
+        `✅ Payment complete hote hi instant WhatsApp receipt & delivery confirmation mil jayegi!`
+      : `💳 *ONLINE PAYMENT — BEST AUTO PARTS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `• *Order ID:* *#${shortRef}*\n` +
+        `• *Part / Item:* ${partName}\n` +
+        `• *Quantity:* 1\n` +
+        `• *Total Amount:* *₹${unitPrice.toFixed(2)}* (All taxes included)\n` +
+        `• *Payment Status:* PENDING\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Please tap the secure link below to complete your payment via Razorpay:\n` +
+        `👉 ${checkoutLink}\n\n` +
+        `✅ Supports UPI (Google Pay, PhonePe, Paytm), Cards, and NetBanking.\n` +
+        `✅ Your order will be confirmed with an instant receipt once paid!`;
+
+    let sendMsgId = ''
+    try {
+      const ctaRes = await engineSendInteractiveCtaUrl({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        bodyText,
+        buttonText: 'Pay Now Online',
+        url: checkoutLink,
+        footerText: 'Best Auto Parts • Kailashpur, Saharanpur',
+      })
+      sendMsgId = ctaRes.whatsapp_message_id
+    } catch (ctaErr) {
+      console.warn('[welcome-flow] engineSendInteractiveCtaUrl fallback to text:', ctaErr)
+      const textRes = await engineSendText({
         accountId,
         userId,
         conversationId,
         contactId,
         text: bodyText,
       })
-      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+      sendMsgId = textRes.whatsapp_message_id
     }
 
-    // CASE B: Partial Payment (Collect remaining balance only)
-    if (livePayment && livePayment.status === 'PARTIAL') {
-      const remainingAmt = livePayment.remainingAmount
-      const partialCheckoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
-        livePayment.orderId
-      )}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
-        customerPhone
-      )}&item=${encodeURIComponent(selectedPartName)}&amount=${remainingAmt}`
-
-      const bodyText = isHinglish
-        ? `⚡ *Remaining Balance Due — Best Auto Parts*\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-          `• *Order ID:* *${livePayment.orderId}*\n` +
-          `• *Total Bill:* ₹${livePayment.totalAmount.toFixed(2)}\n` +
-          `• *Already Paid:* ₹${livePayment.paidAmount.toFixed(2)}\n` +
-          `• *Remaining Balance Due:* *₹${remainingAmt.toFixed(2)}*\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-          `Bacha hua balance pay karne ke liye niche direct secure checkout link par tap karein:\n` +
-          `👉 ${partialCheckoutLink}`
-        : `⚡ *Remaining Balance Due — Best Auto Parts*\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-          `• *Order ID:* *${livePayment.orderId}*\n` +
-          `• *Total Bill:* ₹${livePayment.totalAmount.toFixed(2)}\n` +
-          `• *Already Paid:* ₹${livePayment.paidAmount.toFixed(2)}\n` +
-          `• *Remaining Balance Due:* *₹${remainingAmt.toFixed(2)}*\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-          `Please tap our secure checkout link to pay your remaining balance:\n` +
-          `👉 ${partialCheckoutLink}`;
-
-      const res = await engineSendInteractiveButtons({
-        accountId,
-        userId,
-        conversationId,
-        contactId,
-        bodyText,
-        buttons: [
-          { id: WELCOME_CALLBACKS.PAY_UPI_ID, title: 'UPI ID Payment' },
-          { id: WELCOME_CALLBACKS.PAY_SCAN_QR, title: 'Scan QR Code' },
-        ],
-      })
-      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
-    }
-
-    let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=BAP-ORDER&name=${encodeURIComponent(
-      customerName
-    )}&phone=${encodeURIComponent(customerPhone)}&item=${encodeURIComponent(
-      selectedPartName
-    )}&amount=${selectedUnitPrice}`
-
-    try {
-      const initResult = await PaymentService.initiatePayment({
-        db,
-        accountId,
-        userId,
-        contactId,
-        conversationId,
-        partId: selectedPartId,
-        partName: selectedPartName,
-        unitPrice: selectedUnitPrice,
-        quantity: 1,
-        fulfillmentType: 'online_checkout',
-        preferredLanguage: isHinglish ? 'hinglish' : 'en',
-        paymentMethod: 'CHECKOUT_LINK',
-      })
-      if (initResult.checkoutUrl && !initResult.checkoutUrl.includes('mock=true')) {
-        checkoutLink = initResult.checkoutUrl
-      } else {
-        const orderId = initResult.merchantTransactionId || 'BAP-ORDER'
-        const amt = initResult.totalAmount || selectedUnitPrice
-        checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
-          orderId
-        )}&name=${encodeURIComponent(customerName)}&phone=${encodeURIComponent(
-          customerPhone
-        )}&item=${encodeURIComponent(selectedPartName)}&amount=${amt}`
-      }
-    } catch {
-      // Fallback
-    }
-
-    const bodyText = isHinglish
-      ? `Online Payment ke liye kripya apna tarika chuniye:\n\n` +
-        `Same-phone payment ke liye aap direct secure web checkout link bhi use kar sakte hain:\n` +
-        `👉 ${checkoutLink}`
-      : `Please choose your online payment method:\n\n` +
-        `If you are paying from the same phone, you can also use our secure checkout link:\n` +
-        `👉 ${checkoutLink}`
-
-    const res = await engineSendInteractiveButtons({
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      bodyText,
-      buttons: [
-        { id: WELCOME_CALLBACKS.PAY_UPI_ID, title: 'UPI ID Payment' },
-        { id: WELCOME_CALLBACKS.PAY_SCAN_QR, title: 'Scan QR Code' },
-      ],
-    })
-    return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
+    return { consumed: true, responseSent: bodyText, messageId: sendMsgId }
   }
 
   // Scan Dynamic QR Code Flow
@@ -1429,36 +1670,12 @@ async function checkCustomerOrderPaymentStatus(
     const { partName: selectedPartName, unitPrice: defaultUnitPrice, partId: selectedPartId } =
       await resolveActiveProduct(db, conversationId, contactId, accountId)
 
-    let selectedUnitPrice = defaultUnitPrice
+    const activeOrder =
+      activePendingOrderSessions.get(conversationId) ||
+      activePendingOrderSessions.get(`${accountId}:${contactId}`)
 
-    // Check live payment status for this customer first
-    const livePayment = await checkCustomerOrderPaymentStatus(db, contactId)
-    if (livePayment && livePayment.status === 'PAID') {
-      const bodyText = isHinglish
-        ? `✅ *Payment Already Received!*\n\n` +
-          `Aapka order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) fully paid hai. Best Auto Parts ko chunne ke liye shukriya!\n\n` +
-          `Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.\n` +
-          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`
-        : `✅ *Payment Already Received!*\n\n` +
-          `Your order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) is fully paid. Thank you for choosing *Best Auto Parts*!\n\n` +
-          `Our team is preparing your spare parts for dispatch or counter pickup.\n` +
-          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`;
-
-      const res = await engineSendText({
-        accountId,
-        userId,
-        conversationId,
-        contactId,
-        text: bodyText,
-      })
-      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
-    }
-
-    if (livePayment && livePayment.status === 'PARTIAL') {
-      selectedUnitPrice = livePayment.remainingAmount
-    }
-
-    let orderRef = livePayment?.orderId || 'BAP-9634'
+    let selectedUnitPrice = activeOrder?.unitPrice || defaultUnitPrice
+    let orderRef = activeOrder?.orderId || 'ORD-9634'
     let totalAmt = selectedUnitPrice
     try {
       const initResult = await PaymentService.initiatePayment({
@@ -1468,7 +1685,7 @@ async function checkCustomerOrderPaymentStatus(
         contactId,
         conversationId,
         partId: selectedPartId,
-        partName: selectedPartName,
+        partName: activeOrder?.partName || selectedPartName,
         unitPrice: selectedUnitPrice,
         quantity: 1,
         fulfillmentType: 'online_checkout',
@@ -1481,7 +1698,7 @@ async function checkCustomerOrderPaymentStatus(
       // Fallback
     }
 
-    const shortRef = orderRef.slice(-6)
+    const shortRef = orderRef.replace(/^ORD-/, '').slice(-6)
     const rawSiteUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.NEXT_PUBLIC_SITE_URL ||
@@ -1559,37 +1776,12 @@ async function checkCustomerOrderPaymentStatus(
       // ignore
     }
 
-    let selectedUnitPrice = defaultUnitPrice
+    const activeOrder =
+      activePendingOrderSessions.get(conversationId) ||
+      activePendingOrderSessions.get(`${accountId}:${contactId}`)
 
-    // Check live payment status for this customer first
-    const livePayment = await checkCustomerOrderPaymentStatus(db, contactId, customerPhone)
-
-    if (livePayment && livePayment.status === 'PAID') {
-      const bodyText = isHinglish
-        ? `✅ *Payment Already Received!*\n\n` +
-          `Aapka order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) fully paid hai. Best Auto Parts ko chunne ke liye shukriya!\n\n` +
-          `Hamari team aapka spare part dispatch / counter pickup ke liye arrange kar rahi hai.\n` +
-          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`
-        : `✅ *Payment Already Received!*\n\n` +
-          `Your order *${livePayment.orderId}* (₹${livePayment.totalAmount.toFixed(2)}) is fully paid. Thank you for choosing *Best Auto Parts*!\n\n` +
-          `Our team is preparing your spare parts for dispatch or counter pickup.\n` +
-          `📍 Best Auto Parts, Kailashpur, Saharanpur • +91 96347 22174`;
-
-      const res = await engineSendText({
-        accountId,
-        userId,
-        conversationId,
-        contactId,
-        text: bodyText,
-      })
-      return { consumed: true, responseSent: bodyText, messageId: res.whatsapp_message_id }
-    }
-
-    if (livePayment && livePayment.status === 'PARTIAL') {
-      selectedUnitPrice = livePayment.remainingAmount
-    }
-
-    let orderRef = livePayment?.orderId || 'BAP-9634'
+    let selectedUnitPrice = activeOrder?.unitPrice || defaultUnitPrice
+    let orderRef = activeOrder?.orderId || 'ORD-9634'
     let totalAmt = selectedUnitPrice
     let checkoutLink = `https://best-auto-parts-one.vercel.app/pay?order=${encodeURIComponent(
       orderRef
@@ -1605,7 +1797,7 @@ async function checkCustomerOrderPaymentStatus(
         contactId,
         conversationId,
         partId: selectedPartId,
-        partName: selectedPartName,
+        partName: activeOrder?.partName || selectedPartName,
         unitPrice: selectedUnitPrice,
         quantity: 1,
         fulfillmentType: 'online_checkout',
@@ -1629,7 +1821,7 @@ async function checkCustomerOrderPaymentStatus(
       // Fallback
     }
 
-    const shortRef = orderRef.slice(-6)
+    const shortRef = orderRef.replace(/^ORD-/, '').slice(-6)
     const formattedAmt = `₹${totalAmt.toFixed(2)}`
     const text = isHinglish
       ? `⚡ *UPI ID Payment — BestPay Instant Checkout*\n` +
@@ -1796,9 +1988,40 @@ async function checkCustomerOrderPaymentStatus(
   // 9. Store Pickup Journey Callbacks (Section 9)
   // ------------------------------------------------------------
   if (interactiveReplyId === WELCOME_CALLBACKS.BUY_PICKUP) {
+    let activeOrder =
+      activePendingOrderSessions.get(conversationId) ||
+      activePendingOrderSessions.get(`${accountId}:${contactId}`)
+
+    if (!activeOrder) {
+      activeOrder = await createCustomerPendingOrder({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        deliveryMethod: 'PICKUP',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+      })
+    } else {
+      activeOrder.deliveryMethod = 'PICKUP'
+      try {
+        await db
+          .from('orders')
+          .update({
+            delivery_method: 'PICKUP',
+            fulfillment_type: 'store_pickup',
+            updated_at: new Date().toISOString(),
+          })
+          .or(`id.eq.${activeOrder.orderId},metadata->>order_id.eq.${activeOrder.orderId}`)
+      } catch {}
+    }
+
+    const shortRef = activeOrder.orderId.replace(/^ORD-/, '').slice(-6)
     const bodyText = isHinglish
-      ? 'Ji zaroor! 😊\n\nAap store se apna product lena chahte hain.\n\nAap kab aana pasand karenge?'
-      : 'Certainly! 😊\n\nYou would like to pick up your product from our store.\n\nWhen would you prefer to visit?'
+      ? `✅ *Order #${shortRef} (${activeOrder.partName}) — Store Pickup*\n\n` +
+        `Aap store se apna product kab lena chahenge?`
+      : `✅ *Order #${shortRef} (${activeOrder.partName}) — Store Pickup*\n\n` +
+        `When would you prefer to visit our store?`
 
     const res = await engineSendInteractiveButtons({
       accountId,
@@ -1891,9 +2114,42 @@ async function checkCustomerOrderPaymentStatus(
   // 10. Delivery Assistance Journey Callbacks (Section 10)
   // ------------------------------------------------------------
   if (interactiveReplyId === WELCOME_CALLBACKS.BUY_DELIVERY) {
+    let activeOrder =
+      activePendingOrderSessions.get(conversationId) ||
+      activePendingOrderSessions.get(`${accountId}:${contactId}`)
+
+    if (!activeOrder) {
+      activeOrder = await createCustomerPendingOrder({
+        db,
+        accountId,
+        userId,
+        contactId,
+        conversationId,
+        deliveryMethod: 'DELIVERY',
+        preferredLanguage: isHinglish ? 'hinglish' : 'en',
+      })
+    } else {
+      activeOrder.deliveryMethod = 'DELIVERY'
+      try {
+        await db
+          .from('orders')
+          .update({
+            delivery_method: 'DELIVERY',
+            fulfillment_type: 'home_delivery',
+            updated_at: new Date().toISOString(),
+          })
+          .or(`id.eq.${activeOrder.orderId},metadata->>order_id.eq.${activeOrder.orderId}`)
+      } catch {}
+    }
+
+    const shortRef = activeOrder.orderId.replace(/^ORD-/, '').slice(-6)
     const text = isHinglish
-      ? 'Ji zaroor! 😊 Kripya apna area ya PIN code share karein.\n\nHum check karte hain ki aapke area mein delivery ki suvidha available hai ya nahi.'
-      : 'Certainly! 😊 Please share your area or PIN code.\n\nWe will check if delivery service is available in your area.'
+      ? `✅ *Order #${shortRef} (${activeOrder.partName}) — Home Delivery*\n\n` +
+        `Ji zaroor! 😊 Kripya apna area ya PIN code share karein.\n\n` +
+        `Hum check karte hain ki aapke area mein delivery ki suvidha available hai ya nahi.`
+      : `✅ *Order #${shortRef} (${activeOrder.partName}) — Home Delivery*\n\n` +
+        `Certainly! 😊 Please share your area or PIN code.\n\n` +
+        `We will check if delivery service is available in your area.`
 
     const res = await engineSendText({
       accountId,

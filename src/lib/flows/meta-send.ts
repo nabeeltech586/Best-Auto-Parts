@@ -1,5 +1,6 @@
 import {
   sendInteractiveButtons,
+  sendInteractiveCtaUrl,
   sendInteractiveList,
   sendMediaMessage,
   sendTextMessage,
@@ -352,9 +353,31 @@ export async function engineSendInteractiveList(
   return sendInteractiveViaMeta({ ...args, kind: 'list' })
 }
 
+export interface SendInteractiveCtaUrlEngineArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  bodyText: string
+  buttonText: string
+  url: string
+  headerText?: string
+  footerText?: string
+}
+
+/**
+ * Send an interactive Call-To-Action URL button WhatsApp message from the Flows engine.
+ */
+export async function engineSendInteractiveCtaUrl(
+  args: SendInteractiveCtaUrlEngineArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  return sendInteractiveViaMeta({ ...args, kind: 'cta_url' })
+}
+
 type SendInput =
   | (SendInteractiveButtonsEngineArgs & { kind: 'buttons' })
   | (SendInteractiveListEngineArgs & { kind: 'list' })
+  | (SendInteractiveCtaUrlEngineArgs & { kind: 'cta_url' })
 
 async function sendInteractiveViaMeta(
   input: SendInput,
@@ -401,6 +424,19 @@ async function sendInteractiveViaMeta(
         to: phone,
         bodyText: input.bodyText,
         buttons: input.buttons,
+        headerText: input.headerText,
+        footerText: input.footerText,
+      })
+      return r.messageId
+    }
+    if (input.kind === 'cta_url') {
+      const r = await sendInteractiveCtaUrl({
+        phoneNumberId,
+        accessToken,
+        to: phone,
+        bodyText: input.bodyText,
+        buttonText: input.buttonText,
+        url: input.url,
         headerText: input.headerText,
         footerText: input.footerText,
       })
@@ -455,7 +491,7 @@ async function sendInteractiveViaMeta(
   // when their reply arrives. We DO persist the structured payload so
   // the inbox thread re-renders the buttons/rows the bot sent (round-
   // trip), matching the composer + automation send paths.
-  const interactivePayload: InteractiveMessagePayload =
+  const interactivePayload: unknown =
     input.kind === 'buttons'
       ? {
           kind: 'buttons',
@@ -463,6 +499,15 @@ async function sendInteractiveViaMeta(
           header: input.headerText,
           footer: input.footerText,
           buttons: input.buttons,
+        }
+      : input.kind === 'cta_url'
+      ? {
+          kind: 'cta_url',
+          body: input.bodyText,
+          header: input.headerText,
+          footer: input.footerText,
+          button_text: input.buttonText,
+          url: input.url,
         }
       : {
           kind: 'list',
