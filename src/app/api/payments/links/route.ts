@@ -289,6 +289,8 @@ export async function GET(request: Request) {
     let pendingCount = 0;
     let mechanicCount = 0;
     let customerCount = 0;
+    let razorpayCollected = 0;
+    let razorpayCount = 0;
     let totalCount = 0;
 
     for (const row of allRows) {
@@ -298,13 +300,28 @@ export async function GET(request: Request) {
       totalCount++;
       const parsed = parsePaymentAmountsAndStatus(row);
 
+      const isRzp = Boolean(
+        row.razorpay_payment_id ||
+        row.razorpay_payment_link_id ||
+        (row as any).gateway === 'razorpay' ||
+        /RAZORPAY|ONLINE|PAYMENT_LINK/i.test(row.payment_mode || '')
+      );
+
       if (parsed.status === 'PAID') {
         totalCollected += parsed.paidAmount;
         paidCount++;
+        if (isRzp) {
+          razorpayCollected += parsed.paidAmount;
+          razorpayCount++;
+        }
       } else if (parsed.status === 'PARTIAL') {
         totalCollected += parsed.paidAmount;
         pendingAmount += parsed.remainingAmount;
         pendingCount++;
+        if (isRzp && parsed.paidAmount > 0) {
+          razorpayCollected += parsed.paidAmount;
+          razorpayCount++;
+        }
       } else if (parsed.status === 'PENDING') {
         pendingAmount += parsed.remainingAmount;
         pendingCount++;
@@ -322,6 +339,16 @@ export async function GET(request: Request) {
     for (const link of rawLinks) {
       const cat = enrichAndFilter(link);
       if (!cat) continue; // Excluded supplier
+
+      if (status === 'RAZORPAY') {
+        const isRzp = Boolean(
+          link.razorpay_payment_id ||
+          link.razorpay_payment_link_id ||
+          (link as any).gateway === 'razorpay' ||
+          /RAZORPAY|ONLINE|PAYMENT_LINK/i.test(link.payment_mode || '')
+        );
+        if (!isRzp) continue;
+      }
 
       if (categoryParam) {
         if (categoryParam.toLowerCase() === 'mechanic' && cat !== 'Mechanic') continue;
@@ -363,6 +390,8 @@ export async function GET(request: Request) {
         totalCount,
         mechanicCount,
         customerCount,
+        razorpayCollected,
+        razorpayCount,
       },
     });
   } catch (err: unknown) {

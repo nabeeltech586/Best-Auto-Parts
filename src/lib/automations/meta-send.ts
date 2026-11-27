@@ -3,6 +3,7 @@ import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
+  engineSendInteractiveCtaUrl,
 } from '@/lib/flows/meta-send'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
@@ -99,13 +100,23 @@ export async function engineSendInteractive(
       buttons: payload.buttons,
     })
   }
-  return engineSendInteractiveList({
+  if (payload.kind === 'list') {
+    return engineSendInteractiveList({
+      ...common,
+      bodyText: payload.body,
+      buttonLabel: payload.button_label,
+      headerText: payload.header,
+      footerText: payload.footer,
+      sections: payload.sections,
+    })
+  }
+  return engineSendInteractiveCtaUrl({
     ...common,
     bodyText: payload.body,
-    buttonLabel: payload.button_label,
+    buttonText: payload.button_text,
+    url: payload.url,
     headerText: payload.header,
     footerText: payload.footer,
-    sections: payload.sections,
   })
 }
 

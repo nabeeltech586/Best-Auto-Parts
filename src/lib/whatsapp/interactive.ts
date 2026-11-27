@@ -68,9 +68,19 @@ export interface InteractiveListPayload {
   sections: InteractiveListSection[]
 }
 
+export interface InteractiveCtaUrlPayload {
+  kind: 'cta_url'
+  body: string
+  header?: string
+  footer?: string
+  button_text: string
+  url: string
+}
+
 export type InteractiveMessagePayload =
   | InteractiveButtonsPayload
   | InteractiveListPayload
+  | InteractiveCtaUrlPayload
 
 export type InteractiveValidation =
   | { ok: true }

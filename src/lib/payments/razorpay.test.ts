@@ -521,6 +521,9 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
         }),
       };
 
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      (supabaseAdmin as any).mockReturnValue(mockDb);
+
       const res = await sendWhatsAppReceiptVoucherTemplate({
         customerName: 'Saud Bhai',
         customerPhone: '919634722174',
@@ -590,6 +593,9 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
         }),
       };
 
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      (supabaseAdmin as any).mockReturnValue(mockDb);
+
       const res = await sendWhatsAppReceiptVoucherTemplate({
         customerName: 'Saud Bhai',
         customerPhone: '919634722174',
@@ -650,6 +656,9 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
           return {};
         }),
       };
+
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      (supabaseAdmin as any).mockReturnValue(mockDb);
 
       const res = await sendWhatsAppReceiptVoucherTemplate({
         customerName: 'Saud Bhai',

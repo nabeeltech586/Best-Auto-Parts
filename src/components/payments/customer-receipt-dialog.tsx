@@ -22,6 +22,9 @@ import {
   Send,
   Loader2,
   ExternalLink,
+  CreditCard,
+  Wallet,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -34,6 +37,8 @@ export interface ReceiptOrderData {
   amount: number;
   status: 'PENDING' | 'PAID' | 'FAILED' | string;
   razorpay_payment_id?: string | null;
+  razorpay_payment_link_id?: string | null;
+  gateway?: string | null;
   phonepe_transaction_id?: string | null;
   payment_mode?: string | null;
   paid_at?: string | null;
@@ -64,6 +69,34 @@ export function CustomerReceiptDialog({
       })
     : new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 
+  const paymentModeStr = (order.payment_mode || '').toUpperCase();
+  const isCash = paymentModeStr === 'CASH' || paymentModeStr.includes('CASH');
+  const isRazorpay =
+    Boolean(order.razorpay_payment_id) ||
+    Boolean(order.razorpay_payment_link_id) ||
+    order.gateway === 'razorpay' ||
+    paymentModeStr.includes('RAZORPAY') ||
+    paymentModeStr.includes('ONLINE') ||
+    paymentModeStr.includes('PAYMENT_LINK');
+
+  const paymentSourceLabel = isRazorpay
+    ? 'Razorpay Online'
+    : isCash
+    ? 'Cash'
+    : 'Shop UPI / QR';
+
+  const refLabel = order.razorpay_payment_id
+    ? 'Razorpay Payment ID'
+    : order.razorpay_payment_link_id
+    ? 'Razorpay Link ID'
+    : 'Transaction Ref / UTR';
+
+  const refValue =
+    order.razorpay_payment_id ||
+    order.razorpay_payment_link_id ||
+    order.phonepe_transaction_id ||
+    'VERIFIED';
+
   const receiptText =
     `🧾 *Digital Payment Receipt — Best Auto Parts* 🏍️\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -73,8 +106,9 @@ export function CustomerReceiptDialog({
     `• Spare Part: ${order.part_details}\n` +
     `• Amount Paid: ${formatCurrency(order.amount)}\n` +
     `• Status: ${isPaid ? 'PAID (Success) ✅' : order.status}\n` +
-    `• Payment Mode: ${order.payment_mode || 'UPI / QR'}\n` +
-    `• Transaction Ref / UTR: ${order.razorpay_payment_id || order.phonepe_transaction_id || 'VERIFIED'}\n` +
+    `• Payment Source: ${paymentSourceLabel}\n` +
+    `• Payment Mode: ${order.payment_mode || (isRazorpay ? 'Razorpay Online (UPI/Card/NetBanking)' : 'UPI / QR')}\n` +
+    `• ${refLabel}: ${refValue}\n` +
     `• Stock Status: Auto-Deducted (-1 Unit) ✅\n` +
     `• Date & Time: ${formattedDate}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
@@ -260,16 +294,37 @@ export function CustomerReceiptDialog({
             </div>
 
             <div className="flex justify-between items-center pt-2">
+              <span className="text-muted-foreground text-xs">Payment Source:</span>
+              {isRazorpay ? (
+                <Badge className="bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/30 text-[10px] gap-1 font-semibold">
+                  <CreditCard className="size-3" /> Razorpay Online
+                </Badge>
+              ) : isCash ? (
+                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                  <Wallet className="size-3" /> Cash
+                </Badge>
+              ) : (
+                <Badge className="bg-teal-500/15 text-teal-700 dark:text-teal-400 border-teal-500/30 text-[10px] gap-1 font-semibold">
+                  <ShieldCheck className="size-3" /> Shop UPI / QR
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
               <span className="text-muted-foreground text-xs">Payment Mode:</span>
               <span className="font-medium text-foreground text-xs">
-                {order.payment_mode || 'BestPay Instant (UPI / QR)'}
+                {isRazorpay
+                  ? order.payment_mode || 'Razorpay Online (UPI / Cards / NetBanking)'
+                  : isCash
+                  ? 'Cash in Hand (Store Counter)'
+                  : order.payment_mode || 'BestPay Instant (UPI / QR)'}
               </span>
             </div>
 
             <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Transaction Ref / UTR:</span>
-              <span className="font-mono text-muted-foreground text-[11px] truncate max-w-[200px]">
-                {order.razorpay_payment_id || order.phonepe_transaction_id || 'VERIFIED'}
+              <span className="text-muted-foreground text-xs">{refLabel}:</span>
+              <span className="font-mono text-muted-foreground text-[11px] truncate max-w-[200px]" title={refValue}>
+                {refValue}
               </span>
             </div>
 

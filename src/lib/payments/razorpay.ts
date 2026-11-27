@@ -50,7 +50,6 @@ export interface RazorpayPaymentRecord {
   paid_at?: string;
   created_at?: string;
   updated_at?: string;
-  stock_deducted?: boolean;
 }
 
 export interface PaymentLinkRecord {
@@ -65,6 +64,7 @@ export interface PaymentLinkRecord {
   paid_amount?: number;
   remaining_amount?: number;
   status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED';
+  stock_deducted?: boolean;
   delivery_status?: 'Confirmed' | 'Packed / Ready' | 'Out for Delivery (Local Rider)' | 'Delivered';
   rider_name?: string;
   rider_phone?: string;
@@ -79,7 +79,6 @@ export interface PaymentLinkRecord {
   paid_at?: string;
   created_at?: string;
   updated_at?: string;
-  stock_deducted?: boolean;
 }
 
 export interface RazorpayLinkResult {
@@ -94,6 +93,13 @@ export interface RazorpayLinkResult {
 
 // In-memory fallback cache for instant lookup & mock support
 const localLinkCache = new Map<string, PaymentLinkRecord>();
+
+export function deletePaymentLinkCache(id: string): void {
+  if (!id) return;
+  const clean = id.trim();
+  localLinkCache.delete(clean);
+  localLinkCache.delete(clean.replace(/^#/, ''));
+}
 
 export function getRazorpayConfig() {
   const keyId =
@@ -539,7 +545,7 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
 
   // Trigger WhatsApp payment receipt confirmation to customer (skip if already paid or explicitly skipped)
   if (targetRecord && targetRecord.customer_phone && !alreadyPaid && !args.skipReceipt) {
-    await sendWhatsAppPaymentConfirmation(targetRecord, args.razorpayPaymentId, db).catch((err) => {
+    await sendWhatsAppPaymentConfirmation(targetRecord, args.razorpayPaymentId).catch((err) => {
       console.warn('[Razorpay] WhatsApp confirmation send failed:', err);
     });
   }
@@ -1005,10 +1011,7 @@ export async function processRazorpayPaymentFailure(
           );
         }
         if (typeof qOrd.neq === 'function') {
-          qOrd = qOrd.neq('payment_status', 'PAID');
-          if (typeof qOrd.neq === 'function') {
-            qOrd = qOrd.neq('order_status', 'paid');
-          }
+          qOrd = qOrd.neq('payment_status', 'PAID').neq('order_status', 'paid');
         }
         await qOrd;
       }
@@ -1029,10 +1032,7 @@ export async function processRazorpayPaymentFailure(
           qPay = qPay.or(`order_id.eq.${targetRef},merchant_transaction_id.eq.${targetRef}`);
         }
         if (typeof qPay.neq === 'function') {
-          qPay = qPay.neq('payment_status', 'paid');
-          if (typeof qPay.neq === 'function') {
-            qPay = qPay.neq('status', 'PAID');
-          }
+          qPay = qPay.neq('payment_status', 'paid').neq('status', 'PAID');
         }
         await qPay;
       }
@@ -1080,7 +1080,7 @@ export async function sendWhatsAppPaymentConfirmation(
       .maybeSingle();
 
     contact = existingContact as ContactRow | null;
-  } catch {}
+  } catch { }
 
   if (!contact) {
     try {
@@ -1092,27 +1092,20 @@ export async function sendWhatsAppPaymentConfirmation(
         .maybeSingle();
 
       contact = fallbackContact as ContactRow | null;
-    } catch {}
+    } catch { }
   }
 
   // 2. Resolve account and user
   let accountId = record.account_id || contact?.account_id;
   let userId = contact?.user_id;
   if (!accountId) {
-    try {
-      const accQuery = db.from('accounts');
-      if (accQuery && typeof accQuery.select === 'function') {
-        const { data: acc } = await accQuery
-          .select('id, owner_user_id')
-          .limit(1)
-          .maybeSingle();
-        accountId = acc?.id;
-        userId = userId || acc?.owner_user_id;
-      }
-    } catch {}
-    if (!accountId) {
-      accountId = 'acc_default';
-    }
+    const { data: acc } = await db
+      .from('accounts')
+      .select('id, owner_user_id')
+      .limit(1)
+      .maybeSingle();
+    accountId = acc?.id;
+    userId = userId || acc?.owner_user_id;
   }
 
   // 3. Find or create conversation
@@ -1128,29 +1121,29 @@ export async function sendWhatsAppPaymentConfirmation(
         .maybeSingle();
 
       conversationId = conv?.id;
-    } catch {}
+    } catch { }
   }
 
   const amtFormatted = `₹${record.amount.toFixed(2)}`;
   const dateFormatted = record.paid_at
     ? new Date(record.paid_at).toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      })
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    })
     : new Date().toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
 
   const resolvedPaymentId =
     paymentId || record.razorpay_payment_id || record.phonepe_transaction_id || 'VERIFIED';
@@ -1206,7 +1199,7 @@ export async function sendWhatsAppPaymentConfirmation(
         }
       }
     }
-  } catch {}
+  } catch { }
 
   const digits = cleanPhone.replace(/[^0-9]/g, '').slice(-10);
   const normalizedTo = digits ? `91${digits}` : '';
@@ -1377,8 +1370,8 @@ export async function creditBestPayLedgerBalance(
           typeof sel.or === 'function'
             ? sel.or(`id.eq.${cleanLedgerId},unique_id.eq.${cleanLedgerId}`)
             : typeof sel.eq === 'function'
-            ? sel.eq('id', cleanLedgerId)
-            : null;
+              ? sel.eq('id', cleanLedgerId)
+              : null;
 
         if (q && typeof q.limit === 'function') {
           const qLimit = q.limit(1);
@@ -1412,8 +1405,7 @@ export async function creditBestPayLedgerBalance(
           let matchQuery = null;
           if (typeof sel.or === 'function') {
             matchQuery = sel.or(
-              `phone.ilike.%${cleanDigits}%,phone.eq.${rawPhone}${
-                cleanPhone ? `,phone_normalized.eq.${cleanPhone}` : ''
+              `phone.ilike.%${cleanDigits}%,phone.eq.${rawPhone}${cleanPhone ? `,phone_normalized.eq.${cleanPhone}` : ''
               }`
             );
           } else if (typeof sel.eq === 'function') {
@@ -1464,8 +1456,7 @@ export async function creditBestPayLedgerBalance(
     if (ledgerTable && typeof ledgerTable.insert === 'function') {
       const desc =
         args.description ||
-        `Payment received via Razorpay (Ref: ${args.paymentId}${
-          args.orderId ? ` • Order #${args.orderId}` : ''
+        `Payment received via Razorpay (Ref: ${args.paymentId}${args.orderId ? ` • Order #${args.orderId}` : ''
         }) • ${newDue === 0 ? 'Full Settlement' : `Balance Due: ₹${newDue.toFixed(2)}`}`;
 
       await ledgerTable.insert({
@@ -1498,7 +1489,7 @@ export async function creditBestPayLedgerBalance(
           })
           .eq('order_id', args.orderId);
       }
-    } catch {}
+    } catch { }
   }
 
   return {
@@ -1519,8 +1510,6 @@ export interface SendReceiptVoucherInput {
   paymentId?: string;
   status?: string;
   date?: string;
-  accountId?: string;
-  userId?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db?: any;
 }
@@ -1603,7 +1592,6 @@ export async function sendWhatsAppReceiptVoucherTemplate(
     payment_mode: args.paymentMode || 'Razorpay / UPI',
     razorpay_payment_id: args.paymentId,
     paid_at: new Date().toISOString(),
-    account_id: args.accountId || 'acc_default',
   };
 
   await sendWhatsAppPaymentConfirmation(fallbackRecord, args.paymentId, args.db).catch((err) => {

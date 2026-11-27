@@ -76,7 +76,7 @@ export function InteractivePreview({
             </button>
           ))}
         </div>
-      ) : (
+      ) : payload.kind === "list" ? (
         <button
           type="button"
           disabled
@@ -84,6 +84,14 @@ export function InteractivePreview({
         >
           <List className="h-3.5 w-3.5" />
           <span className="truncate">{payload.button_label || menuLabel}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled
+          className="flex w-full items-center justify-center gap-1.5 border-t border-border py-2 text-sm font-medium text-primary"
+        >
+          <span className="truncate">{(payload as any).button_text || buttonLabel}</span>
         </button>
       )}
     </div>
