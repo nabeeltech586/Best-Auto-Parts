@@ -395,6 +395,121 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
   });
 
   describe('sendWhatsAppReceiptVoucherTemplate', () => {
+    it('sends free session text receipt by default when ENABLE_PAID_WHATSAPP_TEMPLATES is not set', async () => {
+      delete process.env.ENABLE_PAID_WHATSAPP_TEMPLATES;
+      const { engineSendText } = await import('@/lib/flows/meta-send');
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      const mockDb = {
+        from: vi.fn((table: string) => {
+          if (table === 'whatsapp_config') {
+            return {
+              select: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { phone_number_id: 'phone_123', access_token: 'token_123' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: 'c1', account_id: 'a1', user_id: 'u1' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'conversations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'conv1' } }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      };
+
+      const res = await sendWhatsAppReceiptVoucherTemplate({
+        customerName: 'Saud Bhai',
+        customerPhone: '919634722174',
+        receiptId: 'ORD-REC-999',
+        description: 'Bajaj Pulsar Brake Shoe',
+        amount: 350,
+        db: mockDb,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.fallbackUsed).toBe(true);
+      // Meta template endpoint should NOT be called since paid templates are disabled by default
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(engineSendText).toHaveBeenCalled();
+      const textSent = (engineSendText as any).mock.calls.slice(-1)[0][0].text;
+      expect(textSent).toContain('PAYMENT RECEIPT — BEST AUTO PARTS');
+    });
+
+    it('attempts template send when ENABLE_PAID_WHATSAPP_TEMPLATES is explicitly true', async () => {
+      process.env.ENABLE_PAID_WHATSAPP_TEMPLATES = 'true';
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ messages: [{ id: 'wamid.template123' }] }),
+      });
+      global.fetch = fetchSpy;
+
+      const mockDb = {
+        from: vi.fn((table: string) => {
+          if (table === 'whatsapp_config') {
+            return {
+              select: vi.fn().mockReturnValue({
+                order: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { phone_number_id: 'phone_123', access_token: 'token_123' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      };
+
+      const res = await sendWhatsAppReceiptVoucherTemplate({
+        customerName: 'Saud Bhai',
+        customerPhone: '919634722174',
+        receiptId: 'ORD-REC-888',
+        description: 'Hero Splendor Brake Shoe',
+        amount: 250,
+        db: mockDb,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.messageId).toBe('wamid.template123');
+      expect(fetchSpy).toHaveBeenCalled();
+      const fetchCallBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(fetchCallBody.type).toBe('template');
+      expect(fetchCallBody.template.name).toBe('payment_receipt_voucher');
+
+      delete process.env.ENABLE_PAID_WHATSAPP_TEMPLATES;
+    });
+
     it('gracefully falls back to text receipt when WhatsApp Cloud API credentials are not configured', async () => {
       const { engineSendText } = await import('@/lib/flows/meta-send');
 

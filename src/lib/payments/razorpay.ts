@@ -920,7 +920,7 @@ export async function sendWhatsAppPaymentConfirmation(
   const displayOrderId = rawOrderId.startsWith('#') ? rawOrderId : `#${rawOrderId}`;
 
   const confirmationText =
-    `✅ *PAYMENT RECEIPT — BEST AUTO PARTS* 🏍️\n` +
+    `🧾 *PAYMENT RECEIPT — BEST AUTO PARTS* 🏍️\n` +
     `📦 *DELIVERY ORDER ID:* *${displayOrderId}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `• *Delivery Order ID:* *${displayOrderId}*\n` +
@@ -939,15 +939,82 @@ export async function sendWhatsAppPaymentConfirmation(
     `📞 *Direct Helpline:* Saud Khan (+91 96347 22174)`;
 
   if (contact?.id && accountId && userId && conversationId) {
-    await engineSendText({
-      accountId,
-      userId,
-      conversationId,
-      contactId: contact.id,
-      text: confirmationText,
-    });
+    try {
+      await engineSendText({
+        accountId,
+        userId,
+        conversationId,
+        contactId: contact.id,
+        text: confirmationText,
+      });
+    } catch (sendErr: unknown) {
+      const msg = sendErr instanceof Error ? sendErr.message : String(sendErr);
+      console.warn(
+        `[Razorpay] Free WhatsApp session text send failed (24h window closed or delivery error):`,
+        msg
+      );
+    }
   } else {
-    console.log('[Razorpay] Payment confirmation for', phone, ':\n', confirmationText);
+    // If not in CRM inbox, attempt direct free session text message via Meta Graph API if credentials are present
+    let phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+    let accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
+    try {
+      const cfgTable = db.from('whatsapp_config');
+      if (cfgTable && typeof cfgTable.select === 'function') {
+        const { data: config } = await cfgTable
+          .select('id, phone_number_id, access_token')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (config) {
+          if (config.phone_number_id) phoneNumberId = config.phone_number_id;
+          if (config.access_token) {
+            try {
+              const { decrypt } = await import('@/lib/whatsapp/encryption');
+              accessToken = decrypt(config.access_token);
+            } catch {
+              accessToken = config.access_token;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    const digits = cleanPhone.replace(/[^0-9]/g, '').slice(-10);
+    const normalizedTo = digits ? `91${digits}` : '';
+    if (phoneNumberId && accessToken && normalizedTo) {
+      try {
+        const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: normalizedTo,
+            type: 'text',
+            text: { preview_url: false, body: confirmationText },
+          }),
+        });
+        const metaData = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const errCode = metaData?.error?.code;
+          if (errCode === 131047 || metaData?.error?.error_subcode === 131047) {
+            console.warn(
+              `[Razorpay] Free WhatsApp session window closed (131047 / outside 24h) for ${phone}; template fallback skipped as ENABLE_PAID_WHATSAPP_TEMPLATES is off.`
+            );
+          } else {
+            console.warn(`[Razorpay] Free WhatsApp text send error:`, metaData?.error || res.statusText);
+          }
+        }
+      } catch (directErr) {
+        console.warn('[Razorpay] Direct Meta text send warning:', directErr);
+      }
+    } else {
+      console.log('[Razorpay] Payment confirmation text for', phone, ':\n', confirmationText);
+    }
   }
 }
 
@@ -1269,8 +1336,10 @@ export async function sendWhatsAppReceiptVoucherTemplate(
     })
   ).trim();
 
-  // If Meta API credentials are present, attempt sending the approved template `payment_receipt_voucher`
-  if (phoneNumberId && accessToken) {
+  const isPaidTemplatesEnabled = process.env.ENABLE_PAID_WHATSAPP_TEMPLATES === 'true';
+
+  // 2. Paid Template dispatch — Strictly guarded behind ENABLE_PAID_WHATSAPP_TEMPLATES === 'true' (Default OFF)
+  if (isPaidTemplatesEnabled && phoneNumberId && accessToken) {
     for (const langCode of ['en', 'en_US'] as const) {
       try {
         const payload = {
@@ -1309,13 +1378,16 @@ export async function sendWhatsAppReceiptVoucherTemplate(
         const data = await res.json().catch(() => ({}));
         if (res.ok && data?.messages?.[0]?.id) {
           const messageId = data.messages[0].id;
-          return { success: true, messageId };
+          return { success: true, messageId, fallbackUsed: false };
         }
       } catch (templateErr) {
         console.warn(`[Razorpay] Meta template send attempt (${langCode}) failed:`, templateErr);
       }
     }
   }
+
+  // 3. Default: Free WhatsApp Session Text Receipt (type: "text" with 🧾 *PAYMENT RECEIPT — BEST AUTO PARTS*)
+  // If the 24-hour customer window is closed and free text fails, log a warning and return cleanly without template fallback.
 
   // Graceful fallback to text confirmation via sendWhatsAppPaymentConfirmation
   const fallbackRecord: PaymentLinkRecord = {

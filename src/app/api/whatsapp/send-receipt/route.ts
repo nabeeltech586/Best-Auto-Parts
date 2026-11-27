@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     const sendFallbackText = async () => {
       const textBody =
         formattedReceiptText ||
-        `🧾 *PAYMENT RECEIPT & VOUCHER — BEST AUTO PARTS* 🏍️\n` +
+        `🧾 *PAYMENT RECEIPT — BEST AUTO PARTS* 🏍️\n` +
           `• ID: ${idStr}\n` +
           `• Customer / Firm: ${nameStr}\n` +
           `• Items: ${detailsStr}\n` +
@@ -176,35 +176,42 @@ export async function POST(request: Request) {
     };
 
     let metaMessageId: string | null = null;
-    let methodUsed: 'template' | 'text' = 'template';
+    let methodUsed: 'template' | 'text' = 'text';
     let sendError: string | null = null;
 
-    // 3. First attempt: payment_receipt_voucher template in 'en'
-    let metaAttempt = await sendTemplate('en');
+    const isPaidTemplatesEnabled = process.env.ENABLE_PAID_WHATSAPP_TEMPLATES === 'true';
 
-    // If language mismatch error, retry with 'en_US'
-    if (!metaAttempt.ok) {
-      const errMsg = metaAttempt.data?.error?.message || '';
-      const subcode = metaAttempt.data?.error?.error_subcode;
-      if (
-        subcode === 132000 ||
-        subcode === 132001 ||
-        errMsg.toLowerCase().includes('language') ||
-        errMsg.toLowerCase().includes('does not exist in')
-      ) {
-        metaAttempt = await sendTemplate('en_US');
+    // 3. Paid template attempt: ONLY if explicitly enabled by feature flag
+    if (isPaidTemplatesEnabled) {
+      let metaAttempt = await sendTemplate('en');
+
+      // If language mismatch error, retry with 'en_US'
+      if (!metaAttempt.ok) {
+        const errMsg = metaAttempt.data?.error?.message || '';
+        const subcode = metaAttempt.data?.error?.error_subcode;
+        if (
+          subcode === 132000 ||
+          subcode === 132001 ||
+          errMsg.toLowerCase().includes('language') ||
+          errMsg.toLowerCase().includes('does not exist in')
+        ) {
+          metaAttempt = await sendTemplate('en_US');
+        }
+      }
+
+      if (metaAttempt.ok && metaAttempt.data?.messages?.[0]?.id) {
+        metaMessageId = metaAttempt.data.messages[0].id;
+        methodUsed = 'template';
+      } else {
+        console.warn(
+          '[send-receipt] Paid template payment_receipt_voucher failed, falling back to text:',
+          metaAttempt.data?.error
+        );
       }
     }
 
-    if (metaAttempt.ok && metaAttempt.data?.messages?.[0]?.id) {
-      metaMessageId = metaAttempt.data.messages[0].id;
-      methodUsed = 'template';
-    } else {
-      // 4. Fallback attempt: Standard text if template not approved or unavailable
-      console.warn(
-        '[send-receipt] Template payment_receipt_voucher failed, attempting text fallback:',
-        metaAttempt.data?.error
-      );
+    // 4. Default / Free session text receipt
+    if (!metaMessageId) {
       const textAttempt = await sendFallbackText();
       if (textAttempt.ok && textAttempt.data?.messages?.[0]?.id) {
         metaMessageId = textAttempt.data.messages[0].id;
@@ -212,8 +219,11 @@ export async function POST(request: Request) {
       } else {
         sendError =
           textAttempt.data?.error?.message ||
-          metaAttempt.data?.error?.message ||
-          'Failed to deliver message via WhatsApp Meta Cloud API';
+          'Free WhatsApp session window closed (131047 / outside 24h)';
+        console.warn(
+          '[send-receipt] Free session text failed (24h window closed or delivery failed); template fallback suppressed:',
+          sendError
+        );
       }
     }
 
@@ -221,7 +231,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: sendError || 'WhatsApp dispatch failed',
-          details: metaAttempt.data?.error,
+          details: sendError,
         },
         { status: 502 }
       );
