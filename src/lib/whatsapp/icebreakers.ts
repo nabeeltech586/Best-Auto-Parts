@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { engineSendText } from '@/lib/flows/meta-send';
+import { engineSendText, engineSendInteractiveButtons } from '@/lib/flows/meta-send';
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write';
-import { handleScratchOfferFlow } from '@/lib/whatsapp/scratch-offer';
 
 export interface IcebreakerDef {
   id: string;
@@ -14,110 +13,199 @@ export interface IcebreakerDef {
 export const META_ICEBREAKERS: Record<string, IcebreakerDef> = {
   rate_check: {
     id: 'icebreaker_1_rate_check',
-    name: 'Genuine & Local Parts Rate Check',
-    buttonTitle: 'Genuine & Local Parts Rate Check',
+    name: '🏍️ Spare Parts Rate & Stock Check (Bajaj, Hero, Honda)',
+    buttonTitle: '🏍️ Auto Spare Parts',
     keywords: [
-      'genuine & local parts rate check',
+      '🏍️ spare parts rate & stock check (bajaj, hero, honda)',
+      '🏍️ auto spare parts',
+      'btn_spare_parts',
+      '/parts',
+      'parts',
+      'spare parts',
+      'spare parts rate',
       'rate check',
-      'genuine & local parts',
-      'genuine and local parts',
-      'parts rate check',
-      'rate',
       'price check',
+      'rate',
+      'parts check',
       'bhav check',
       'rate list',
+      'genuine & local parts',
     ],
     responseTemplate:
-      'Welcome to *Best Auto Parts*! 🏍️\n\n' +
-      'Please share your motorcycle model (Bajaj, Hero, or Honda) along with the spare part name, OEM number, or a photo — our AI assistant will check live stock and send you the exact price (₹) right away.',
+      'Welcome to *Best Auto Parts* (Kailashpur, Saharanpur)! 🏍️\n\n' +
+      'We supply *100% Genuine (Original)* and *Aftermarket (Local)* spare parts for *Bajaj, Hero, and Honda* two-wheelers.\n\n' +
+      'Please share:\n' +
+      '1️⃣ Your *Bike Brand & Model*\n' +
+      '2️⃣ *Part Name / Part Number* (or a clear photo of the old part)\n\n' +
+      'We will check stock and share the exact rate right away.',
   },
-  shop_location: {
-    id: 'icebreaker_2_shop_location',
-    name: 'Shop Location, & Timing Hours',
-    buttonTitle: 'Shop Location, & Timing Hours',
+
+  itr_insurance: {
+    id: 'icebreaker_2_itr_insurance',
+    name: '📄 Vehicle Insurance & Annual ITR Filing Inquiry',
+    buttonTitle: '📄 ITR & Insurance',
     keywords: [
-      'shop location, & timing hours',
-      'shop location',
-      'timing hours',
+      '📄 vehicle insurance & annual itr filing inquiry',
+      '📄 itr & insurance',
+      'btn_itr_insurance',
+      '/itr',
+      'itr',
+      'itr filing',
+      'annual itr',
+      'annual itr filing',
+      'income tax return',
+      'tax return',
+      'insurance',
+      'vehicle insurance',
+      'bike insurance',
+      'car insurance',
+      'bima',
+      'tax filing',
+    ],
+    responseTemplate:
+      'Welcome to *Best Auto Parts & Online Services*! 📄\n\n' +
+      'Please share your details based on the service you need:\n\n' +
+      '🛡️ *Vehicle Insurance (Two-Wheeler / Car / Commercial):*\n' +
+      '• Send a clear photo of your *RC* or your *Vehicle Registration Number*.\n\n' +
+      '📊 *Annual Income Tax Return (ITR) Filing:*\n' +
+      '• Send your *Full Name, PAN Number, Aadhaar, and Mobile Number*.\n\n' +
+      '*Saud Khan (+91 96347 22174)* will review and guide you with the exact quote and process.',
+  },
+
+  rto_tax: {
+    id: 'icebreaker_3_rto_tax',
+    name: '🚔 RTO Road Tax, E-Challan & Border Tax Service',
+    buttonTitle: '🚔 RTO Tax & Challan',
+    keywords: [
+      '🚔 rto road tax, e-challan & border tax service',
+      '🚔 rto tax & challan',
+      'btn_rto_tax',
+      '/rto',
+      'rto',
+      'road tax',
+      'rto road tax',
+      'challan',
+      'e-challan',
+      'echallan',
+      'traffic challan',
+      'border tax',
+      'state border tax',
+      'entry tax',
+      'rto service',
+    ],
+    responseTemplate:
+      'Welcome to *Best Auto Parts & Online Services*! 🚔\n\n' +
+      'We assist with *RTO Road Tax, E-Challan Check/Settlement, and State Border Tax*.\n\n' +
+      'Please send:\n' +
+      '1️⃣ Your *Vehicle Registration Number* (e.g., UP11...)\n' +
+      '2️⃣ The *Service Required* (Road Tax / E-Challan / Border Tax) & *State Name*\n\n' +
+      '*Saud Khan (+91 96347 22174)* will verify the status and share the details shortly.',
+  },
+
+  mechanic_desk: {
+    id: 'icebreaker_4_mechanic_desk',
+    name: '🔧 Mechanic Desk, Shop Location & Timings',
+    buttonTitle: '🔧 Mechanic Desk',
+    keywords: [
+      '🔧 mechanic desk, shop location & timings',
+      '🔧 mechanic desk',
+      '/mechanic',
+      'mechanic desk',
+      'mechanic',
+      'mechanic khata',
+      'workshop',
+      'mechanic partner',
+      'wholesale mechanic',
+    ],
+    responseTemplate:
+      '🔧 *Best Auto Parts — Mechanic Partner Desk*\n\n' +
+      'Regular mechanics receive priority part packing, dedicated *Mechanic Khata* ledger tracking, and special loyalty benefits & occasional gifts.\n\n' +
+      '📍 *Location:* Kailashpur, Dehradun Road, Saharanpur, UP 247001\n' +
+      '🕒 *Timings:* 09:00 AM – 09:00 PM Daily (Friday Juma Break: 12:30 PM – 02:30 PM)\n' +
+      '🗺️ *Google Maps:* https://maps.app.goo.gl/itvYp76TAaw8yy3V7?g_st=aw\n\n' +
+      'Send your bike parts list or photo anytime to place an order!',
+  },
+
+  location: {
+    id: 'command_5_location',
+    name: '📍 Store Location & Timings',
+    buttonTitle: 'Store Location',
+    keywords: [
+      '/location',
       'location',
+      'store location',
+      'shop location',
       'address',
       'dukan kahan hai',
-      'timing',
-      'opening hours',
-      'store hours',
+      'store timings',
+      'google maps',
+      'map link',
     ],
     responseTemplate:
-      '📍 *Store Location & Business Hours — Best Auto Parts* 🏍️\n' +
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-      '• *Store:* Best Auto Parts\n' +
-      '• *Address:* Kailashpur, Saharanpur, Uttar Pradesh 247001, India\n' +
-      '• *Business Hours:* Daily 9:00 AM – 9:00 PM\n' +
-      '  _(Friday Prayer Break: 12:30 PM – 2:30 PM)_\n' +
-      '• *Helpline / WhatsApp:* +91 96347 22174 (Saud Bhai)\n\n' +
-      '🗺️ *Google Maps:* https://maps.google.com/?q=Best+Auto+Parts+Kailashpur+Saharanpur+Uttar+Pradesh+247001\n' +
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-      'Visit our shop for genuine OEM and high-durability aftermarket two-wheeler spares!',
+      '📍 *Best Auto Parts — Store Location & Timings*\n\n' +
+      '• *Address:* Kailashpur, Dehradun Road, Saharanpur, Uttar Pradesh 247001\n' +
+      '• *Google Maps:* https://maps.app.goo.gl/itvYp76TAaw8yy3V7?g_st=aw\n' +
+      '• *Shop Timings:* 09:00 AM – 09:00 PM (Daily)\n' +
+      '• *Friday (Juma) Break:* 12:30 PM – 02:30 PM\n' +
+      '• *Contact:* Saud Khan (+91 96347 22174)',
   },
-  wholesale_rate: {
-    id: 'icebreaker_3_wholesale_mechanic',
-    name: 'Mechanic / Wholesale Rate',
-    buttonTitle: 'Mechanic / Wholesale Rate',
+
+  catalog: {
+    id: 'command_6_catalog',
+    name: 'Digital Catalog',
+    buttonTitle: 'Digital Catalog',
     keywords: [
-      'mechanic / wholesale rate',
-      'mechanic',
-      'wholesale',
-      'bulk order',
-      'wholesale rate',
-      'mechanic rate',
-      'bulk purchase',
-      'retailer',
-      'dealer rate',
+      '/catalog',
+      'catalog',
+      'catalogue',
+      'digital catalog',
+      'store catalog',
+      'online catalog',
+      'view catalog',
+      'product list',
     ],
     responseTemplate:
-      'Welcome Partner! 🔧 Your account has been tagged under *Mechanic / Wholesale*.\n\n' +
-      'Please send your bulk spare parts list (text or photo) — we will verify live stock and share our best wholesale quote (₹) along with a direct Razorpay payment link.',
-  },
-  saud_bhai_call: {
-    id: 'icebreaker_4_saud_bhai_call',
-    name: 'Saud Bhai se Direct Call / Baat Karein',
-    buttonTitle: 'Saud Bhai se Direct Call / Baat Karein',
-    keywords: [
-      'saud bhai se direct call / baat karein',
-      'saud bhai',
-      'direct call',
-      'baat karein',
-      'call saud',
-      'talk to saud',
-      'human agent',
-      'speak with owner',
-      'call karein',
-    ],
-    responseTemplate:
-      'Certainly! You are now being connected to *Saud Bhai* (+91 96347 22174) for a direct chat or call. ' +
-      'Please share your query, motorcycle model, or part details right here in the chat so he can assist you immediately, or call +91 96347 22174 directly for urgent help.',
-  },
-  scratch_offer: {
-    id: 'icebreaker_5_scratch_offer',
-    name: '🎁 Scratch & Win Offer — Best Auto Parts',
-    buttonTitle: '🎁 Scratch & Win Offer — Best Auto Parts',
-    keywords: [
-      'scratch & win offer',
-      'scratch & win',
-      'scratch and win',
-      'scratch offer',
-      'lucky scratch card',
-      'lucky card',
-      '/offer',
-      'offer',
-      'offers',
-      'scratch',
-    ],
-    responseTemplate: '🎁 *Best Auto Parts — Monthly Lucky Scratch Card!*',
+      '🏍️ *Best Auto Parts — WhatsApp Digital Catalog*\n\n' +
+      'Browse our live catalog of genuine & aftermarket spare parts for Bajaj, Hero, and Honda motorcycles directly on WhatsApp!\n\n' +
+      '👉 *View Store Catalog:* https://wa.me/c/919634722174\n' +
+      '🌐 *Online Store:* https://best-auto-parts-one.vercel.app\n\n' +
+      '• Genuine OEM & Aftermarket Spares\n' +
+      '• Instant Pricing & Live Availability\n' +
+      '• Local Delivery in Kailashpur / Saharanpur\n\n' +
+      'Select parts from the catalog or reply with your bike model & part name anytime!',
   },
 };
 
 /**
- * Normalizes input text and checks whether it matches any of the 4 Meta Icebreakers.
+ * Checks whether an incoming message is a generic greeting.
+ */
+export function isGreetingMessage(text: string): boolean {
+  const norm = (text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[!.,?_#-]/g, '');
+
+  const greetings = [
+    'hi',
+    'hello',
+    'hey',
+    'salam',
+    'salaam',
+    'assalam',
+    'assalamu alaikum',
+    'assalamualaikum',
+    'menu',
+    'start',
+    'namaste',
+    'namaskar',
+    'ram ram',
+  ];
+
+  return greetings.includes(norm);
+}
+
+/**
+ * Normalizes input text and checks whether it matches any Icebreaker or Command.
  */
 export function matchIcebreaker(
   rawText: string,
@@ -128,11 +216,11 @@ export function matchIcebreaker(
 
   for (const item of Object.values(META_ICEBREAKERS)) {
     // 1. Direct ID match (from button / interactive tap)
-    if (normId && normId === item.id.toLowerCase()) {
-      return item;
-    }
-    if (normId && item.keywords.some((kw) => normId.includes(kw))) {
-      return item;
+    if (normId) {
+      if (normId === item.id.toLowerCase()) return item;
+      if (item.keywords.some((kw) => normId === kw || normId.includes(kw))) {
+        return item;
+      }
     }
 
     // 2. Exact or substring match against text body
@@ -141,7 +229,7 @@ export function matchIcebreaker(
         return item;
       }
       for (const kw of item.keywords) {
-        if (normText.includes(kw)) {
+        if (normText === kw || normText.startsWith(kw + ' ') || normText.includes(kw)) {
           return item;
         }
       }
@@ -169,7 +257,69 @@ export interface HandleIcebreakerResult {
 }
 
 /**
- * Executes the tailored actions for the matched Meta WhatsApp Icebreaker.
+ * Sends the free ₹0 interactive 3-button greeting menu.
+ * Button 1: 🏍️ Auto Spare Parts (19 chars)
+ * Button 2: 📄 ITR & Insurance (18 chars)
+ * Button 3: 🚔 RTO Tax & Challan (20 chars)
+ */
+export async function sendGreetingMenu(
+  input: HandleIcebreakerInput
+): Promise<HandleIcebreakerResult> {
+  const { accountId, userId, conversationId, contactId } = input;
+
+  const bodyText =
+    'Welcome to *Best Auto Parts* (Kailashpur, Saharanpur)! 🏍️\n\n' +
+    'We supply genuine & aftermarket spare parts for Bajaj, Hero & Honda, plus RTO, Insurance & Tax services.\n\n' +
+    'How can we assist you today? Please choose an option below:';
+
+  const buttons = [
+    { id: 'btn_spare_parts', title: '🏍️ Auto Spare Parts' },
+    { id: 'btn_itr_insurance', title: '📄 ITR & Insurance' },
+    { id: 'btn_rto_tax', title: '🚔 RTO Tax & Challan' },
+  ];
+
+  try {
+    const sendRes = await engineSendInteractiveButtons({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      bodyText,
+      buttons,
+    });
+
+    return {
+      handled: true,
+      icebreakerId: 'greeting_menu',
+      responseSent: bodyText,
+      whatsappMessageId: sendRes.whatsapp_message_id,
+    };
+  } catch (err) {
+    console.warn('[icebreaker] failed to send interactive buttons menu, falling back to text:', err);
+    // Graceful fallback to text menu
+    const fallbackText =
+      bodyText +
+      '\n\n1️⃣ */parts* — Spare Parts Rate Check\n2️⃣ */itr* — Vehicle Insurance & ITR\n3️⃣ */rto* — RTO Tax & Challan\n4️⃣ */location* — Store Location';
+
+    const sendRes = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text: fallbackText,
+    });
+
+    return {
+      handled: true,
+      icebreakerId: 'greeting_menu_text',
+      responseSent: fallbackText,
+      whatsappMessageId: sendRes.whatsapp_message_id,
+    };
+  }
+}
+
+/**
+ * Executes the tailored actions for the matched Meta WhatsApp Icebreaker or Command.
  */
 export async function executeIcebreaker(
   input: HandleIcebreakerInput
@@ -177,14 +327,18 @@ export async function executeIcebreaker(
   const { db, accountId, userId, conversationId, contactId, inboundText, interactiveReplyId } =
     input;
 
+  // 1. If it's a generic greeting, send the 3-button greeting menu immediately
+  if (isGreetingMessage(inboundText) && !interactiveReplyId) {
+    return await sendGreetingMenu(input);
+  }
+
   const matched = matchIcebreaker(inboundText, interactiveReplyId);
   if (!matched) {
     return { handled: false };
   }
 
-  // 1. Icebreaker 1: Genuine & Local Parts Rate Check
+  // Auto-tag / auto-enable AI depending on command
   if (matched.id === META_ICEBREAKERS.rate_check.id) {
-    // Re-enable AI agent and reset human handoff
     try {
       await db
         .from('conversations')
@@ -196,7 +350,6 @@ export async function executeIcebreaker(
         .eq('id', conversationId)
         .eq('account_id', accountId);
 
-      // Set preferred language to English
       await db
         .from('contacts')
         .update({ preferred_language: 'en' })
@@ -205,50 +358,15 @@ export async function executeIcebreaker(
     } catch {
       // best-effort
     }
-
-    const sendRes = await engineSendText({
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      text: matched.responseTemplate,
-    });
-
-    return {
-      handled: true,
-      icebreakerId: matched.id,
-      responseSent: matched.responseTemplate,
-      whatsappMessageId: sendRes.whatsapp_message_id,
-    };
   }
 
-  // 2. Icebreaker 2: Shop Location & Timing Hours
-  if (matched.id === META_ICEBREAKERS.shop_location.id) {
-    const sendRes = await engineSendText({
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      text: matched.responseTemplate,
-    });
-
-    return {
-      handled: true,
-      icebreakerId: matched.id,
-      responseSent: matched.responseTemplate,
-      whatsappMessageId: sendRes.whatsapp_message_id,
-    };
-  }
-
-  // 3. Icebreaker 3: Mechanic / Wholesale Rate
-  if (matched.id === META_ICEBREAKERS.wholesale_rate.id) {
-    // Auto-tag contact as "Wholesale / Mechanic"
+  if (matched.id === META_ICEBREAKERS.mechanic_desk.id) {
     try {
       let { data: tag } = await db
         .from('tags')
         .select('id')
         .eq('account_id', accountId)
-        .ilike('name', 'Wholesale / Mechanic')
+        .ilike('name', 'Mechanic')
         .maybeSingle();
 
       if (!tag) {
@@ -256,7 +374,7 @@ export async function executeIcebreaker(
           .from('tags')
           .insert({
             account_id: accountId,
-            name: 'Wholesale / Mechanic',
+            name: 'Mechanic',
             color: '#10B981',
           })
           .select('id')
@@ -271,105 +389,23 @@ export async function executeIcebreaker(
           tagId: tag.id,
         });
       }
-
-      // Ensure AI agent is enabled for bulk order list parsing
-      await db
-        .from('conversations')
-        .update({
-          ai_autoreply_disabled: false,
-        })
-        .eq('id', conversationId)
-        .eq('account_id', accountId);
     } catch (err) {
-      console.warn('[icebreaker] wholesale tagging notice:', err);
+      console.warn('[icebreaker] mechanic tagging notice:', err);
     }
-
-    const sendRes = await engineSendText({
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      text: matched.responseTemplate,
-    });
-
-    return {
-      handled: true,
-      icebreakerId: matched.id,
-      responseSent: matched.responseTemplate,
-      whatsappMessageId: sendRes.whatsapp_message_id,
-    };
   }
 
-  // 4. Icebreaker 4: Saud Bhai se Direct Call / Baat Karein
-  if (matched.id === META_ICEBREAKERS.saud_bhai_call.id) {
-    // Pause AI auto-reply (human takeover)
-    try {
-      await db
-        .from('conversations')
-        .update({
-          ai_autoreply_disabled: true,
-          ai_handoff_summary: 'Customer requested direct call/chat with Saud Bhai.',
-        })
-        .eq('id', conversationId)
-        .eq('account_id', accountId);
+  const sendRes = await engineSendText({
+    accountId,
+    userId,
+    conversationId,
+    contactId,
+    text: matched.responseTemplate,
+  });
 
-      // Create an alert notification for the store owner / agents
-      const { data: ownerUser } = await db
-        .from('accounts')
-        .select('owner_user_id')
-        .eq('id', accountId)
-        .maybeSingle();
-
-      const notifyUserId = ownerUser?.owner_user_id || userId;
-      if (notifyUserId) {
-        await db.from('notifications').insert({
-          account_id: accountId,
-          user_id: notifyUserId,
-          type: 'conversation_assigned',
-          conversation_id: conversationId,
-          contact_id: contactId,
-          title: '🚨 Urgent: Direct Call Request (Saud Bhai)',
-          body: 'A customer tapped "Saud Bhai se Direct Call / Baat Karein" and is waiting for direct assistance.',
-        });
-      }
-    } catch (err) {
-      console.warn('[icebreaker] human handoff update notice:', err);
-    }
-
-    const sendRes = await engineSendText({
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      text: matched.responseTemplate,
-    });
-
-    return {
-      handled: true,
-      icebreakerId: matched.id,
-      responseSent: matched.responseTemplate,
-      whatsappMessageId: sendRes.whatsapp_message_id,
-    };
-  }
-
-  // 5. Icebreaker 5: Scratch & Win Offer — Best Auto Parts
-  if (matched.id === META_ICEBREAKERS.scratch_offer?.id) {
-    const scratchRes = await handleScratchOfferFlow({
-      db,
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      inboundText,
-      interactiveReplyId,
-    });
-    return {
-      handled: Boolean(scratchRes.handled),
-      icebreakerId: matched.id,
-      responseSent: scratchRes.prize || scratchRes.couponCode,
-      whatsappMessageId: scratchRes.whatsappMessageId,
-    };
-  }
-
-  return { handled: false };
+  return {
+    handled: true,
+    icebreakerId: matched.id,
+    responseSent: matched.responseTemplate,
+    whatsappMessageId: sendRes.whatsapp_message_id,
+  };
 }

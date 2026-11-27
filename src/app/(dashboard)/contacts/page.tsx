@@ -70,7 +70,6 @@ import { ContactForm } from '@/components/contacts/contact-form';
 import { ContactDetailView } from '@/components/contacts/contact-detail-view';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
-import { SendVipGreetingDialog } from '@/components/contacts/send-vip-greeting-dialog';
 import { useCan } from '@/hooks/use-can';
 import { GatedButton } from '@/components/ui/gated-button';
 import { useTranslations } from 'next-intl';
@@ -111,7 +110,6 @@ export default function ContactsPage() {
 
   // Category filter tab
   const [selectedCategory, setSelectedCategory] = useState<CategoryTab>('All');
-  const [vipGreetingContact, setVipGreetingContact] = useState<Contact | null>(null);
   const [categoryCounts, setCategoryCounts] = useState<Record<CategoryTab, number>>({
     All: 0,
     UdhaarDue: 0,
@@ -1301,15 +1299,6 @@ export default function ContactsPage() {
                             <span>💬 Inbox (WhatsApp Chat)</span>
                           </DropdownMenuItem>
 
-                          {/* Send VIP Greeting */}
-                          <DropdownMenuItem
-                            onClick={() => setVipGreetingContact(contact)}
-                            className="cursor-pointer text-popover-foreground hover:bg-muted font-medium py-2"
-                          >
-                            <Handshake className="mr-2 size-4 text-amber-500" />
-                            <span>🤝 Send VIP Greeting</span>
-                          </DropdownMenuItem>
-
                           {/* 2 & 3. Role-Based Quick Links: Wholesaler/Distributor -> Orders Ledger | Customer/Mechanic -> Payments */}
                           {contactCategory === 'Distributor' || contactCategory === 'Wholesaler' ? (
                             <>
@@ -1546,13 +1535,6 @@ export default function ContactsPage() {
         title={ownerPinConfig.title}
         description={ownerPinConfig.description}
         onSuccess={ownerPinConfig.action}
-      />
-
-      {/* Send VIP Greeting Modal */}
-      <SendVipGreetingDialog
-        open={Boolean(vipGreetingContact)}
-        onOpenChange={(v) => !v && setVipGreetingContact(null)}
-        contact={vipGreetingContact}
       />
     </div>
   );

@@ -90,21 +90,77 @@ interface NavItem {
    * Purely informational — doesn't affect routing or access.
    */
   beta?: boolean;
+  badgeClass?: string;
 }
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
-  { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
-  { href: "/notifications", labelKey: "notifications", icon: Bell },
-  { href: "/contacts", labelKey: "contacts", icon: Users },
-  { href: "/inventory", labelKey: "inventory", icon: Package },
-  { href: "/payments", labelKey: "payments", icon: CreditCard },
-  { href: "/orders", labelKey: "orders", icon: ShoppingBag },
-  { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
-  { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
-  { href: "/automations", labelKey: "automations", icon: Zap },
-  { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },
-  { href: "/agents", labelKey: "aiAgents", icon: Bot },
+  {
+    href: "/dashboard",
+    labelKey: "dashboard",
+    icon: LayoutDashboard,
+    badgeClass: "bg-blue-500/15 text-blue-600 dark:bg-blue-500/25 dark:text-blue-400",
+  },
+  {
+    href: "/inbox",
+    labelKey: "inbox",
+    icon: MessageSquare,
+    badgeClass: "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/25 dark:text-emerald-400",
+  },
+  {
+    href: "/notifications",
+    labelKey: "notifications",
+    icon: Bell,
+    badgeClass: "bg-amber-500/15 text-amber-600 dark:bg-amber-500/25 dark:text-amber-400",
+  },
+  {
+    href: "/contacts",
+    labelKey: "contacts",
+    icon: Users,
+    badgeClass: "bg-violet-500/15 text-violet-600 dark:bg-violet-500/25 dark:text-violet-400",
+  },
+  {
+    href: "/inventory",
+    labelKey: "inventory",
+    icon: Package,
+    badgeClass: "bg-sky-500/15 text-sky-600 dark:bg-sky-500/25 dark:text-sky-400",
+  },
+  {
+    href: "/payments",
+    labelKey: "payments",
+    icon: CreditCard,
+    badgeClass: "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/25 dark:text-emerald-400",
+  },
+  {
+    href: "/orders",
+    labelKey: "orders",
+    icon: ShoppingBag,
+    badgeClass: "bg-rose-500/15 text-rose-600 dark:bg-rose-500/25 dark:text-rose-400",
+  },
+  {
+    href: "/pipelines",
+    labelKey: "pipelines",
+    icon: GitBranch,
+    badgeClass: "bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/25 dark:text-indigo-400",
+  },
+  {
+    href: "/automations",
+    labelKey: "automations",
+    icon: Zap,
+    badgeClass: "bg-amber-500/15 text-amber-600 dark:bg-amber-500/25 dark:text-amber-400",
+  },
+  {
+    href: "/flows",
+    labelKey: "flows",
+    icon: Workflow,
+    beta: true,
+    badgeClass: "bg-teal-500/15 text-teal-600 dark:bg-teal-500/25 dark:text-teal-400",
+  },
+  {
+    href: "/agents",
+    labelKey: "aiAgents",
+    icon: Bot,
+    badgeClass: "bg-purple-500/15 text-purple-600 dark:bg-purple-500/25 dark:text-purple-400",
+  },
 ];
 
 const bottomNavItems = [
@@ -252,14 +308,23 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                     href={item.href}
                     className={cn(
                       // Taller on mobile so fingers can hit the row reliably (≥44px).
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
+                      "group flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors lg:py-1.5",
                       isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                        ? "bg-primary/10 text-primary font-semibold"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                     )}
                   >
-                    <item.icon className="h-4 w-4" />
-                    <span className="flex-1">{t(item.labelKey as string)}</span>
+                    <div
+                      className={cn(
+                        "flex size-7 items-center justify-center rounded-md transition-colors shrink-0",
+                        isActive
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : item.badgeClass || "bg-muted text-muted-foreground group-hover:text-foreground",
+                      )}
+                    >
+                      <item.icon className="h-4 w-4" />
+                    </div>
+                    <span className="flex-1 truncate">{t(item.labelKey as string)}</span>
                     {item.beta && (
                       <span
                         aria-label={t("beta")}

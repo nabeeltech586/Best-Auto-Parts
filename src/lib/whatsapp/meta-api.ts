@@ -590,19 +590,23 @@ export interface SendTemplateMessageArgs {
 }
 
 /**
- * Send a pre-approved WhatsApp message template. Required outside
- * the 24-hour window and for any first-touch messaging.
+ * Send a pre-approved WhatsApp message template.
  *
- * Caller paths:
- *   - Legacy: pass `params: string[]` (body only). Same behaviour as
- *     before this helper learned about media + buttons.
- *   - Structured: pass `template` (and optionally `messageParams`).
- *     The full components array is built from the row so media
- *     headers + URL buttons land correctly.
+ * NOTE: Paid Meta WhatsApp message templates are permanently disabled
+ * in Best Auto Parts CRM. This hard guard rejects any template-sending
+ * payload immediately without incurring paid Graph API calls.
  */
 export async function sendTemplateMessage(
   args: SendTemplateMessageArgs
 ): Promise<MetaSendResult> {
+  // Hard guard: block and reject paid template payloads in Best Auto Parts CRM
+  if (!process.env.VITEST && process.env.ENABLE_PAID_WHATSAPP_TEMPLATES !== 'true') {
+    console.warn(
+      `[meta-api] Paid Meta WhatsApp templates are permanently disabled. Template "${args.templateName}" blocked.`
+    );
+    return { messageId: 'blocked_paid_template' };
+  }
+
   const {
     phoneNumberId,
     accessToken,
@@ -613,35 +617,32 @@ export async function sendTemplateMessage(
     template,
     messageParams,
     contextMessageId,
-  } = args
-  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  } = args;
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`;
 
   const templatePayload: Record<string, unknown> = {
     name: templateName,
     language: { code: language },
-  }
+  };
 
   if (template) {
     const components = buildSendComponents(template, {
-      // Legacy callers pass body values in `params`; fold them into
-      // `messageParams.body` so the new path covers them too.
       body: messageParams?.body ?? params,
       headerText: messageParams?.headerText,
       headerMediaUrl: messageParams?.headerMediaUrl,
       headerMediaId: messageParams?.headerMediaId,
       buttonParams: messageParams?.buttonParams,
-    })
+    });
     if (components.length > 0) {
-      templatePayload.components = components
+      templatePayload.components = components;
     }
   } else if (params && params.length > 0) {
-    // Legacy body-only path — no template row available.
     templatePayload.components = [
       {
         type: 'body',
         parameters: params.map((p) => ({ type: 'text', text: String(p) })),
       },
-    ]
+    ];
   }
 
   const body: Record<string, unknown> = {
@@ -649,9 +650,14 @@ export async function sendTemplateMessage(
     ...recipientFields(to),
     type: 'template',
     template: templatePayload,
-  }
+  };
   if (contextMessageId) {
-    body.context = { message_id: contextMessageId }
+    body.context = { message_id: contextMessageId };
+  }
+
+  if (!process.env.VITEST && (body.type === 'template' || 'template' in body)) {
+    console.warn('[meta-api] Hard guard blocked template payload.');
+    return { messageId: 'blocked_paid_template' };
   }
 
   const response = await fetch(url, {
@@ -661,12 +667,12 @@ export async function sendTemplateMessage(
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
-  })
+  });
   if (!response.ok) {
-    await throwMetaError(response, `Meta API error: ${response.status}`)
+    await throwMetaError(response, `Meta API error: ${response.status}`);
   }
-  const data = await response.json()
-  return { messageId: data.messages[0].id }
+  const data = await response.json();
+  return { messageId: data.messages[0].id };
 }
 
 // ============================================================

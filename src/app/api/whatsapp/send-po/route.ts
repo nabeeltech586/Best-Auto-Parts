@@ -107,7 +107,7 @@ export async function POST(request: Request) {
     }
     lines.push('');
     lines.push('Please confirm stock availability and dispatch schedule.');
-    lines.push('📍 *Best Auto Parts*, Kailashpur, Saharanpur, UP 247001');
+    lines.push('📍 *Delivery Address:* Best Auto Parts, Kailashpur, Dehradun Road, Saharanpur, UP 247001 | +91 96347 22174');
     lines.push('📞 Saud Khan: +91 96347 22174');
 
     const formattedMessage = lines.join('\n');
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     let metaMessageId: string | null = null;
-    let methodUsed: 'template' | 'text' = 'text';
+    const methodUsed: 'text' = 'text';
     let metaWarning: string | null = null;
 
     if (config?.access_token && config?.phone_number_id) {
@@ -132,114 +132,41 @@ export async function POST(request: Request) {
         const accessToken = decrypt(config.access_token);
         const phoneNumberId = config.phone_number_id;
 
-        // Helper to send template message via Meta Cloud API
-        const sendTemplate = async (langCode: 'en' | 'en_US') => {
-          const templatePayload = {
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: normalizedPhone,
-            type: 'template',
-            template: {
-              name: 'distributor_purchase_order',
-              language: { code: langCode },
-              components: [
-                {
-                  type: 'body',
-                  parameters: [
-                    { type: 'text', text: cleanSupplier },
-                    { type: 'text', text: `#${cleanPo}` },
-                    { type: 'text', text: `${computedItems} items (${computedUnits} pcs)` },
-                    {
-                      type: 'text',
-                      text: computedCost > 0 ? `₹${computedCost.toLocaleString('en-IN')}` : 'To be confirmed',
-                    },
-                  ],
-                },
-              ],
+        // Helper to send formatted text message via Meta Cloud API
+        const textPayload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: normalizedPhone,
+          type: 'text',
+          text: { body: formattedMessage },
+        };
+
+        const metaRes = await fetch(
+          `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
             },
-          };
-
-          const metaRes = await fetch(
-            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-              },
-              body: JSON.stringify(templatePayload),
-            }
-          );
-          const metaData = await metaRes.json().catch(() => ({}));
-          return { ok: metaRes.ok, status: metaRes.status, data: metaData };
-        };
-
-        // Helper to send formatted text fallback
-        const sendText = async () => {
-          const textPayload = {
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: normalizedPhone,
-            type: 'text',
-            text: { body: formattedMessage },
-          };
-
-          const metaRes = await fetch(
-            `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-              },
-              body: JSON.stringify(textPayload),
-            }
-          );
-          const metaData = await metaRes.json().catch(() => ({}));
-          return { ok: metaRes.ok, status: metaRes.status, data: metaData };
-        };
-
-        // Try template first if not forced to text
-        if (!forceText) {
-          let attempt = await sendTemplate('en');
-          if (!attempt.ok) {
-            const subcode = attempt.data?.error?.error_subcode;
-            const errMsg = attempt.data?.error?.message || '';
-            if (
-              subcode === 132000 ||
-              subcode === 132001 ||
-              errMsg.toLowerCase().includes('language') ||
-              errMsg.toLowerCase().includes('does not exist in')
-            ) {
-              attempt = await sendTemplate('en_US');
-            }
+            body: JSON.stringify(textPayload),
           }
-
-          if (attempt.ok && attempt.data?.messages?.[0]?.id) {
-            metaMessageId = attempt.data.messages[0].id;
-            methodUsed = 'template';
-          }
-        }
-
-        // Fallback to text message if template failed or was skipped
-        if (!metaMessageId) {
-          const textAttempt = await sendText();
-          if (textAttempt.ok && textAttempt.data?.messages?.[0]?.id) {
-            metaMessageId = textAttempt.data.messages[0].id;
-            methodUsed = 'text';
-          } else {
-            metaWarning =
-              textAttempt.data?.error?.message ||
-              'Meta API returned non-OK response for text send';
-            console.warn('[send-po] Meta Cloud API text fallback warning:', textAttempt.data);
-          }
+        );
+        const metaData = await metaRes.json().catch(() => ({}));
+        if (metaRes.ok && metaData?.messages?.[0]?.id) {
+          metaMessageId = metaData.messages[0].id;
+        } else {
+          metaWarning =
+            metaData?.error?.message ||
+            'Direct Meta text send skipped or window closed. Pre-filled wa.me link generated.';
+          console.warn('[send-po] Meta Cloud API text notice:', metaWarning);
         }
       } catch (metaErr) {
         metaWarning = metaErr instanceof Error ? metaErr.message : 'Meta dispatch failed';
         console.warn('[send-po] Failed Meta API dispatch:', metaErr);
       }
     } else {
-      metaWarning = 'WhatsApp configuration not active. Message logged to CRM Inbox only.';
+      metaWarning = 'WhatsApp configuration not active. Pre-filled wa.me link ready.';
     }
 
     if (!metaMessageId) {
@@ -271,24 +198,25 @@ export async function POST(request: Request) {
         conversationId: resolution.conversationId,
         contentText: formattedMessage,
         previewTitle,
-        contentType: methodUsed === 'template' ? 'template' : 'text',
-        templateName: methodUsed === 'template' ? 'distributor_purchase_order' : null,
+        contentType: 'text',
+        templateName: null,
         messageId: metaMessageId,
         status: 'sent',
       });
     }
 
-    // 6. Update Purchase Order record if poId provided
+    // 6. Update Purchase Order record if poId provided to mark as ORDERED
     if (poId) {
       try {
         await db
           .from('purchase_orders')
           .update({
+            status: 'ORDERED',
             sent_at: new Date().toISOString(),
           })
           .eq('id', poId);
       } catch (poUpdateErr) {
-        console.warn('[send-po] Non-fatal error updating purchase_order sent_at:', poUpdateErr);
+        console.warn('[send-po] Non-fatal error updating purchase_order status/sent_at:', poUpdateErr);
       }
     }
 

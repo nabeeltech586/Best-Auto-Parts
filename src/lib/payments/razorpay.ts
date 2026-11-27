@@ -1485,60 +1485,9 @@ export async function sendWhatsAppReceiptVoucherTemplate(
     })
   ).trim();
 
-  const isPaidTemplatesEnabled = process.env.ENABLE_PAID_WHATSAPP_TEMPLATES === 'true';
-
-  // 2. Paid Template dispatch — Strictly guarded behind ENABLE_PAID_WHATSAPP_TEMPLATES === 'true' (Default OFF)
-  if (isPaidTemplatesEnabled && phoneNumberId && accessToken) {
-    for (const langCode of ['en', 'en_US'] as const) {
-      try {
-        const payload = {
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: normalizedPhone,
-          type: 'template',
-          template: {
-            name: 'payment_receipt_voucher',
-            language: { code: langCode },
-            components: [
-              {
-                type: 'body',
-                parameters: [
-                  { type: 'text', text: nameStr },
-                  { type: 'text', text: idStr },
-                  { type: 'text', text: detailsStr },
-                  { type: 'text', text: amountStr },
-                  { type: 'text', text: statusStr },
-                  { type: 'text', text: dateStr },
-                ],
-              },
-            ],
-          },
-        };
-
-        const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data?.messages?.[0]?.id) {
-          const messageId = data.messages[0].id;
-          return { success: true, messageId, fallbackUsed: false };
-        }
-      } catch (templateErr) {
-        console.warn(`[Razorpay] Meta template send attempt (${langCode}) failed:`, templateErr);
-      }
-    }
-  }
-
-  // 3. Default: Free WhatsApp Session Text Receipt (type: "text" with 🧾 *PAYMENT RECEIPT — BEST AUTO PARTS*)
-  // If the 24-hour customer window is closed and free text fails, log a warning and return cleanly without template fallback.
-
-  // Graceful fallback to text confirmation via sendWhatsAppPaymentConfirmation
+  // Free WhatsApp Session Text Receipt (type: "text" with 🧾 *PAYMENT RECEIPT — BEST AUTO PARTS*)
+  // Paid templates are permanently disabled. If the 24-hour customer window is closed,
+  // warning is logged and returns HTTP 200 cleanly without template fallback.
   const fallbackRecord: PaymentLinkRecord = {
     order_id: idStr,
     merchant_transaction_id: idStr,

@@ -43,6 +43,7 @@ export function KpiRow({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       <KpiTile
+        tone="sky"
         title={t('newConversations')}
         info={t('newConversationsInfo')}
         value={format.number(kpis.newConversations)}
@@ -51,6 +52,7 @@ export function KpiRow({
         footer={<Sparkline values={seriesValues(volume.series, 'newConversations')} />}
       />
       <KpiTile
+        tone="amber"
         title={t('medianReply')}
         info={t('medianReplyInfo')}
         value={replies.medianHuman == null ? t('none') : formatDuration(replies.medianHuman)}
@@ -59,6 +61,7 @@ export function KpiRow({
         footer={<TargetBar value={replies.medianHuman} target={data.replyTargetMinutes} />}
       />
       <KpiTile
+        tone="purple"
         title={t('resolved')}
         info={t('resolvedInfo')}
         value={format.number(kpis.resolved)}
@@ -67,6 +70,7 @@ export function KpiRow({
         footer={<Sparkline values={seriesValues(volume.series, 'resolved')} />}
       />
       <KpiTile
+        tone="rose"
         title={t('dealsWon')}
         info={t('dealsWonInfo')}
         value={format.number(kpis.dealsWon)}
@@ -76,6 +80,7 @@ export function KpiRow({
         footer={<Sparkline values={seriesValues(volume.series, 'dealsWon')} />}
       />
       <KpiTile
+        tone="emerald"
         title={t('readRate')}
         info={t('readRateInfo')}
         value={readRate == null ? t('none') : percent(readRate)}

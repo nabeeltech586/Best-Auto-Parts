@@ -41,6 +41,14 @@ export function DeltaBadge({ change }: { change: Change }) {
   )
 }
 
+const TONE_CARD_STYLES: Record<string, string> = {
+  sky: 'border-sky-200/90 bg-sky-50/60 hover:bg-sky-50/90 dark:border-sky-800/50 dark:bg-sky-950/25 dark:hover:bg-sky-950/40 shadow-sm',
+  amber: 'border-amber-200/90 bg-amber-50/60 hover:bg-amber-50/90 dark:border-amber-800/50 dark:bg-amber-950/25 dark:hover:bg-amber-950/40 shadow-sm',
+  purple: 'border-purple-200/90 bg-purple-50/60 hover:bg-purple-50/90 dark:border-purple-800/50 dark:bg-purple-950/25 dark:hover:bg-purple-950/40 shadow-sm',
+  rose: 'border-rose-200/90 bg-rose-50/60 hover:bg-rose-50/90 dark:border-rose-800/50 dark:bg-rose-950/25 dark:hover:bg-rose-950/40 shadow-sm',
+  emerald: 'border-emerald-200/90 bg-emerald-50/60 hover:bg-emerald-50/90 dark:border-emerald-800/50 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/40 shadow-sm',
+}
+
 export function KpiTile({
   title,
   info,
@@ -49,6 +57,8 @@ export function KpiTile({
   change,
   comparisonLabel,
   footer,
+  tone,
+  className,
 }: {
   title: string
   info: string
@@ -57,9 +67,11 @@ export function KpiTile({
   change: Change
   comparisonLabel: string
   footer: ReactNode
+  tone?: 'sky' | 'amber' | 'purple' | 'rose' | 'emerald'
+  className?: string
 }) {
   return (
-    <Card size="sm" className="gap-2 px-4">
+    <Card size="sm" className={cn("gap-2 px-4 transition-all duration-150", tone && TONE_CARD_STYLES[tone], className)}>
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <span className="truncate">{title}</span>
         <Tooltip>

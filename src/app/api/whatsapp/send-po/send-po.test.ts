@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST as sendPoHandler } from './route';
-import { POST as sendVipGreetingHandler } from '../send-vip-greeting/route';
 import { POST as sendStockReceivedHandler } from '../send-stock-received/route';
 
 vi.mock('@/lib/flows/admin-client', () => ({
@@ -123,40 +122,8 @@ describe('POST /api/whatsapp/send-po', () => {
     expect(body.recipientPhone).toBe('919761224004');
     expect(body.conversationId).toBe('conv-1');
     expect(body.messageId).toBe('wamid.HBgMOTE5NzYxMjI0MDA0');
-  });
-});
-
-describe('POST /api/whatsapp/send-vip-greeting', () => {
-  beforeEach(() => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          messages: [{ id: 'wamid.HBgMVIPGREETING001' }],
-        }),
-      })
-    );
-  });
-
-  it('dispatches vip_greeting_message template to recipient', async () => {
-    const req = new Request('http://localhost/api/whatsapp/send-vip-greeting', {
-      method: 'POST',
-      body: JSON.stringify({
-        recipientPhone: '+919761224004',
-        recipientName: 'Nabeel Bhai',
-        salutation: 'Assalamu Alaikum',
-        category: 'Wholesaler',
-      }),
-    });
-
-    const res = await sendVipGreetingHandler(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.recipientPhone).toBe('919761224004');
-    expect(body.messageId).toBe('wamid.HBgMVIPGREETING001');
+    expect(body.method).toBe('text');
+    expect(body.waLink).toContain('https://wa.me/919761224004?text=');
   });
 });
 
@@ -174,7 +141,7 @@ describe('POST /api/whatsapp/send-stock-received', () => {
     );
   });
 
-  it('dispatches distributor_stock_received template to wholesaler', async () => {
+  it('dispatches direct stock received confirmation to wholesaler', async () => {
     const req = new Request('http://localhost/api/whatsapp/send-stock-received', {
       method: 'POST',
       body: JSON.stringify({
@@ -192,5 +159,7 @@ describe('POST /api/whatsapp/send-stock-received', () => {
     expect(body.success).toBe(true);
     expect(body.recipientPhone).toBe('919761224004');
     expect(body.messageId).toBe('wamid.HBgMSTOCKRECV001');
+    expect(body.method).toBe('text');
+    expect(body.waLink).toContain('https://wa.me/919761224004?text=');
   });
 });

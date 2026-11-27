@@ -469,12 +469,9 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(allTexts.some((t: string) => typeof t === 'string' && t.includes('ORDER CONFIRMED & READY FOR DISPATCH'))).toBe(true);
     });
 
-    it('attempts template send when ENABLE_PAID_WHATSAPP_TEMPLATES is explicitly true', async () => {
-      process.env.ENABLE_PAID_WHATSAPP_TEMPLATES = 'true';
-      const fetchSpy = vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ messages: [{ id: 'wamid.template123' }] }),
-      });
+    it('sends free session text receipt and suppresses paid templates', async () => {
+      const { engineSendText } = await import('@/lib/flows/meta-send');
+      const fetchSpy = vi.fn();
       global.fetch = fetchSpy;
 
       const mockDb = {
@@ -506,13 +503,9 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       });
 
       expect(res.success).toBe(true);
-      expect(res.messageId).toBe('wamid.template123');
-      expect(fetchSpy).toHaveBeenCalled();
-      const fetchCallBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      expect(fetchCallBody.type).toBe('template');
-      expect(fetchCallBody.template.name).toBe('payment_receipt_voucher');
-
-      delete process.env.ENABLE_PAID_WHATSAPP_TEMPLATES;
+      // Meta template endpoint should NOT be called since paid templates are permanently disabled
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(engineSendText).toHaveBeenCalled();
     });
 
     it('gracefully falls back to text receipt when WhatsApp Cloud API credentials are not configured', async () => {

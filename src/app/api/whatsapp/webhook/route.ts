@@ -24,8 +24,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
 import { handleCatalogOrderInbound } from '@/lib/whatsapp/catalog-order-handler'
-import { matchIcebreaker, executeIcebreaker } from '@/lib/whatsapp/icebreakers'
-import { isScratchOfferTrigger, handleScratchOfferFlow } from '@/lib/whatsapp/scratch-offer'
+import { matchIcebreaker, executeIcebreaker, isGreetingMessage } from '@/lib/whatsapp/icebreakers'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -803,14 +802,14 @@ async function processMessage(
   const inboundText = contentText ?? message.text?.body ?? ''
 
   // ============================================================
-  // Meta WhatsApp Scratch & Win Offer & BestAI Desk Dispatch (Top Priority)
-  // Ensures Monthly Lucky Scratch Card (and button replies) immediately
-  // reply, award motorcycle prizes or open BestAI Desk, bypassing
-  // Out-of-Office and language gating.
+  // Meta WhatsApp Icebreakers, Commands & 3-Button Greeting Menu (Top Priority)
+  // Ensures 4 Meta Icebreakers, 6 Slash Commands (/parts, /itr, /rto, /mechanic, /location, /catalog)
+  // and generic greetings ("hi", "hello", "salam", "menu") immediately reply deterministically
+  // in clean English with ₹0 free interactive buttons or session text BEFORE calling AI.
   // ============================================================
-  let scratchConsumed = false
-  if (isScratchOfferTrigger(inboundText, interactiveReplyId)) {
-    const scratchRes = await handleScratchOfferFlow({
+  let icebreakerConsumed = false
+  if (isGreetingMessage(inboundText) || matchIcebreaker(inboundText, interactiveReplyId)) {
+    const icebreakerRes = await executeIcebreaker({
       db: supabaseAdmin(),
       accountId,
       userId: configOwnerUserId,
@@ -818,39 +817,11 @@ async function processMessage(
       contactId: contactRecord.id,
       inboundText,
       interactiveReplyId,
-      senderName: contact?.profile?.name || contactRecord.name || null,
-      senderPhone: contactRecord.phone || message.from || null,
     }).catch((err) => {
-      console.error('[scratch-offer] dispatch error:', err)
+      console.error('[icebreaker] dispatch error:', err)
       return { handled: false }
     })
-    scratchConsumed = Boolean(scratchRes.handled)
-  }
-
-  // ============================================================
-  // Meta WhatsApp Icebreakers Dispatch (Top Priority)
-  // Ensures all 4 Meta Icebreaker buttons immediately reply in clean English
-  // and trigger their respective CRM actions (AI enable, Wholesale tag, Saud Bhai handoff, Location)
-  // bypassing Out-of-Office and language gating.
-  // ============================================================
-  let icebreakerConsumed = scratchConsumed
-  if (!scratchConsumed) {
-    const matchedIcebreaker = matchIcebreaker(inboundText, interactiveReplyId)
-    if (matchedIcebreaker) {
-      const icebreakerRes = await executeIcebreaker({
-        db: supabaseAdmin(),
-        accountId,
-        userId: configOwnerUserId,
-        conversationId: conversation.id,
-        contactId: contactRecord.id,
-        inboundText,
-        interactiveReplyId,
-      }).catch((err) => {
-        console.error('[icebreaker] dispatch error:', err)
-        return { handled: false }
-      })
-      icebreakerConsumed = Boolean(icebreakerRes.handled)
-    }
+    icebreakerConsumed = Boolean(icebreakerRes.handled)
   }
 
   // ============================================================
@@ -859,7 +830,7 @@ async function processMessage(
   // respecting active human agent takeover.
   // ============================================================
   let mediaConsumed = false
-  if (!scratchConsumed && !icebreakerConsumed && (message.type === 'image' || message.type === 'audio')) {
+  if (!icebreakerConsumed && (message.type === 'image' || message.type === 'audio')) {
     const { data: convState } = await supabaseAdmin()
       .from('conversations')
       .select('ai_autoreply_disabled, assigned_agent_id')
@@ -889,7 +860,7 @@ async function processMessage(
   // WhatsApp Catalog Order Processing (message.type === 'order')
   // ============================================================
   let orderConsumed = false
-  if (!scratchConsumed && !icebreakerConsumed && !mediaConsumed && message.type === 'order' && message.order) {
+  if (!icebreakerConsumed && !mediaConsumed && message.type === 'order' && message.order) {
     await handleCatalogOrderInbound({
       db: supabaseAdmin(),
       accountId,
@@ -917,7 +888,7 @@ async function processMessage(
   //
   // If consumed: takes precedence over generic flows, automations, and AI.
   // ============================================================
-  const welcomeResult = (scratchConsumed || icebreakerConsumed || mediaConsumed || orderConsumed)
+  const welcomeResult = (icebreakerConsumed || mediaConsumed || orderConsumed)
     ? { consumed: true }
     : await handleWelcomeFlowInbound({
         db: supabaseAdmin(),
@@ -932,7 +903,7 @@ async function processMessage(
         console.error('[welcome-flow] dispatch error:', err)
         return { consumed: false }
       })
-  const welcomeConsumed = scratchConsumed || icebreakerConsumed || mediaConsumed || orderConsumed || welcomeResult.consumed
+  const welcomeConsumed = icebreakerConsumed || mediaConsumed || orderConsumed || welcomeResult.consumed
 
   // ============================================================
   // Flow runner dispatch.

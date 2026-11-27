@@ -58,7 +58,6 @@ import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
 import { SendPaymentLinkDialog } from "./send-payment-link-dialog";
-import { SendVipGreetingDialog } from "@/components/contacts/send-vip-greeting-dialog";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
@@ -156,7 +155,6 @@ export function MessageComposer({
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [vipGreetingOpen, setVipGreetingOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Enter-to-send only on devices with a mouse/keyboard (fine pointer).
@@ -729,25 +727,8 @@ export function MessageComposer({
                 <CreditCard className="mr-2 h-4 w-4" />
                 {t("sendPaymentLink")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setVipGreetingOpen(true)}>
-                <Handshake className="mr-2 h-4 w-4 text-amber-500" />
-                <span>Send VIP Greeting</span>
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason={tGate("reasons.sendMessages")}
-            disabled={sessionExpired}
-            title={readOnly ? undefined : "Send VIP Greeting (Meta Template)"}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-amber-500"
-            onClick={() => setVipGreetingOpen(true)}
-          >
-            <Handshake className="h-4 w-4 text-amber-500" />
-          </GatedButton>
 
           <GatedButton
             variant="ghost"
@@ -886,17 +867,6 @@ export function MessageComposer({
         customerPhone={customerPhone}
         conversationId={conversationId}
         onSendPaymentMessage={(msg) => onSend(msg)}
-      />
-
-      {/* VIP Greeting Dialog */}
-      <SendVipGreetingDialog
-        open={vipGreetingOpen}
-        onOpenChange={setVipGreetingOpen}
-        contact={{
-          name: customerName,
-          phone: customerPhone,
-        }}
-        conversationId={conversationId}
       />
     </div>
   );

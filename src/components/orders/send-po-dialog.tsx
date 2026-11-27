@@ -53,7 +53,47 @@ export function SendPoDialog({
 
   const cleanPhone = (order.supplier_phone || '').replace(/[^0-9]/g, '');
   const phone10 = cleanPhone.slice(-10);
-  const waWebLink = phone10 ? `https://wa.me/91${phone10}` : null;
+
+  // Format the complete PO message for free wa.me dispatch
+  const cleanPo = (order.po_number || '').replace(/^#/, '').trim();
+  const today = new Date().toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+  const poLines = [
+    `*PURCHASE ORDER — BEST AUTO PARTS* 🏍️`,
+    `*PO No:* #${cleanPo} | *Date:* ${today}`,
+    `*Wholesaler / Distributor:* ${order.supplier_name || ''}`,
+    '',
+  ];
+  if (order.items && order.items.length > 0) {
+    poLines.push('*Ordered Parts List:*');
+    order.items.forEach((item, idx) => {
+      const oem = item.oem_number ? `OEM: ${item.oem_number}` : '';
+      const brand = item.brand ? `${item.brand}` : '';
+      const spec = [oem, brand].filter(Boolean).join(' | ');
+      const specStr = spec ? ` (${spec})` : '';
+      poLines.push(`  ${idx + 1}. *${item.part_name}*${specStr} — *Qty: ${item.quantity} pcs*`);
+    });
+    poLines.push('');
+  }
+  poLines.push(`• Total Items: *${itemsCount}* | Total Units: *${unitsCount} pcs*`);
+  if (totalCost > 0) {
+    poLines.push(`• Est. Order Total: *₹${totalCost.toLocaleString('en-IN')}*`);
+  }
+  if (order.notes) {
+    poLines.push(`• Notes: ${order.notes.trim()}`);
+  }
+  poLines.push('');
+  poLines.push('Please confirm stock availability and dispatch schedule.');
+  poLines.push('📍 *Delivery Address:* Best Auto Parts, Kailashpur, Dehradun Road, Saharanpur, UP 247001 | +91 96347 22174');
+  poLines.push('📞 Saud Khan: +91 96347 22174');
+  const poMessageText = poLines.join('\n');
+
+  const waWebLink = phone10
+    ? `https://wa.me/91${phone10}?text=${encodeURIComponent(poMessageText)}`
+    : null;
 
   const handleSendViaApi = async () => {
     if (!phone10 || phone10.length !== 10) {
@@ -85,14 +125,16 @@ export function SendPoDialog({
       }
 
       toast.success(
-        `PO #${order.po_number} successfully sent to ${order.supplier_name}! Outgoing message logged to CRM Inbox.`,
+        `PO #${order.po_number} marked as ORDERED! Outgoing text logged in CRM Inbox.`,
         {
-          description:
-            data.method === 'template'
-              ? 'Delivered via Meta approved template: distributor_purchase_order'
-              : 'Delivered via itemized WhatsApp text message',
+          description: 'Free wa.me purchase order generated with Kailashpur delivery address.',
         }
       );
+
+      const targetUrl = data.waLink || waWebLink;
+      if (targetUrl) {
+        window.open(targetUrl, '_blank');
+      }
 
       onOpenChange(false);
       onSentSuccess?.();
@@ -242,7 +284,7 @@ export function SendPoDialog({
               ) : (
                 <Send className="size-3.5" />
               )}
-              <span>Send PO via WhatsApp API</span>
+              <span>Send via WhatsApp (wa.me)</span>
             </Button>
           </div>
         </DialogFooter>

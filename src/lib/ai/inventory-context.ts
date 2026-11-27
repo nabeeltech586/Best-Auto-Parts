@@ -582,6 +582,12 @@ export function formatInventoryContext(res: InventoryContextResult): string {
   sections.push(
     '12. POLITE BESTAI DESK TONE & TYPO TOLERANCE: Always address customers with warm, respectful Hindi/Hinglish honorifics ("Aap / Ji"). Gracefully recognize phonetic spellings and common typos ("cluch plet", "brek su", "chain set", "shocker", "plug", "mobil"). Never disclose exact numerical inventory units; confirm only "✅ In Stock" or "⚠️ Limited Stock".',
   );
+  sections.push(
+    '13. ONLINE SERVICES (ITR, INSURANCE, RTO ROAD TAX, BORDER TAX, E-CHALLAN): For government tax, challan settlement, vehicle insurance, or ITR filing questions, NEVER guess or invent tax amounts, penalties, or premiums. Collect the necessary vehicle/identity details (RC photo, PAN/Aadhaar, Reg No) and inform the customer that Saud Khan (+91 96347 22174) will verify the official portal and share the exact quote shortly.',
+  );
+  sections.push(
+    '14. MECHANIC PARTNER DESK: Highlight priority part packing, dedicated Mechanic Khata, loyalty benefits, and occasional gifts. Strictly NEVER mention or offer wholesale rates to retail customers.',
+  );
 
   return sections.join('\n');
 }

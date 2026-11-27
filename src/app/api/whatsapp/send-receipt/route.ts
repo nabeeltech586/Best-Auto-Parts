@@ -96,49 +96,7 @@ export async function POST(request: Request) {
       })
     ).trim();
 
-    // Helper to send template message via Meta Cloud API
-    const sendTemplate = async (langCode: 'en' | 'en_US') => {
-      const templatePayload = {
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to: normalizedPhone,
-        type: 'template',
-        template: {
-          name: 'payment_receipt_voucher',
-          language: { code: langCode },
-          components: [
-            {
-              type: 'body',
-              parameters: [
-                { type: 'text', text: nameStr },
-                { type: 'text', text: idStr },
-                { type: 'text', text: detailsStr },
-                { type: 'text', text: amountStr },
-                { type: 'text', text: statusStr },
-                { type: 'text', text: dateStr },
-              ],
-            },
-          ],
-        },
-      };
-
-      const metaRes = await fetch(
-        `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify(templatePayload),
-        }
-      );
-
-      const metaData = await metaRes.json().catch(() => ({}));
-      return { ok: metaRes.ok, status: metaRes.status, data: metaData };
-    };
-
-    // Helper to send standard text fallback message via Meta Cloud API
+    // Helper to send standard text receipt via Meta Cloud API
     const sendFallbackText = async () => {
       const textBody =
         formattedReceiptText ||
@@ -176,55 +134,21 @@ export async function POST(request: Request) {
     };
 
     let metaMessageId: string | null = null;
-    let methodUsed: 'template' | 'text' = 'text';
+    const methodUsed: 'text' = 'text';
     let sendError: string | null = null;
 
-    const isPaidTemplatesEnabled = process.env.ENABLE_PAID_WHATSAPP_TEMPLATES === 'true';
-
-    // 3. Paid template attempt: ONLY if explicitly enabled by feature flag
-    if (isPaidTemplatesEnabled) {
-      let metaAttempt = await sendTemplate('en');
-
-      // If language mismatch error, retry with 'en_US'
-      if (!metaAttempt.ok) {
-        const errMsg = metaAttempt.data?.error?.message || '';
-        const subcode = metaAttempt.data?.error?.error_subcode;
-        if (
-          subcode === 132000 ||
-          subcode === 132001 ||
-          errMsg.toLowerCase().includes('language') ||
-          errMsg.toLowerCase().includes('does not exist in')
-        ) {
-          metaAttempt = await sendTemplate('en_US');
-        }
-      }
-
-      if (metaAttempt.ok && metaAttempt.data?.messages?.[0]?.id) {
-        metaMessageId = metaAttempt.data.messages[0].id;
-        methodUsed = 'template';
-      } else {
-        console.warn(
-          '[send-receipt] Paid template payment_receipt_voucher failed, falling back to text:',
-          metaAttempt.data?.error
-        );
-      }
-    }
-
-    // 4. Default / Free session text receipt
-    if (!metaMessageId) {
-      const textAttempt = await sendFallbackText();
-      if (textAttempt.ok && textAttempt.data?.messages?.[0]?.id) {
-        metaMessageId = textAttempt.data.messages[0].id;
-        methodUsed = 'text';
-      } else {
-        sendError =
-          textAttempt.data?.error?.message ||
-          'Free WhatsApp session window closed (131047 / outside 24h)';
-        console.warn(
-          '[send-receipt] Free session text failed (24h window closed or delivery failed); template fallback suppressed:',
-          sendError
-        );
-      }
+    // Free session text receipt — paid templates are permanently disabled.
+    const textAttempt = await sendFallbackText();
+    if (textAttempt.ok && textAttempt.data?.messages?.[0]?.id) {
+      metaMessageId = textAttempt.data.messages[0].id;
+    } else {
+      sendError =
+        textAttempt.data?.error?.message ||
+        'Free WhatsApp session window closed (131047 / outside 24h)';
+      console.warn(
+        '[send-receipt] Free session text failed (24h window closed or delivery failed):',
+        sendError
+      );
     }
 
     if (!metaMessageId) {
@@ -267,8 +191,8 @@ export async function POST(request: Request) {
           conversationId: resolution.conversationId,
           contentText: previewContent,
           previewTitle: `🧾 Receipt #${idStr} (₹${amountStr})`,
-          contentType: methodUsed === 'template' ? 'template' : 'text',
-          templateName: methodUsed === 'template' ? 'payment_receipt_voucher' : null,
+          contentType: 'text',
+          templateName: null,
           messageId: metaMessageId,
           status: 'sent',
         });

@@ -140,22 +140,32 @@ export function WhatsAppConfig() {
       ? `${window.location.origin}/api/whatsapp/webhook`
       : '';
 
-  const fetchConfig = useCallback(async (acctId: string) => {
+  const fetchConfig = useCallback(async (acctId?: string | null) => {
     setLoading(true);
     try {
       // Load form values from Supabase (shows what's in DB).
-      // Switched from `user_id` (which would only match the row's
-      // original author) to `account_id` so every member of the
-      // account sees the same saved configuration. UNIQUE(account_id)
-      // on the table guarantees the .maybeSingle() return type
-      // remains accurate.
-      const { data, error } = await supabase
-        .from('whatsapp_config')
-        .select('*')
-        .eq('account_id', acctId)
-        .maybeSingle();
+      let query = supabase.from('whatsapp_config').select('*');
+      if (acctId) {
+        query = query.eq('account_id', acctId);
+      } else {
+        query = query.order('created_at', { ascending: false }).limit(1);
+      }
+      let { data, error } = await query.maybeSingle();
 
-      if (error) {
+      // If no config found for accountId, load default row so admin sees status
+      if (!data) {
+        const fallback = await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fallback.data) {
+          data = fallback.data;
+        }
+      }
+
+      if (error && !data) {
         console.error('Failed to load config row:', error);
       }
 
@@ -227,20 +237,23 @@ export function WhatsAppConfig() {
   }, [supabase, t]);
 
   useEffect(() => {
-    // Need both the auth session (`!authLoading`) AND the profile
-    // (`!profileLoading`, which carries `accountId`). Without the
-    // second guard, the effect would fire with `accountId === null`
-    // for the first render window and bail without ever retrying
-    // once the profile arrives.
-    if (authLoading || profileLoading) return;
-    if (!user || !accountId) {
-      loadedAccountIdRef.current = null;
+    // Safety fallback: ensure loading spinner never hangs indefinitely
+    const timer = setTimeout(() => {
       setLoading(false);
-      return;
+    }, 1500);
+
+    if (authLoading || profileLoading) {
+      return () => clearTimeout(timer);
     }
-    if (loadedAccountIdRef.current === accountId) return;
-    loadedAccountIdRef.current = accountId;
-    fetchConfig(accountId);
+
+    const targetId = accountId || 'default';
+    if (loadedAccountIdRef.current === targetId) {
+      return () => clearTimeout(timer);
+    }
+    loadedAccountIdRef.current = targetId;
+    fetchConfig(accountId || null);
+
+    return () => clearTimeout(timer);
   }, [authLoading, profileLoading, user?.id, accountId, fetchConfig]);
 
   async function handleToggleMirrorMedia(next: boolean) {

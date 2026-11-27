@@ -124,10 +124,8 @@ export function CustomerReceiptDialog({
         throw new Error(data.error || 'Failed to send receipt via WhatsApp API');
       }
 
-      toast.success('✓ Receipt Sent via WhatsApp API!', {
-        description: `Delivered to +${data.recipientPhone} via ${
-          data.method === 'template' ? 'payment_receipt_voucher template' : 'WhatsApp direct message'
-        }. Logged in Inbox.`,
+      toast.success('✓ Receipt Sent via WhatsApp!', {
+        description: `Delivered to +${data.recipientPhone} via direct WhatsApp message. Logged in Inbox.`,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error sending receipt';

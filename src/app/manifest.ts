@@ -46,7 +46,7 @@ export default function manifest(): MetadataRoute.Manifest {
         icons: [{ src: '/icons/icon-192x192.png', sizes: '192x192' }],
       },
       {
-        name: 'Customers & Scratch',
+        name: 'Customers & Khata',
         short_name: 'Contacts',
         url: '/contacts',
         icons: [{ src: '/icons/icon-192x192.png', sizes: '192x192' }],

@@ -98,10 +98,7 @@ export function StockReceivedDialog({
       toast.success(
         `Stock Received confirmation sent to ${order.supplier_name}! Logged in CRM Inbox.`,
         {
-          description:
-            data.method === 'template'
-              ? 'Delivered via Meta approved template: distributor_stock_received'
-              : 'Delivered via direct WhatsApp confirmation message',
+          description: 'Delivered via direct WhatsApp confirmation message',
         }
       );
 
@@ -183,7 +180,7 @@ export function StockReceivedDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold text-foreground">Message Preview:</span>
-              <span className="text-[10px] text-muted-foreground">Template: distributor_stock_received</span>
+              <span className="text-[10px] text-muted-foreground">Direct WhatsApp Message</span>
             </div>
             <div className="p-3 rounded-lg bg-background border border-border/80 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
               {previewMessage}
