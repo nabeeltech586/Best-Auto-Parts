@@ -12,6 +12,7 @@ import {
   Bot,
   CreditCard,
   Crown,
+  FileCheck2,
   GitBranch,
   LayoutDashboard,
   LogOut,
@@ -139,7 +140,7 @@ const navItems: NavItem[] = [
   {
     href: "/pipelines",
     labelKey: "pipelines",
-    icon: GitBranch,
+    icon: FileCheck2,
     badgeClass: "bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/25 dark:text-indigo-400",
   },
   {

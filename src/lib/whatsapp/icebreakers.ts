@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { engineSendText, engineSendInteractiveButtons } from '@/lib/flows/meta-send';
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write';
+import { autoCreateServiceCaseFromWhatsApp } from '@/lib/services/service-cases';
 
 export interface IcebreakerDef {
   id: string;
@@ -391,6 +392,76 @@ export async function executeIcebreaker(
       }
     } catch (err) {
       console.warn('[icebreaker] mechanic tagging notice:', err);
+    }
+  }
+
+  // Auto-create service case for ITR & Vehicle Insurance
+  if (matched.id === META_ICEBREAKERS.itr_insurance.id) {
+    try {
+      const { data: contact } = await db
+        .from('contacts')
+        .select('name, phone, phone_normalized')
+        .eq('id', contactId)
+        .maybeSingle();
+
+      const phone = contact?.phone || contact?.phone_normalized;
+      if (phone) {
+        const isItr =
+          inboundText.toLowerCase().includes('itr') ||
+          inboundText.toLowerCase().includes('tax return') ||
+          inboundText.toLowerCase().includes('income tax');
+        const serviceType = isItr ? 'ITR' : 'Vehicle Insurance';
+
+        await autoCreateServiceCaseFromWhatsApp({
+          phone,
+          customerName: contact.name,
+          serviceType,
+          inboundText,
+          accountId,
+          db,
+        });
+      }
+    } catch (caseErr) {
+      console.warn('[icebreaker] auto-create ITR/Insurance case notice:', caseErr);
+    }
+  }
+
+  // Auto-create service case for RTO, Tax & E-Challan
+  if (matched.id === META_ICEBREAKERS.rto_tax.id) {
+    try {
+      const { data: contact } = await db
+        .from('contacts')
+        .select('name, phone, phone_normalized')
+        .eq('id', contactId)
+        .maybeSingle();
+
+      const phone = contact?.phone || contact?.phone_normalized;
+      if (phone) {
+        const lower = inboundText.toLowerCase();
+        let serviceType: 'RTO Road Tax' | 'State Border Tax' | 'E-Challan' = 'RTO Road Tax';
+        if (lower.includes('challan')) {
+          serviceType = 'E-Challan';
+        } else if (lower.includes('border') || lower.includes('entry tax')) {
+          serviceType = 'State Border Tax';
+        }
+
+        const regMatch = inboundText
+          .toUpperCase()
+          .match(/\b[A-Z]{2}\s*[-0-9]{1,2}\s*[A-Z]{0,3}\s*[0-9]{4}\b/);
+        const vehicleOrRef = regMatch ? regMatch[0].replace(/\s+/g, '') : '';
+
+        await autoCreateServiceCaseFromWhatsApp({
+          phone,
+          customerName: contact.name,
+          serviceType,
+          inboundText,
+          vehicleOrRef,
+          accountId,
+          db,
+        });
+      }
+    } catch (caseErr) {
+      console.warn('[icebreaker] auto-create RTO case notice:', caseErr);
     }
   }
 
