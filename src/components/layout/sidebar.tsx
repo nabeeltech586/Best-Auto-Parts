@@ -251,37 +251,43 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       <aside
         className={cn(
           // Mobile: fixed drawer that slides in from the left, respecting device safe area.
-          "fixed inset-y-0 left-0 z-40 flex h-full w-64 flex-col border-r border-border bg-card pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]",
+          "fixed inset-y-0 left-0 z-40 flex h-full w-72 max-w-[85vw] flex-col border-r border-border bg-card pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]",
           "transition-transform duration-200 ease-out will-change-transform",
           open ? "translate-x-0" : "-translate-x-full",
           // Desktop: static, always visible — reset all the mobile framing.
-          "lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none lg:pt-0 lg:pb-0",
+          "lg:static lg:z-0 lg:w-64 lg:translate-x-0 lg:transition-none lg:pt-0 lg:pb-0",
         )}
         aria-label={t("primaryNav")}
       >
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
-        <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold shadow-sm shrink-0">
+        <div className="relative flex shrink-0 items-start justify-between gap-2 border-b border-border p-3 sm:px-3.5">
+          <Link href="/dashboard" className="flex items-start gap-2.5 min-w-0 flex-1 group">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold shadow-sm shrink-0 mt-0.5">
               <Package className="h-5 w-5" />
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-sm font-bold tracking-tight text-foreground leading-tight truncate">
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-sm font-bold tracking-tight text-foreground leading-tight group-hover:text-primary transition-colors">
                 Best Auto Parts
               </span>
-              <span className="text-[10px] font-medium text-muted-foreground leading-tight mt-0.5 truncate">
+              <span className="text-[10px] font-medium text-muted-foreground leading-tight mt-0.5">
                 Bajaj • Hero • Honda Spares
               </span>
+              <div className="mt-1 flex items-center">
+                <span className="inline-flex items-center gap-1 rounded bg-indigo-500/10 dark:bg-indigo-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-500/25 tracking-tight leading-none">
+                  <span className="size-1 rounded-full bg-indigo-500 shrink-0" />
+                  Online Services: Insurance • ITR • RTO
+                </span>
+              </div>
             </div>
           </Link>
           <button
             type="button"
             onClick={onClose}
             aria-label={t("closeMenu")}
-            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden shrink-0 mt-0.5"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 

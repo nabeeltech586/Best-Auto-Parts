@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Briefcase, ChevronDown, Plus, ShoppingBag, UserPlus, Zap } from 'lucide-react'
 import { useTranslations } from 'next-intl'
@@ -38,6 +39,63 @@ function partOfDay(date: Date): 'morning' | 'afternoon' | 'evening' {
   return 'evening'
 }
 
+function formatLiveIst(date: Date): string {
+  const timeFormatter = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  })
+  const dateFormatter = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  const cleanTime = timeFormatter.format(date).replace(/\u202f|\s+/g, ' ').trim().toUpperCase()
+  const cleanDate = dateFormatter.format(date).replace(/, (?=\d{4})/, ' ')
+  return `🕒 ${cleanTime} IST • ${cleanDate}`
+}
+
+function LiveIstClock() {
+  const [timeStr, setTimeStr] = useState<string | null>(null)
+
+  useEffect(() => {
+    const update = () => setTimeStr(formatLiveIst(new Date()))
+    update()
+    const interval = window.setInterval(update, 1000)
+    return () => window.clearInterval(interval)
+  }, [])
+
+  if (!timeStr) {
+    return (
+      <div
+        className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/20 dark:bg-black/35 text-xs font-medium text-white/80 border border-white/20 backdrop-blur-md mb-2 shadow-xs"
+        aria-label="Live IST clock loading"
+      >
+        <span className="size-2 rounded-full bg-emerald-400/70 animate-pulse" />
+        <span className="tabular-nums">🕒 Live IST Clock • Asia/Kolkata</span>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/25 dark:bg-black/40 text-xs font-semibold tracking-wide text-white border border-white/25 shadow-sm backdrop-blur-md mb-2"
+      aria-label="Current IST Date & Time"
+      suppressHydrationWarning
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+      </span>
+      <span className="tabular-nums tracking-wide">{timeStr}</span>
+    </div>
+  )
+}
+
 export function OverviewHeader({
   data,
   now,
@@ -72,13 +130,16 @@ export function OverviewHeader({
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 dark:from-blue-900 dark:via-indigo-900 dark:to-violet-950 p-6 shadow-md border border-blue-500/20 text-white">
       <div className="relative z-10 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/15 dark:bg-white/10 text-xs font-semibold tracking-wide text-blue-100 backdrop-blur-sm mb-2 border border-white/20">
+            <span>🏍️ Best Auto Parts CRM</span>
+            <span>•</span>
+            <span>Kailashpur, Saharanpur</span>
+          </div>
+          <div className="block">
+            <LiveIstClock />
+          </div>
           {data ? (
             <>
-              <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/15 dark:bg-white/10 text-xs font-semibold tracking-wide text-blue-100 backdrop-blur-sm mb-2 border border-white/20">
-                <span>🏍️ Best Auto Parts CRM</span>
-                <span>•</span>
-                <span>Kailashpur, Saharanpur</span>
-              </div>
               <h2 className="text-2xl font-bold tracking-tight text-white drop-shadow-sm">
                 {firstName
                   ? t(`greeting.${partOfDay(new Date(now))}`, { name: firstName })
