@@ -23,6 +23,10 @@ export interface ServiceCase {
   vehicle_or_ref: string;
   notes?: string | null;
   fee_amount: number;
+  govt_fee?: number;
+  service_charge?: number;
+  receipt_number?: string | null;
+  payment_date?: string | null;
   payment_status: ServicePaymentStatus;
   stage: ServiceStage;
   created_at: string;
@@ -36,6 +40,10 @@ export interface CreateServiceCaseInput {
   vehicle_or_ref?: string;
   notes?: string;
   fee_amount?: number;
+  govt_fee?: number;
+  service_charge?: number;
+  receipt_number?: string | null;
+  payment_date?: string | null;
   payment_status?: ServicePaymentStatus;
   stage?: ServiceStage;
   account_id?: string;
@@ -48,6 +56,10 @@ export interface UpdateServiceCaseInput {
   vehicle_or_ref?: string;
   notes?: string;
   fee_amount?: number;
+  govt_fee?: number;
+  service_charge?: number;
+  receipt_number?: string | null;
+  payment_date?: string | null;
   payment_status?: ServicePaymentStatus;
   stage?: ServiceStage;
 }

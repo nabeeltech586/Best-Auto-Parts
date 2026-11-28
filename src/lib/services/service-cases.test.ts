@@ -10,6 +10,9 @@ import {
   buildOnlineServiceHandoverReply,
   syncServiceCaseFromChat,
   handleOnlineServiceFollowUp,
+  buildServiceCaseWhatsAppMessage,
+  formatDisplayDate,
+  getKolkataTodayDateString,
 } from './service-cases';
 
 vi.mock('@/lib/flows/meta-send', () => ({
@@ -235,6 +238,67 @@ describe('service-cases storage and operations', () => {
       expect(res.handled).toBe(true);
       expect(res.replyText).toContain('RC Photo Received & Saved!');
       expect(res.replyText).toContain('Saud Khan (+91 96347 22174)');
+    });
+  });
+
+  describe('Fee & Date structured storage and WhatsApp message', () => {
+    it('saves govt_fee = 1000, service_charge = 50, and payment_date = "2026-11-28", never resulting in ₹0', async () => {
+      const created = await createServiceCase({
+        customer_name: 'Wasim Akram',
+        phone: '9876543211',
+        service_type: 'RTO Road Tax',
+        vehicle_or_ref: 'UP11BY5555',
+        govt_fee: 1000,
+        service_charge: 50,
+        payment_date: '2026-11-28',
+        receipt_number: 'UPRTE26110003488',
+        payment_status: 'PAID',
+      });
+
+      expect(created.govt_fee).toBe(1000);
+      expect(created.service_charge).toBe(50);
+      expect(created.fee_amount).toBe(1050); // total 1050, never 0!
+      expect(created.payment_date).toBe('2026-11-28');
+      expect(created.receipt_number).toBe('UPRTE26110003488');
+
+      // Update case fee & date
+      const updated = await updateServiceCase(created.id, {
+        govt_fee: 1200,
+        service_charge: 80,
+        receipt_number: 'UPRTE26110003499',
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated?.govt_fee).toBe(1200);
+      expect(updated?.service_charge).toBe(80);
+      expect(updated?.fee_amount).toBe(1280);
+      expect(updated?.receipt_number).toBe('UPRTE26110003499');
+    });
+
+    it('builds WhatsApp status update message with complete fee breakdown and date', () => {
+      const testCase = {
+        id: 'test-1',
+        customer_name: 'Aslam Khan',
+        phone: '9634722174',
+        service_type: 'Vehicle Insurance' as const,
+        vehicle_or_ref: 'UP11AY1234',
+        govt_fee: 1000,
+        service_charge: 50,
+        fee_amount: 1050,
+        payment_status: 'PAID' as const,
+        stage: 'PORTAL_CHECK' as const,
+        payment_date: '2026-11-28',
+        receipt_number: 'UPRTE26110003488',
+        created_at: '2026-11-28T10:00:00Z',
+        updated_at: '2026-11-28T10:00:00Z',
+      };
+
+      const msg = buildServiceCaseWhatsAppMessage(testCase);
+      expect(msg).toContain('🏛️ *Govt / Portal Fee:* ₹1,000');
+      expect(msg).toContain('💼 *Service Charge:* ₹50 (PAID)');
+      expect(msg).toContain('💰 *Total Amount:* ₹1,050');
+      expect(msg).toContain('📅 *Date:* 28 Nov 2026 (Receipt No: UPRTE26110003488)');
+      expect(msg).toContain('Saud Khan (+91 96347 22174)');
     });
   });
 });

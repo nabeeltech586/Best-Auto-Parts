@@ -21,7 +21,14 @@ import {
   X,
   Phone,
   FileCheck2,
+  Coins,
+  Calendar,
 } from 'lucide-react';
+import {
+  buildServiceCaseWhatsAppMessage,
+  formatDisplayDate,
+  getKolkataTodayDateString,
+} from '@/lib/services/service-cases';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
@@ -131,14 +138,19 @@ export function OnlineServicesBoard() {
   // Modal states
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [feeModalOpen, setFeeModalOpen] = useState(false);
   const [activeCase, setActiveCase] = useState<ServiceCase | null>(null);
+  const [feeCase, setFeeCase] = useState<ServiceCase | null>(null);
 
   // Form states
   const [formName, setFormName] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formType, setFormType] = useState<ServiceType>('Vehicle Insurance');
   const [formRef, setFormRef] = useState('');
-  const [formFee, setFormFee] = useState<number | ''>(0);
+  const [formGovtFee, setFormGovtFee] = useState<number | ''>(0);
+  const [formServiceCharge, setFormServiceCharge] = useState<number | ''>(50);
+  const [formPaymentDate, setFormPaymentDate] = useState<string>('');
+  const [formReceiptNumber, setFormReceiptNumber] = useState<string>('');
   const [formStatus, setFormStatus] = useState<ServicePaymentStatus>('UNPAID');
   const [formStage, setFormStage] = useState<ServiceStage>('NEW_INQUIRY');
   const [formNotes, setFormNotes] = useState('');
@@ -167,11 +179,15 @@ export function OnlineServicesBoard() {
 
   // Open create modal with optional default stage
   const openCreateModal = (defaultStage?: ServiceStage) => {
+    const today = getKolkataTodayDateString();
     setFormName('');
     setFormPhone('');
     setFormType('Vehicle Insurance');
     setFormRef('');
-    setFormFee(0);
+    setFormGovtFee(0);
+    setFormServiceCharge(50);
+    setFormPaymentDate(today);
+    setFormReceiptNumber('');
     setFormStatus('UNPAID');
     setFormStage(defaultStage || 'NEW_INQUIRY');
     setFormNotes('');
@@ -185,11 +201,66 @@ export function OnlineServicesBoard() {
     setFormPhone(sc.phone);
     setFormType(sc.service_type);
     setFormRef(sc.vehicle_or_ref);
-    setFormFee(sc.fee_amount);
+    setFormGovtFee(sc.govt_fee ?? 0);
+    setFormServiceCharge(sc.service_charge ?? sc.fee_amount ?? 50);
+    setFormPaymentDate(
+      sc.payment_date || (sc.created_at ? sc.created_at.slice(0, 10) : getKolkataTodayDateString())
+    );
+    setFormReceiptNumber(sc.receipt_number || '');
     setFormStatus(sc.payment_status);
     setFormStage(sc.stage);
     setFormNotes(sc.notes || '');
     setEditModalOpen(true);
+  };
+
+  // Open fee & date quick modal
+  const openFeeModal = (sc: ServiceCase) => {
+    setFeeCase(sc);
+    setFormGovtFee(sc.govt_fee ?? 0);
+    setFormServiceCharge(sc.service_charge ?? sc.fee_amount ?? 50);
+    setFormPaymentDate(
+      sc.payment_date || (sc.created_at ? sc.created_at.slice(0, 10) : getKolkataTodayDateString())
+    );
+    setFormReceiptNumber(sc.receipt_number || '');
+    setFormStatus(sc.payment_status);
+    setFeeModalOpen(true);
+  };
+
+  // Quick save fee & date modal
+  const handleFeeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feeCase) return;
+
+    setSubmitting(true);
+    const govt = Number(formGovtFee) || 0;
+    const srv = Number(formServiceCharge) || 0;
+    const total = govt + srv;
+
+    try {
+      const res = await fetch(`/api/services/cases/${feeCase.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          govt_fee: govt,
+          service_charge: srv,
+          fee_amount: total,
+          payment_date: formPaymentDate || null,
+          receipt_number: formReceiptNumber.trim() || null,
+          payment_status: formStatus,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Failed to update fees');
+
+      const data = await res.json();
+      setCases((prev) => prev.map((c) => (c.id === feeCase.id ? data.case : c)));
+      setFeeModalOpen(false);
+      toast.success('Fees and payment date updated!');
+    } catch {
+      toast.error('Failed to update fees');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Save new case
@@ -201,6 +272,10 @@ export function OnlineServicesBoard() {
     }
 
     setSubmitting(true);
+    const govt = Number(formGovtFee) || 0;
+    const srv = Number(formServiceCharge) || 0;
+    const total = govt + srv;
+
     try {
       const res = await fetch('/api/services/cases', {
         method: 'POST',
@@ -210,7 +285,11 @@ export function OnlineServicesBoard() {
           phone: formPhone,
           service_type: formType,
           vehicle_or_ref: formRef,
-          fee_amount: Number(formFee) || 0,
+          govt_fee: govt,
+          service_charge: srv,
+          fee_amount: total,
+          payment_date: formPaymentDate || null,
+          receipt_number: formReceiptNumber.trim() || null,
           payment_status: formStatus,
           stage: formStage,
           notes: formNotes,
@@ -240,6 +319,10 @@ export function OnlineServicesBoard() {
     if (!activeCase) return;
 
     setSubmitting(true);
+    const govt = Number(formGovtFee) || 0;
+    const srv = Number(formServiceCharge) || 0;
+    const total = govt + srv;
+
     try {
       const res = await fetch(`/api/services/cases/${activeCase.id}`, {
         method: 'PATCH',
@@ -249,7 +332,11 @@ export function OnlineServicesBoard() {
           phone: formPhone,
           service_type: formType,
           vehicle_or_ref: formRef,
-          fee_amount: Number(formFee) || 0,
+          govt_fee: govt,
+          service_charge: srv,
+          fee_amount: total,
+          payment_date: formPaymentDate || null,
+          receipt_number: formReceiptNumber.trim() || null,
           payment_status: formStatus,
           stage: formStage,
           notes: formNotes,
@@ -262,7 +349,7 @@ export function OnlineServicesBoard() {
       setCases((prev) => prev.map((c) => (c.id === activeCase.id ? data.case : c)));
       setEditModalOpen(false);
       toast.success('Service case updated');
-    } catch (err) {
+    } catch {
       toast.error('Failed to update case');
     } finally {
       setSubmitting(false);
@@ -327,29 +414,11 @@ export function OnlineServicesBoard() {
     }
   };
 
-  // WhatsApp status update message generator
-  const getWhatsAppMessage = (sc: ServiceCase): string => {
-    const stageObj = STAGES.find((s) => s.id === sc.stage);
-    const stageTitle = stageObj?.title || sc.stage;
-    const refStr = sc.vehicle_or_ref ? ` (${sc.vehicle_or_ref})` : '';
-
-    return (
-      `*Best Auto Parts & Online Services* 🏍️\n` +
-      `*Kailashpur, Saharanpur* | +91 96347 22174\n\n` +
-      `Hello *${sc.customer_name}*,\n` +
-      `Status update regarding your *${sc.service_type}* request${refStr}:\n\n` +
-      `📌 *Current Stage:* ${stageTitle}\n` +
-      `💰 *Service Fee:* ₹${sc.fee_amount} (${sc.payment_status})\n` +
-      (sc.notes ? `📝 *Notes:* ${sc.notes}\n\n` : '\n') +
-      `For any questions or documents, feel free to reply directly or contact *Saud Khan (+91 96347 22174)*.\nHave a wonderful day!`
-    );
-  };
-
   // Quick WhatsApp action
   const handleOpenWhatsApp = (sc: ServiceCase) => {
     const cleanPhone = sc.phone.replace(/\D/g, '');
     const phoneWithCountry = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-    const message = getWhatsAppMessage(sc);
+    const message = buildServiceCaseWhatsAppMessage(sc);
     const link = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(message)}`;
     window.open(link, '_blank');
   };
@@ -380,12 +449,23 @@ export function OnlineServicesBoard() {
     const portalPending = cases.filter(
       (c) => c.stage === 'PORTAL_CHECK' || c.stage === 'NEW_INQUIRY'
     ).length;
+
+    // Service Earnings (₹): Total service charges earned on PAID cases
+    const serviceEarnings = cases
+      .filter((c) => c.payment_status === 'PAID')
+      .reduce((sum, c) => sum + (c.service_charge ?? c.fee_amount ?? 0), 0);
+
+    // Unpaid Fees (₹): Pending collection (both service charge + govt fee if unpaid)
     const unpaidFees = cases
       .filter((c) => c.payment_status === 'UNPAID')
-      .reduce((sum, c) => sum + (Number(c.fee_amount) || 0), 0);
+      .reduce(
+        (sum, c) => sum + (c.service_charge ?? c.fee_amount ?? 0) + (c.govt_fee || 0),
+        0
+      );
+
     const completed = cases.filter((c) => c.stage === 'COMPLETED').length;
 
-    return { active, portalPending, unpaidFees, completed };
+    return { active, portalPending, serviceEarnings, unpaidFees, completed };
   }, [cases]);
 
   return (
@@ -431,8 +511,8 @@ export function OnlineServicesBoard() {
         </div>
       </div>
 
-      {/* 2. Top 4 Colorful KPI Cards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* 2. Top 5 Colorful KPI Cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {/* Active Cases */}
         <Card className="border-sky-500/20 bg-sky-500/5 p-4 dark:border-sky-500/30 dark:bg-sky-950/20">
           <div className="flex items-center justify-between">
@@ -457,7 +537,21 @@ export function OnlineServicesBoard() {
           <span className="text-[11px] text-muted-foreground">Awaiting check or docs</span>
         </Card>
 
-        {/* Unpaid Fees */}
+        {/* Service Earnings (₹) */}
+        <Card className="border-emerald-500/20 bg-emerald-500/5 p-4 dark:border-emerald-500/30 dark:bg-emerald-950/20">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Service Earnings (₹)</span>
+            <span className="rounded-lg bg-emerald-500/15 p-1.5 text-emerald-600 dark:text-emerald-400">
+              <Coins className="size-4" />
+            </span>
+          </div>
+          <p className="mt-2 text-2xl font-bold text-emerald-950 dark:text-emerald-100">
+            ₹{kpis.serviceEarnings.toLocaleString('en-IN')}
+          </p>
+          <span className="text-[11px] text-muted-foreground">Best Auto Parts fees earned</span>
+        </Card>
+
+        {/* Unpaid Fees (₹) */}
         <Card className="border-amber-500/20 bg-amber-500/5 p-4 dark:border-amber-500/30 dark:bg-amber-950/20">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-amber-700 dark:text-amber-300">Unpaid Fees (₹)</span>
@@ -468,19 +562,19 @@ export function OnlineServicesBoard() {
           <p className="mt-2 text-2xl font-bold text-amber-950 dark:text-amber-100">
             ₹{kpis.unpaidFees.toLocaleString('en-IN')}
           </p>
-          <span className="text-[11px] text-muted-foreground">Pending collection</span>
+          <span className="text-[11px] text-muted-foreground">Pending customer collection</span>
         </Card>
 
-        {/* Completed This Month */}
-        <Card className="border-emerald-500/20 bg-emerald-500/5 p-4 dark:border-emerald-500/30 dark:bg-emerald-950/20">
+        {/* Completed Cases */}
+        <Card className="border-blue-500/20 bg-blue-500/5 p-4 dark:border-blue-500/30 dark:bg-blue-950/20 col-span-2 sm:col-span-1">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Completed Cases</span>
-            <span className="rounded-lg bg-emerald-500/15 p-1.5 text-emerald-600 dark:text-emerald-400">
+            <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Completed Cases</span>
+            <span className="rounded-lg bg-blue-500/15 p-1.5 text-blue-600 dark:text-blue-400">
               <CheckCircle2 className="size-4" />
             </span>
           </div>
-          <p className="mt-2 text-2xl font-bold text-emerald-950 dark:text-emerald-100">{kpis.completed}</p>
-          <span className="text-[11px] text-muted-foreground">Successfully filed/delivered</span>
+          <p className="mt-2 text-2xl font-bold text-blue-950 dark:text-blue-100">{kpis.completed}</p>
+          <span className="text-[11px] text-muted-foreground">Successfully filed / delivered</span>
         </Card>
       </div>
 
@@ -586,7 +680,7 @@ export function OnlineServicesBoard() {
                         className="group relative overflow-hidden border border-border bg-card p-3.5 transition-all hover:border-blue-500/40 hover:shadow-md"
                       >
                         {/* Top: Service Badge & Fee */}
-                        <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-start justify-between gap-1">
                           <span
                             className={cn(
                               'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold',
@@ -597,10 +691,15 @@ export function OnlineServicesBoard() {
                             {sc.service_type}
                           </span>
 
-                          <div className="text-right">
-                            <span className="text-xs font-bold text-foreground">
-                              ₹{sc.fee_amount}
+                          <div className="text-right leading-tight">
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                              Service: ₹{(sc.service_charge ?? sc.fee_amount ?? 0).toLocaleString('en-IN')}
                             </span>
+                            {sc.govt_fee && sc.govt_fee > 0 ? (
+                              <div className="text-[11px] font-semibold text-foreground/80">
+                                Total: ₹{((sc.govt_fee || 0) + (sc.service_charge ?? sc.fee_amount ?? 0)).toLocaleString('en-IN')}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
 
@@ -634,6 +733,46 @@ export function OnlineServicesBoard() {
                             </div>
                           ) : null}
 
+                          {/* Govt Fee, Service Charge, Date & Receipt Badges */}
+                          <div className="mt-2.5 rounded-lg border border-border/60 bg-muted/30 p-2 space-y-1 text-[11px]">
+                            {sc.govt_fee && sc.govt_fee > 0 ? (
+                              <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                                <span className="flex items-center gap-1">
+                                  <span>🏛️</span>
+                                  <span className="font-medium">Govt Fee Paid:</span>
+                                </span>
+                                <span className="font-semibold text-foreground">₹{sc.govt_fee.toLocaleString('en-IN')}</span>
+                              </div>
+                            ) : null}
+
+                            <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                              <span className="flex items-center gap-1">
+                                <span>💼</span>
+                                <span className="font-medium">Service Charge:</span>
+                              </span>
+                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                ₹{(sc.service_charge ?? sc.fee_amount ?? 0).toLocaleString('en-IN')}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-slate-600 dark:text-slate-400 pt-0.5 border-t border-border/40">
+                              <span className="flex items-center gap-1">
+                                <span>📅</span>
+                                <span className="font-medium">Date:</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <span className="font-medium text-foreground">
+                                  {formatDisplayDate(sc.payment_date || sc.created_at)}
+                                </span>
+                                {sc.receipt_number ? (
+                                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-semibold text-foreground">
+                                    #{sc.receipt_number}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+
                           {sc.notes ? (
                             <p className="mt-1.5 line-clamp-2 text-[11px] text-muted-foreground">
                               {sc.notes}
@@ -657,15 +796,12 @@ export function OnlineServicesBoard() {
                           </button>
 
                           <span className="text-[10px] text-muted-foreground">
-                            {new Date(sc.created_at).toLocaleDateString('en-IN', {
-                              day: 'numeric',
-                              month: 'short',
-                            })}
+                            {formatDisplayDate(sc.payment_date || sc.created_at)}
                           </span>
                         </div>
 
                         {/* Quick Actions Bar */}
-                        <div className="mt-3 flex items-center justify-between gap-1.5 pt-1">
+                        <div className="mt-3 flex items-center justify-between gap-1 pt-1">
                           {/* WhatsApp Free ₹0 */}
                           <Button
                             variant="outline"
@@ -675,7 +811,18 @@ export function OnlineServicesBoard() {
                             className="h-7 px-2 text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"
                           >
                             <MessageCircle className="mr-1 size-3" />
-                            WhatsApp (₹0)
+                            WhatsApp
+                          </Button>
+
+                          {/* Compact ₹ Fee & Date */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openFeeModal(sc)}
+                            title="Add / Edit Govt Fee, Service Charge, Receipt No & Date"
+                            className="h-7 border-indigo-500/30 bg-indigo-50/50 px-2 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-500/40 dark:bg-indigo-950/30 dark:text-indigo-300 dark:hover:bg-indigo-900/40"
+                          >
+                            ₹ Fee & Date
                           </Button>
 
                           {/* Move Next */}
@@ -773,20 +920,77 @@ export function OnlineServicesBoard() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="cust_fee">Service Fee (₹)</Label>
-                <Input
-                  id="cust_fee"
-                  type="number"
-                  min="0"
-                  value={formFee}
-                  onChange={(e) => setFormFee(e.target.value === '' ? '' : Number(e.target.value))}
-                  placeholder="0"
-                  className="mt-1"
-                />
+            {/* Structured Fee & Date Inputs */}
+            <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Coins className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Fees & Government Portal Charges</span>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="cust_govt_fee" className="text-xs">Govt / Portal Fee Paid (₹)</Label>
+                  <Input
+                    id="cust_govt_fee"
+                    type="number"
+                    min="0"
+                    value={formGovtFee}
+                    onChange={(e) => setFormGovtFee(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0"
+                    className="mt-1 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="cust_service_charge" className="text-xs">Service Charge (₹) *</Label>
+                  <Input
+                    id="cust_service_charge"
+                    type="number"
+                    min="0"
+                    value={formServiceCharge}
+                    onChange={(e) => setFormServiceCharge(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="50"
+                    className="mt-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded bg-muted/50 px-2.5 py-1.5 text-xs">
+                <span className="text-muted-foreground">Total Customer Amount:</span>
+                <span className="font-bold text-foreground">
+                  ₹{((Number(formGovtFee) || 0) + (Number(formServiceCharge) || 0)).toLocaleString('en-IN')}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <Label htmlFor="cust_payment_date" className="text-xs flex items-center gap-1">
+                    <Calendar className="size-3" />
+                    <span>Payment / Receipt Date</span>
+                  </Label>
+                  <Input
+                    id="cust_payment_date"
+                    type="date"
+                    value={formPaymentDate}
+                    onChange={(e) => setFormPaymentDate(e.target.value)}
+                    className="mt-1 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="cust_receipt_no" className="text-xs">Receipt / Challan No.</Label>
+                  <Input
+                    id="cust_receipt_no"
+                    value={formReceiptNumber}
+                    onChange={(e) => setFormReceiptNumber(e.target.value.toUpperCase())}
+                    placeholder="e.g. UPRTE26110003488"
+                    className="mt-1 text-xs font-mono uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="cust_payment">Payment Status</Label>
                 <select
@@ -799,22 +1003,22 @@ export function OnlineServicesBoard() {
                   <option value="PAID">PAID</option>
                 </select>
               </div>
-            </div>
 
-            <div>
-              <Label htmlFor="cust_stage">Initial Stage</Label>
-              <select
-                id="cust_stage"
-                value={formStage}
-                onChange={(e) => setFormStage(e.target.value as ServiceStage)}
-                className="mt-1 flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {STAGES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <Label htmlFor="cust_stage">Initial Stage</Label>
+                <select
+                  id="cust_stage"
+                  value={formStage}
+                  onChange={(e) => setFormStage(e.target.value as ServiceStage)}
+                  className="mt-1 flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {STAGES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -909,18 +1113,73 @@ export function OnlineServicesBoard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Service Fee (₹)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={formFee}
-                  onChange={(e) => setFormFee(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="mt-1"
-                />
+            {/* Structured Fee & Date Inputs */}
+            <div className="rounded-lg border border-border/80 bg-muted/20 p-3 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Coins className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Fees & Government Portal Charges</span>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Govt / Portal Fee Paid (₹)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={formGovtFee}
+                    onChange={(e) => setFormGovtFee(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0"
+                    className="mt-1 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-xs">Service Charge (₹) *</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={formServiceCharge}
+                    onChange={(e) => setFormServiceCharge(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="50"
+                    className="mt-1 text-sm font-semibold text-emerald-600 dark:text-emerald-400"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded bg-muted/50 px-2.5 py-1.5 text-xs">
+                <span className="text-muted-foreground">Total Customer Amount:</span>
+                <span className="font-bold text-foreground">
+                  ₹{((Number(formGovtFee) || 0) + (Number(formServiceCharge) || 0)).toLocaleString('en-IN')}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div>
+                  <Label className="text-xs flex items-center gap-1">
+                    <Calendar className="size-3" />
+                    <span>Payment / Receipt Date</span>
+                  </Label>
+                  <Input
+                    type="date"
+                    value={formPaymentDate}
+                    onChange={(e) => setFormPaymentDate(e.target.value)}
+                    className="mt-1 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-xs">Receipt / Challan No.</Label>
+                  <Input
+                    value={formReceiptNumber}
+                    onChange={(e) => setFormReceiptNumber(e.target.value.toUpperCase())}
+                    placeholder="e.g. UPRTE26110003488"
+                    className="mt-1 text-xs font-mono uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Payment Status</Label>
                 <select
@@ -932,21 +1191,21 @@ export function OnlineServicesBoard() {
                   <option value="PAID">PAID</option>
                 </select>
               </div>
-            </div>
 
-            <div>
-              <Label>Kanban Stage</Label>
-              <select
-                value={formStage}
-                onChange={(e) => setFormStage(e.target.value as ServiceStage)}
-                className="mt-1 flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm"
-              >
-                {STAGES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <Label>Kanban Stage</Label>
+                <select
+                  value={formStage}
+                  onChange={(e) => setFormStage(e.target.value as ServiceStage)}
+                  className="mt-1 flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm"
+                >
+                  {STAGES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -968,6 +1227,129 @@ export function OnlineServicesBoard() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 7. Manage Fees & Receipt Date Quick Modal */}
+      <Dialog open={feeModalOpen} onOpenChange={setFeeModalOpen}>
+        <DialogContent className="max-w-sm sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Coins className="size-5 text-indigo-600 dark:text-indigo-400" />
+              <span>₹ Manage Fees & Receipt Date</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          {feeCase ? (
+            <form onSubmit={handleFeeSubmit} className="space-y-4 pt-1">
+              <div className="rounded-lg border border-border/80 bg-muted/40 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">{feeCase.customer_name}</span>
+                  <span className="rounded bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground border">
+                    {feeCase.service_type}
+                  </span>
+                </div>
+                {feeCase.vehicle_or_ref ? (
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">
+                    Ref: {feeCase.vehicle_or_ref}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="fee_govt" className="text-xs">Govt / Portal Fee (₹)</Label>
+                  <Input
+                    id="fee_govt"
+                    type="number"
+                    min="0"
+                    value={formGovtFee}
+                    onChange={(e) => setFormGovtFee(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="0"
+                    className="mt-1 text-sm"
+                  />
+                  <p className="mt-1 text-[10px] text-muted-foreground">Vahan/Rajkosh/Challan</p>
+                </div>
+
+                <div>
+                  <Label htmlFor="fee_srv" className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    Service Charge (₹) *
+                  </Label>
+                  <Input
+                    id="fee_srv"
+                    type="number"
+                    min="0"
+                    value={formServiceCharge}
+                    onChange={(e) => setFormServiceCharge(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="50"
+                    className="mt-1 text-sm font-bold text-emerald-600 dark:text-emerald-400"
+                  />
+                  <p className="mt-1 text-[10px] text-muted-foreground">Best Auto Parts fee</p>
+                </div>
+              </div>
+
+              {/* Total Calculation Strip */}
+              <div className="flex items-center justify-between rounded-lg bg-indigo-50/70 p-3 dark:bg-indigo-950/30 border border-indigo-200/50 dark:border-indigo-800/40">
+                <div className="text-xs text-indigo-900 dark:text-indigo-200">
+                  <span>Govt Fee: ₹{Number(formGovtFee) || 0}</span>
+                  <span className="mx-1.5">+</span>
+                  <span>Service: ₹{Number(formServiceCharge) || 0}</span>
+                </div>
+                <div className="text-sm font-bold text-indigo-700 dark:text-indigo-300">
+                  Total: ₹{((Number(formGovtFee) || 0) + (Number(formServiceCharge) || 0)).toLocaleString('en-IN')}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="fee_date" className="text-xs flex items-center gap-1">
+                    <Calendar className="size-3" />
+                    <span>Payment Date</span>
+                  </Label>
+                  <Input
+                    id="fee_date"
+                    type="date"
+                    value={formPaymentDate}
+                    onChange={(e) => setFormPaymentDate(e.target.value)}
+                    className="mt-1 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="fee_receipt" className="text-xs">Receipt / Challan No.</Label>
+                  <Input
+                    id="fee_receipt"
+                    value={formReceiptNumber}
+                    onChange={(e) => setFormReceiptNumber(e.target.value.toUpperCase())}
+                    placeholder="e.g. UPRTE26110003488"
+                    className="mt-1 text-xs font-mono uppercase"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="fee_status" className="text-xs">Payment Collection Status</Label>
+                <select
+                  id="fee_status"
+                  value={formStatus}
+                  onChange={(e) => setFormStatus(e.target.value as ServicePaymentStatus)}
+                  className="mt-1 flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm"
+                >
+                  <option value="UNPAID">○ UNPAID (Collection Pending)</option>
+                  <option value="PAID">● PAID (Payment Received)</option>
+                </select>
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" onClick={() => setFeeModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={submitting} className="bg-indigo-600 text-white hover:bg-indigo-500">
+                  {submitting ? 'Saving...' : 'Save Fee & Date'}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
