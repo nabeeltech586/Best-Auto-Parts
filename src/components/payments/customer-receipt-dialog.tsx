@@ -1,14 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -25,6 +18,7 @@ import {
   CreditCard,
   Wallet,
   ShieldCheck,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -58,7 +52,29 @@ export function CustomerReceiptDialog({
 }: CustomerReceiptDialogProps) {
   const [sendingApi, setSendingApi] = useState(false);
 
-  if (!order) return null;
+  // Keyboard navigation: Escape key closes modal
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onOpenChange(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onOpenChange]);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (!open) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [open]);
+
+  if (!open || !order) return null;
 
   const isPaid = order.status === 'PAID';
   const rawDate = order.paid_at || order.created_at;
@@ -169,198 +185,260 @@ export function CustomerReceiptDialog({
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg bg-card border-border">
-        {/* Print-specific style */}
-        <style
-          dangerouslySetInnerHTML={{
-            __html: `
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            #printable-customer-receipt, #printable-customer-receipt * {
-              visibility: visible;
-            }
-            #printable-customer-receipt {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-              padding: 24px;
-              color: #000;
-              background: #fff !important;
-            }
-          }
-        `,
-          }}
-        />
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onOpenChange(false);
+    }
+  };
 
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+  const modalContent = (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs animate-in fade-in-0 duration-150"
+      onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="customer-receipt-title"
+    >
+      {/* Print-specific style */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+        @media print {
+          @page {
+            size: auto;
+            margin: 12mm;
+          }
+          html, body {
+            background: #fff !important;
+            color: #000 !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-customer-receipt,
+          #printable-customer-receipt * {
+            visibility: visible !important;
+          }
+          #printable-customer-receipt {
+            position: absolute !important;
+            left: 0 !important;
+            right: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 600px !important;
+            margin: 0 auto !important;
+            padding: 24px !important;
+            color: #000 !important;
+            background: #fff !important;
+            border: 1px solid #e2e8f0 !important;
+            box-shadow: none !important;
+            border-radius: 8px !important;
+          }
+          #printable-customer-receipt .text-muted-foreground {
+            color: #4b5563 !important;
+          }
+          #printable-customer-receipt .text-foreground {
+            color: #111827 !important;
+          }
+        }
+      `,
+        }}
+      />
+
+      <div
+        className="w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden rounded-2xl shadow-2xl bg-card border border-border text-foreground animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Fixed Header */}
+        <div className="shrink-0 flex items-center justify-between border-b border-border px-5 py-4 bg-card">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <Receipt className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-base font-bold text-foreground">
+              <h2
+                id="customer-receipt-title"
+                className="text-base font-bold text-foreground leading-tight"
+              >
                 Customer Digital Receipt
-              </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
+              </h2>
+              <p className="text-xs text-muted-foreground">
                 Official payment receipt & order confirmation for Best Auto Parts.
-              </DialogDescription>
+              </p>
             </div>
           </div>
-        </DialogHeader>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onOpenChange(false)}
+            className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer"
+            title="Close Receipt (Esc)"
+            aria-label="Close Receipt"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
 
-        {/* Printable Receipt Card */}
-        <div
-          id="printable-customer-receipt"
-          className="rounded-lg border border-border bg-muted/30 p-5 space-y-4 font-mono text-xs text-foreground"
-        >
-          {/* Header */}
-          <div className="text-center border-b border-border pb-3 font-sans space-y-1">
-            <div className="inline-flex items-center justify-center gap-1.5 text-primary font-bold text-base">
-              <span>🏍️</span>
-              <span>Best Auto Parts</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Kailashpur, Saharanpur, UP 247001 | +91 96347 22174
-            </p>
-            <div className="inline-block mt-1 px-2.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-primary/10 text-primary">
-              Official Cash Memo & Payment Receipt
-            </div>
-          </div>
-
-          {/* Details Grid */}
-          <div className="space-y-2 divide-y divide-border/50 font-sans">
-            <div className="flex justify-between items-center pt-1.5">
-              <span className="text-muted-foreground text-xs">Order ID:</span>
-              <span className="font-mono font-bold text-foreground text-xs">
-                #{order.order_id}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Customer Name:</span>
-              <span className="font-semibold text-foreground text-xs">
-                {order.customer_name || 'Customer'}
-              </span>
+        {/* Scrollable Receipt Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+          <div
+            id="printable-customer-receipt"
+            className="rounded-xl border border-border bg-muted/30 p-4 sm:p-5 space-y-4 font-mono text-xs text-foreground"
+          >
+            {/* Header */}
+            <div className="text-center border-b border-border pb-3 font-sans space-y-1">
+              <div className="inline-flex items-center justify-center gap-1.5 text-primary font-bold text-base">
+                <span>🏍️</span>
+                <span>Best Auto Parts</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Kailashpur, Saharanpur, UP 247001 | +91 96347 22174
+              </p>
+              <div className="inline-block mt-1 px-2.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-primary/10 text-primary">
+                Official Cash Memo & Payment Receipt
+              </div>
             </div>
 
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Customer WhatsApp:</span>
-              <span className="font-mono text-foreground text-xs">
-                {order.customer_phone}
-              </span>
-            </div>
+            {/* Details Grid */}
+            <div className="space-y-2 divide-y divide-border/50 font-sans">
+              <div className="flex justify-between items-center gap-3 pt-1.5">
+                <span className="text-muted-foreground text-xs shrink-0">Order ID:</span>
+                <span className="font-mono font-bold text-foreground text-xs text-right min-w-0 break-words">
+                  #{order.order_id}
+                </span>
+              </div>
 
-            <div className="flex justify-between items-start pt-2">
-              <span className="text-muted-foreground text-xs">Spare Part Details:</span>
-              <span className="font-semibold text-foreground text-xs text-right max-w-[220px]">
-                {order.part_details}
-              </span>
-            </div>
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Customer Name:</span>
+                <span className="font-semibold text-foreground text-xs text-right min-w-0 break-words">
+                  {order.customer_name || 'Customer'}
+                </span>
+              </div>
 
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Amount Paid:</span>
-              <span className="font-mono font-extrabold text-foreground text-base text-emerald-600 dark:text-emerald-400">
-                {formatCurrency(order.amount)}
-              </span>
-            </div>
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Customer WhatsApp:</span>
+                <span className="font-mono text-foreground text-xs text-right min-w-0 break-words">
+                  {order.customer_phone}
+                </span>
+              </div>
 
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Payment Status:</span>
-              {isPaid ? (
-                <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
-                  <CheckCircle2 className="size-3" /> PAID (Success)
+              <div className="flex justify-between items-start gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Spare Part Details:</span>
+                <span className="font-semibold text-foreground text-xs text-right min-w-0 break-words max-w-[240px]">
+                  {order.part_details}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Amount Paid:</span>
+                <span className="font-mono font-extrabold text-foreground text-base text-emerald-600 dark:text-emerald-400 text-right min-w-0 break-words">
+                  {formatCurrency(order.amount)}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Payment Status:</span>
+                <div className="text-right shrink-0">
+                  {isPaid ? (
+                    <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                      <CheckCircle2 className="size-3" /> PAID (Success)
+                    </Badge>
+                  ) : order.status === 'PARTIAL' ? (
+                    <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
+                      ⚡ PARTIALLY PAID
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px]">
+                      {order.status}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Stock Inventory:</span>
+                <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-semibold shrink-0">
+                  <PackageCheck className="size-3" /> Auto-Deducted (-1 Unit)
                 </Badge>
-              ) : order.status === 'PARTIAL' ? (
-                <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 text-[10px] gap-1 font-semibold">
-                  ⚡ PARTIALLY PAID
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-[10px]">
-                  {order.status}
-                </Badge>
-              )}
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Payment Source:</span>
+                <div className="text-right shrink-0">
+                  {isRazorpay ? (
+                    <Badge className="bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/30 text-[10px] gap-1 font-semibold">
+                      <CreditCard className="size-3" /> Razorpay Online
+                    </Badge>
+                  ) : isCash ? (
+                    <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
+                      <Wallet className="size-3" /> Cash
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-teal-500/15 text-teal-700 dark:text-teal-400 border-teal-500/30 text-[10px] gap-1 font-semibold">
+                      <ShieldCheck className="size-3" /> Shop UPI / QR
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Payment Mode:</span>
+                <span className="font-medium text-foreground text-xs text-right min-w-0 break-words">
+                  {isRazorpay
+                    ? order.payment_mode || 'Razorpay Online (UPI / Cards / NetBanking)'
+                    : isCash
+                    ? 'Cash in Hand (Store Counter)'
+                    : order.payment_mode || 'BestPay Instant (UPI / QR)'}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">{refLabel}:</span>
+                <span
+                  className="font-mono text-muted-foreground text-[11px] text-right min-w-0 break-words max-w-[200px]"
+                  title={refValue}
+                >
+                  {refValue}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center gap-3 pt-2">
+                <span className="text-muted-foreground text-xs shrink-0">Date & Time:</span>
+                <span className="font-mono text-muted-foreground text-[11px] text-right min-w-0 break-words">
+                  {formattedDate}
+                </span>
+              </div>
             </div>
 
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Stock Inventory:</span>
-              <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30 text-[10px] gap-1 font-semibold">
-                <PackageCheck className="size-3" /> Auto-Deducted (-1 Unit)
-              </Badge>
+            {/* Footer notice */}
+            <div className="border-t border-border pt-2 text-[10px] text-muted-foreground text-center font-sans">
+              Thank you for trusting Best Auto Parts! For any fitment support, contact Saud Bhai at +91 96347 22174.
             </div>
-
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Payment Source:</span>
-              {isRazorpay ? (
-                <Badge className="bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border-indigo-500/30 text-[10px] gap-1 font-semibold">
-                  <CreditCard className="size-3" /> Razorpay Online
-                </Badge>
-              ) : isCash ? (
-                <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-[10px] gap-1 font-semibold">
-                  <Wallet className="size-3" /> Cash
-                </Badge>
-              ) : (
-                <Badge className="bg-teal-500/15 text-teal-700 dark:text-teal-400 border-teal-500/30 text-[10px] gap-1 font-semibold">
-                  <ShieldCheck className="size-3" /> Shop UPI / QR
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Payment Mode:</span>
-              <span className="font-medium text-foreground text-xs">
-                {isRazorpay
-                  ? order.payment_mode || 'Razorpay Online (UPI / Cards / NetBanking)'
-                  : isCash
-                  ? 'Cash in Hand (Store Counter)'
-                  : order.payment_mode || 'BestPay Instant (UPI / QR)'}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">{refLabel}:</span>
-              <span className="font-mono text-muted-foreground text-[11px] truncate max-w-[200px]" title={refValue}>
-                {refValue}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-muted-foreground text-xs">Date & Time:</span>
-              <span className="font-mono text-muted-foreground text-[11px]">
-                {formattedDate}
-              </span>
-            </div>
-          </div>
-
-          {/* Footer notice */}
-          <div className="border-t border-border pt-2 text-[10px] text-muted-foreground text-center font-sans">
-            Thank you for trusting Best Auto Parts! For any fitment support, contact Saud Bhai at +91 96347 22174.
           </div>
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2 pt-2 sm:items-center">
+        {/* Action Bar Footer */}
+        <div className="shrink-0 border-t border-border p-3 sm:p-4 flex flex-wrap items-center justify-center gap-2 bg-card">
           <Button
             variant="outline"
             size="sm"
             onClick={handlePrint}
-            className="text-xs gap-1.5 border-border"
+            className="text-xs gap-1.5 border-border cursor-pointer"
           >
             <Printer className="size-3.5" />
-            Print Receipt
+            <span>Print Receipt</span>
           </Button>
 
           <Button
             variant="outline"
             size="sm"
             onClick={handleCopy}
-            className="text-xs gap-1.5 border-border"
+            className="text-xs gap-1.5 border-border cursor-pointer"
           >
             <Copy className="size-3.5" />
-            Copy Receipt Text
+            <span>Copy Receipt Text</span>
           </Button>
 
           {/* Send via API WhatsApp */}
@@ -368,7 +446,7 @@ export function CustomerReceiptDialog({
             size="sm"
             onClick={handleSendApi}
             disabled={sendingApi || !cleanPhone}
-            className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-xs"
+            className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-xs cursor-pointer"
             title="Send official payment receipt directly via WhatsApp Cloud API"
           >
             {sendingApi ? (
@@ -387,7 +465,7 @@ export function CustomerReceiptDialog({
               rel="noopener noreferrer"
               className={cn(
                 buttonVariants({ variant: 'ghost', size: 'sm' }),
-                'text-xs gap-1 text-muted-foreground hover:text-foreground h-8 px-2'
+                'text-xs gap-1 text-muted-foreground hover:text-foreground h-8 px-2 cursor-pointer'
               )}
               title="Open in WhatsApp Web"
             >
@@ -395,8 +473,14 @@ export function CustomerReceiptDialog({
               <span>WhatsApp Web</span>
             </a>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+
+  return modalContent;
 }
