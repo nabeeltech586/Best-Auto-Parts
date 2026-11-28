@@ -26,7 +26,7 @@ import { CampaignsCard } from '@/components/dashboard/campaigns-card'
 import { KpiRow } from '@/components/dashboard/kpi-row'
 import { MessageVolumeCard } from '@/components/dashboard/message-volume-card'
 import { OverviewHeader } from '@/components/dashboard/overview-header'
-import { PipelineCard } from '@/components/dashboard/pipeline-card'
+import { OnlineServicesCard } from '@/components/dashboard/online-services-card'
 import { ReplyQueueCard } from '@/components/dashboard/reply-queue-card'
 import { SetupChecklist } from '@/components/dashboard/setup-checklist'
 import { TeamCard } from '@/components/dashboard/team-card'
@@ -164,7 +164,7 @@ function DashboardPageInner() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-            <PipelineCard data={data} currency={defaultCurrency} />
+            <OnlineServicesCard />
             <TeamCard data={data} now={now} />
             <div className="lg:col-span-2 2xl:col-span-1">
               <CampaignsCard data={data} />

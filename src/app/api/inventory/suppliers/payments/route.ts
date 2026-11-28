@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
+import { syncSupplierContactBalance } from '@/lib/contacts/balance-sync';
 
 export async function GET(request: Request) {
   try {
@@ -151,6 +152,18 @@ export async function POST(request: Request) {
       } else {
         updatedPo = poResult;
       }
+    }
+
+    // 3. Automatically sync udhaar_balance / pending_balance on matching contact row
+    try {
+      await syncSupplierContactBalance(
+        supabase,
+        accountId,
+        poData?.supplier_phone,
+        poData?.supplier_name || supplierName
+      );
+    } catch (syncErr) {
+      console.warn('[supplier_payments POST] Non-blocking contact sync error:', syncErr);
     }
 
     return NextResponse.json({

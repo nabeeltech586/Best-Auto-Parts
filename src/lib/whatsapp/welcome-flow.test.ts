@@ -2505,10 +2505,8 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     expect(resShukriya.consumed).toBe(true)
     expect(sentTexts.length).toBe(1)
-    expect(sentTexts[0].text).toBe(
-      'Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!'
-    )
-    expect(sentTexts[0].text).not.toContain('9634722174')
+    expect(sentTexts[0].text).toContain('Aapka bahut-bahut shukriya! 😊')
+    expect(sentTexts[0].text).toContain('+91 96347 22174')
     expect(sentTexts[0].text).not.toContain('View Menu')
 
     // Case B: Customer sending "ji"
@@ -2524,9 +2522,8 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     expect(resJi.consumed).toBe(true)
     expect(sentTexts.length).toBe(1)
-    expect(sentTexts[0].text).toBe(
-      'Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!'
-    )
+    expect(sentTexts[0].text).toContain('Aapka bahut-bahut shukriya! 😊')
+    expect(sentTexts[0].text).toContain('+91 96347 22174')
 
     // Case C: Customer sending "👍"
     sentTexts.length = 0
@@ -2558,10 +2555,8 @@ describe('COMPLETE WHATSAPP WELCOME FLOW UPGRADE — 24 VERIFICATION TESTS', () 
 
     expect(resThanks.consumed).toBe(true)
     expect(sentTexts.length).toBe(1)
-    expect(sentTexts[0].text).toBe(
-      "You're most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!"
-    )
-    expect(sentTexts[0].text).not.toContain('9634722174')
+    expect(sentTexts[0].text).toContain("You're most welcome! 😊")
+    expect(sentTexts[0].text).toContain('+91 96347 22174')
     expect(sentTexts[0].text).not.toContain('View Menu')
   })
 

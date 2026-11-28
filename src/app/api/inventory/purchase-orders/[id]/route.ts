@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentAccount, requireRole, toErrorResponse } from '@/lib/auth/account';
+import { syncSupplierContactBalance } from '@/lib/contacts/balance-sync';
 import type { PurchaseOrderPaymentStatus } from '@/types/inventory';
 
 interface Params {
@@ -118,6 +119,18 @@ export async function PATCH(request: Request, context: Params) {
     if (updateError) {
       console.error('[purchase-orders/[id] PATCH] Update error:', updateError);
       return NextResponse.json({ error: updateError.message || 'Failed to update purchase order' }, { status: 500 });
+    }
+
+    // 4. Automatically sync udhaar_balance / pending_balance on matching contact row
+    try {
+      await syncSupplierContactBalance(
+        supabase,
+        accountId,
+        updatedPo.supplier_phone,
+        updatedPo.supplier_name
+      );
+    } catch (syncErr) {
+      console.warn('[purchase-orders/[id] PATCH] Non-blocking contact sync error:', syncErr);
     }
 
     return NextResponse.json({

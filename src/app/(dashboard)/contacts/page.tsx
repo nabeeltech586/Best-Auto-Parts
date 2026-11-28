@@ -82,6 +82,13 @@ import {
   syncDistributorsAndWholesalers,
   syncContactToSupplier,
 } from '@/lib/contacts/distributor-sync';
+import {
+  computeContactDue,
+  isSupplierContact,
+  getContactBadgeStatus,
+  type SimplePO,
+  type SimplePaymentLink,
+} from '@/lib/contacts/balance-sync';
 import { OwnerPinModal } from '@/components/auth/owner-pin-modal';
 import { getContactUniqueCode } from '@/lib/contacts/unique-code';
 
@@ -118,10 +125,6 @@ export default function ContactsPage() {
     Mechanic: 0,
     Customer: 0,
   });
-
-  // Dues / Udhaar map by phone (digits)
-  const [duesByPhone, setDuesByPhone] = useState<Record<string, number>>({});
-  const duesByPhoneRef = useRef<Record<string, number>>({});
 
   // Owner PIN protection modal state
   const [ownerPinOpen, setOwnerPinOpen] = useState(false);
@@ -171,32 +174,33 @@ export default function ContactsPage() {
   const tagsMapRef = useRef<Record<string, Tag>>({});
 
   const fetchSeq = useRef(0);
+  const posDataRef = useRef<SimplePO[]>([]);
+  const paymentLinksRef = useRef<SimplePaymentLink[]>([]);
 
   // Calculate live Udhaar / Due amount for a contact (Non-blocking & synchronous)
   const getContactDue = useCallback(
     (contact: Contact | ContactWithTags): number => {
-      const directBalance = Number(contact.pending_balance ?? 0);
-      const rawPhone = (contact.phone || '').replace(/\D/g, '').slice(-10);
-      const mappedDue = rawPhone
-        ? duesByPhone[rawPhone] ?? duesByPhoneRef.current[rawPhone] ?? 0
-        : 0;
-      return Math.max(directBalance, mappedDue);
+      return computeContactDue(contact, {
+        purchaseOrders: posDataRef.current,
+        paymentLinks: paymentLinksRef.current,
+      });
     },
-    [duesByPhone]
+    []
   );
 
   // Fetch Category Counts across all contacts (Non-blocking with pending_balance fallback)
   const fetchCategoryCounts = useCallback(
-    async (currentDuesMap?: Record<string, number>) => {
+    async (ledgerData?: { activePos: SimplePO[]; activeLinks: SimplePaymentLink[] }) => {
       try {
-        const activeDues = currentDuesMap || duesByPhoneRef.current;
-        let data: { category?: string | null; phone?: string | null; pending_balance?: number | string | null }[] | null = null;
+        const activePos = ledgerData?.activePos || posDataRef.current;
+        const activeLinks = ledgerData?.activeLinks || paymentLinksRef.current;
+        let data: { id?: string; name?: string | null; company?: string | null; category?: string | null; phone?: string | null; pending_balance?: number | string | null }[] | null = null;
 
         // Try select with pending_balance
-        const res = await supabase.from('contacts').select('category, phone, pending_balance');
+        const res = await supabase.from('contacts').select('id, name, company, category, phone, pending_balance');
         if (res.error) {
           // Gracefully fallback if pending_balance column is absent
-          const fallbackRes = await supabase.from('contacts').select('category, phone');
+          const fallbackRes = await supabase.from('contacts').select('id, name, company, category, phone');
           data = fallbackRes.data;
         } else {
           data = res.data;
@@ -218,11 +222,10 @@ export default function ContactsPage() {
             } else {
               counts.Customer++;
             }
-            const rawPhone = (c.phone || '').replace(/\D/g, '').slice(-10);
-            const due = Math.max(
-              Number(c.pending_balance ?? 0),
-              rawPhone ? activeDues[rawPhone] || 0 : 0
-            );
+            const due = computeContactDue(c, {
+              purchaseOrders: activePos,
+              paymentLinks: activeLinks,
+            });
             if (due > 0) {
               counts.UdhaarDue++;
             }
@@ -237,51 +240,38 @@ export default function ContactsPage() {
   );
 
   // Fetch Live Udhaar / Balance dues from purchase_orders and payment_links (Non-blocking)
-  const fetchLiveDues = useCallback(async (): Promise<Record<string, number>> => {
-    const duesMap: Record<string, number> = {};
+  const fetchLiveDues = useCallback(async (): Promise<{ activePos: SimplePO[]; activeLinks: SimplePaymentLink[] }> => {
     try {
       // 1. Unpaid POs (for Distributors / Wholesalers)
+      let activePos: SimplePO[] = [];
       try {
-        const { data: unpaidPos } = await supabase
+        const { data: pos } = await supabase
           .from('purchase_orders')
-          .select('supplier_phone, total_estimated_cost, amount_paid')
-          .neq('payment_status', 'PAID');
-
-        unpaidPos?.forEach((po) => {
-          const rawPhone = (po.supplier_phone || '').replace(/\D/g, '').slice(-10);
-          const due = Math.max(0, Number(po.total_estimated_cost || 0) - Number(po.amount_paid || 0));
-          if (rawPhone && due > 0) {
-            duesMap[rawPhone] = (duesMap[rawPhone] || 0) + due;
-          }
-        });
+          .select('id, po_number, supplier_name, supplier_phone, total_estimated_cost, amount_paid, payment_status');
+        activePos = (pos || []) as SimplePO[];
       } catch (poErr) {
         console.warn('[fetchLiveDues] POs check warning:', poErr);
       }
 
       // 2. Pending payment links / collections
+      let activeLinks: SimplePaymentLink[] = [];
       try {
         const { data: pendingLinks } = await supabase
           .from('payment_links')
-          .select('customer_phone, amount')
-          .eq('status', 'PENDING');
-
-        pendingLinks?.forEach((link) => {
-          const rawPhone = (link.customer_phone || '').replace(/\D/g, '').slice(-10);
-          const amt = Number(link.amount || 0);
-          if (rawPhone && amt > 0) {
-            duesMap[rawPhone] = (duesMap[rawPhone] || 0) + amt;
-          }
-        });
+          .select('customer_phone, amount, remaining_amount, status')
+          .in('status', ['PENDING', 'PARTIAL']);
+        activeLinks = (pendingLinks || []) as SimplePaymentLink[];
       } catch (linkErr) {
         console.warn('[fetchLiveDues] Payment links check warning:', linkErr);
       }
 
-      duesByPhoneRef.current = duesMap;
-      setDuesByPhone(duesMap);
-      return duesMap;
+      posDataRef.current = activePos;
+      paymentLinksRef.current = activeLinks;
+
+      return { activePos, activeLinks };
     } catch (err) {
       console.warn('[fetchLiveDues] Non-blocking warning:', err);
-      return duesMap;
+      return { activePos: posDataRef.current, activeLinks: paymentLinksRef.current };
     }
   }, [supabase]);
 
@@ -492,7 +482,10 @@ export default function ContactsPage() {
   useEffect(() => {
     fetchTags().catch((err) => console.warn('[fetchTags] Non-blocking warning:', err));
     fetchLiveDues()
-      .then((dues) => fetchCategoryCounts(dues))
+      .then((ledger) => {
+        fetchCategoryCounts(ledger);
+        fetchContacts();
+      })
       .catch((err) => console.warn('[fetchLiveDues] Non-blocking warning:', err));
 
     syncDistributorsAndWholesalers(supabase)
