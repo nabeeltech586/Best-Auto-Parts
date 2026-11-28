@@ -56,6 +56,7 @@ import { LocalDeliveryDialog } from '@/components/orders/local-delivery-dialog';
 import { formatCurrency } from '@/lib/currency';
 import { stripPartialMetadataTag } from '@/lib/payments/partial-metadata';
 import {
+  isRazorpayOnlinePayment,
   isRazorpayTransaction,
   getIstDateString,
   getTodayIstDateString,
@@ -379,7 +380,7 @@ function PaymentsPageInner() {
   // Client-side quick filter safety check & IST date filtering
   const filteredLinks = useMemo(() => {
     return links.filter((item) => {
-      if (activeTab === 'RAZORPAY' && !isRazorpayTransaction(item)) return false;
+      if (activeTab === 'RAZORPAY' && !isRazorpayOnlinePayment(item)) return false;
       if (activeTab === 'PAID' && item.status !== 'PAID') return false;
       if (activeTab === 'PENDING' && item.status !== 'PENDING' && item.status !== 'PARTIAL') return false;
       if (activeTab === 'FAILED' && item.status !== 'FAILED') return false;
@@ -401,7 +402,7 @@ function PaymentsPageInner() {
     let count = 0;
     let collected = 0;
     for (const item of links) {
-      if (isRazorpayTransaction(item) && item.status === 'PAID') {
+      if (isRazorpayOnlinePayment(item)) {
         collected += item.paid_amount || item.amount || 0;
         count++;
       }
@@ -1074,18 +1075,18 @@ function PaymentsPageInner() {
                     </div>
                   </TableCell>
 
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                  <TableCell className="text-right whitespace-nowrap py-2.5 px-3">
+                    <div className="flex items-center justify-end gap-1 shrink-0">
                       {/* Prominent Record Payment button for every non-PAID customer or mechanic order */}
                       {item.status !== 'PAID' && (
                         <Button
                           size="sm"
                           onClick={() => setPayingRecord(item)}
-                          className="h-8 px-2.5 text-xs gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-xs cursor-pointer"
+                          className="h-8 px-2 text-xs gap-1 bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-xs cursor-pointer shrink-0"
                           title="Record Customer or Mechanic Payment (Full or Partial)"
                         >
                           <Wallet className="h-3.5 w-3.5" />
-                          <span>Record Payment</span>
+                          <span className="hidden sm:inline">Record</span>
                         </Button>
                       )}
 
@@ -1093,11 +1094,11 @@ function PaymentsPageInner() {
                         size="sm"
                         variant="outline"
                         onClick={() => setSelectedReceipt(item)}
-                        className="h-8 px-2.5 text-xs gap-1 border-border text-foreground hover:bg-muted"
+                        className="h-8 px-2 text-xs gap-1 border-border text-foreground hover:bg-muted cursor-pointer shrink-0"
                         title="View & Send Digital Receipt / Cash Memo"
                       >
                         <Receipt className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                        <span>Receipt</span>
+                        <span className="hidden sm:inline">Receipt</span>
                       </Button>
 
                       {/* Local Rider Delivery Assignment Action */}
@@ -1106,14 +1107,14 @@ function PaymentsPageInner() {
                         variant="outline"
                         onClick={() => setSelectedDeliveryOrder(item)}
                         className={cn(
-                          "h-8 px-2.5 text-xs gap-1 border-border text-foreground hover:bg-muted cursor-pointer",
+                          "h-8 px-2 text-xs gap-1 border-border text-foreground hover:bg-muted cursor-pointer shrink-0",
                           item.delivery_status === 'Out for Delivery (Local Rider)' && "border-indigo-500/30 text-indigo-600 dark:text-indigo-400 bg-indigo-500/10",
                           item.delivery_status === 'Delivered' && "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
                         )}
                         title="Assign Local Rider & Update Delivery Status"
                       >
                         <Bike className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                        <span>Delivery</span>
+                        <span className="hidden sm:inline">Delivery</span>
                       </Button>
 
                       {/* Delete Payment Entry Action */}
@@ -1121,10 +1122,10 @@ function PaymentsPageInner() {
                         size="sm"
                         variant="ghost"
                         onClick={() => setDeletingItem(item)}
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 dark:hover:text-rose-400 cursor-pointer"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10 dark:hover:text-rose-400 cursor-pointer shrink-0"
                         title="Delete payment entry from BestPay Ledger"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3.5 w-3.5 text-rose-500 hover:text-rose-600" />
                       </Button>
 
                       {/* For PENDING & PARTIAL rows: Show Send Payment Link via WhatsApp & Check Status */}
@@ -1147,7 +1148,7 @@ function PaymentsPageInner() {
                               const waUrl = `https://wa.me/${cleanDigits}?text=${encodeURIComponent(msg)}`;
                               window.open(waUrl, '_blank');
                             }}
-                            className="h-8 px-2 text-xs gap-1 text-emerald-600 hover:text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/10"
+                            className="h-8 px-2 text-xs gap-1 text-emerald-600 hover:text-emerald-700 border-emerald-500/30 hover:bg-emerald-500/10 shrink-0"
                             title={item.status === 'PARTIAL' ? 'Send Remaining Balance Link via WhatsApp' : 'Send Payment Link via WhatsApp'}
                           >
                             <Phone className="h-3.5 w-3.5" />
@@ -1161,7 +1162,7 @@ function PaymentsPageInner() {
                             variant="outline"
                             onClick={() => handleCheckStatus(item.merchant_transaction_id)}
                             disabled={verifyingTxnId === item.merchant_transaction_id}
-                            className="h-8 px-2 text-xs text-amber-600 hover:text-amber-700 border-amber-500/30 hover:bg-amber-500/10"
+                            className="h-8 px-2 text-xs text-amber-600 hover:text-amber-700 border-amber-500/30 hover:bg-amber-500/10 shrink-0"
                             title="Verify payment with gateway"
                           >
                             {verifyingTxnId === item.merchant_transaction_id ? (
@@ -1175,7 +1176,7 @@ function PaymentsPageInner() {
                             size="sm"
                             variant="ghost"
                             onClick={() => handleCopyLink(item)}
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                             title={item.status === 'PARTIAL' ? 'Copy remaining balance link' : 'Copy payment link'}
                           >
                             {copiedTxnId === item.merchant_transaction_id ? (
@@ -1191,7 +1192,7 @@ function PaymentsPageInner() {
                         size="sm"
                         variant="ghost"
                         onClick={() => window.open(getPayUrl(item), '_blank')}
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                         title={item.status === 'PAID' ? 'View Completed Receipt' : 'Open Pay Page'}
                       >
                         <ExternalLink className="h-4 w-4" />

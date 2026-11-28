@@ -5,6 +5,7 @@ import {
   stripPartialMetadataTag,
   parsePaymentAmountsAndStatus,
 } from '@/lib/payments/partial-metadata';
+import { isRazorpayOnlinePayment } from '@/lib/payments/filters';
 
 /**
  * Helper to fetch all supplier (Distributor & Wholesaler) phone numbers and contact IDs
@@ -184,7 +185,7 @@ export async function GET(request: Request) {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (status && status !== 'ALL') {
+    if (status && status !== 'ALL' && status !== 'RAZORPAY') {
       if (status === 'PENDING') {
         query = query.in('status', ['PENDING', 'PARTIAL']);
       } else {
@@ -300,31 +301,23 @@ export async function GET(request: Request) {
       totalCount++;
       const parsed = parsePaymentAmountsAndStatus(row);
 
-      const isRzp = Boolean(
-        row.razorpay_payment_id ||
-        row.razorpay_payment_link_id ||
-        (row as any).gateway === 'razorpay' ||
-        /RAZORPAY|ONLINE|PAYMENT_LINK/i.test(row.payment_mode || '')
-      );
+      const isRzp = isRazorpayOnlinePayment(row as any);
 
       if (parsed.status === 'PAID') {
         totalCollected += parsed.paidAmount;
         paidCount++;
-        if (isRzp) {
-          razorpayCollected += parsed.paidAmount;
-          razorpayCount++;
-        }
       } else if (parsed.status === 'PARTIAL') {
         totalCollected += parsed.paidAmount;
         pendingAmount += parsed.remainingAmount;
         pendingCount++;
-        if (isRzp && parsed.paidAmount > 0) {
-          razorpayCollected += parsed.paidAmount;
-          razorpayCount++;
-        }
       } else if (parsed.status === 'PENDING') {
         pendingAmount += parsed.remainingAmount;
         pendingCount++;
+      }
+
+      if (isRzp) {
+        razorpayCollected += parsed.paidAmount > 0 ? parsed.paidAmount : parsed.totalAmount;
+        razorpayCount++;
       }
 
       if (cat === 'Mechanic') {
@@ -341,13 +334,7 @@ export async function GET(request: Request) {
       if (!cat) continue; // Excluded supplier
 
       if (status === 'RAZORPAY') {
-        const isRzp = Boolean(
-          link.razorpay_payment_id ||
-          link.razorpay_payment_link_id ||
-          (link as any).gateway === 'razorpay' ||
-          /RAZORPAY|ONLINE|PAYMENT_LINK/i.test(link.payment_mode || '')
-        );
-        if (!isRzp) continue;
+        if (!isRazorpayOnlinePayment(link as any)) continue;
       }
 
       if (categoryParam) {

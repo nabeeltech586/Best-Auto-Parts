@@ -2,18 +2,22 @@ import { stripPartialMetadataTag } from './partial-metadata';
 
 export interface PaymentItemLike {
   id?: string;
-  order_id: string;
-  merchant_transaction_id: string;
+  order_id?: string | null;
+  order_code?: string | null;
+  orderId?: string | null;
+  merchant_transaction_id?: string | null;
   customer_name?: string | null;
   customer_phone?: string | null;
   part_details?: string | null;
-  amount: number;
+  amount?: number;
   paid_amount?: number;
   remaining_amount?: number;
-  status: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED' | string;
+  status?: 'PENDING' | 'PAID' | 'PARTIAL' | 'FAILED' | string;
   razorpay_payment_link_url?: string | null;
   razorpay_payment_link_id?: string | null;
   razorpay_payment_id?: string | null;
+  razorpay_order_id?: string | null;
+  payment_link_id?: string | null;
   gateway?: string | null;
   payment_mode?: string | null;
   paid_at?: string | null;
@@ -22,16 +26,28 @@ export interface PaymentItemLike {
 }
 
 /**
- * Determines whether a transaction was initiated or processed via Razorpay online payment.
- * Matches razorpay_payment_id, razorpay_payment_link_id, gateway === 'razorpay',
- * or payment_mode containing RAZORPAY / ONLINE / PAYMENT_LINK.
+ * Single shared helper to determine whether a payment was processed or initiated via Razorpay online payment.
+ * Matches:
+ * 1. gateway?.toLowerCase() === 'razorpay'
+ * 2. payment_mode matches RAZORPAY / ONLINE / PAYMENT_LINK
+ * 3. razorpay_payment_id is non-empty
+ * 4. razorpay_order_id is non-empty
+ * 5. payment_link_id or razorpay_payment_link_id is non-empty
+ * 6. order_code, order_id, or merchant_transaction_id starts with ORD-MWY / ORD-RZP
+ * 7. part_details contains encoded RAZORPAY or PLINK_ metadata
  */
-export function isRazorpayTransaction(item: PaymentItemLike): boolean {
-  if (!item) return false;
-  if (item.razorpay_payment_id || item.razorpay_payment_link_id) return true;
-  if (item.gateway && item.gateway.toLowerCase() === 'razorpay') return true;
+export function isRazorpayOnlinePayment(payment?: PaymentItemLike | Record<string, unknown> | null): boolean {
+  if (!payment) return false;
 
-  const mode = (item.payment_mode || '').toUpperCase();
+  const p = payment as Record<string, unknown>;
+
+  // 1. gateway check
+  if (p.gateway && String(p.gateway).toLowerCase() === 'razorpay') {
+    return true;
+  }
+
+  // 2. payment_mode matches RAZORPAY / ONLINE / PAYMENT_LINK
+  const mode = String(p.payment_mode || '').toUpperCase();
   if (
     mode.includes('RAZORPAY') ||
     mode.includes('ONLINE') ||
@@ -40,14 +56,49 @@ export function isRazorpayTransaction(item: PaymentItemLike): boolean {
     return true;
   }
 
-  // Also check part_details for encoded razorpay metadata
-  const details = (item.part_details || '').toUpperCase();
+  // 3. razorpay_payment_id is non-empty
+  if (p.razorpay_payment_id && String(p.razorpay_payment_id).trim() !== '') {
+    return true;
+  }
+
+  // 4. razorpay_order_id is non-empty
+  if (p.razorpay_order_id && String(p.razorpay_order_id).trim() !== '') {
+    return true;
+  }
+
+  // 5. payment_link_id or razorpay_payment_link_id is non-empty
+  if (
+    (p.payment_link_id && String(p.payment_link_id).trim() !== '') ||
+    (p.razorpay_payment_link_id && String(p.razorpay_payment_link_id).trim() !== '')
+  ) {
+    return true;
+  }
+
+  // 6. order_code (or order_id / merchant_transaction_id) starts with ORD-MWY / ORD-RZP
+  const orderCodes = [
+    p.order_code,
+    p.orderCode,
+    p.order_id,
+    p.orderId,
+    p.merchant_transaction_id,
+  ];
+  for (const code of orderCodes) {
+    if (typeof code === 'string' && /^(ORD-MWY|ORD-RZP)/i.test(code.trim())) {
+      return true;
+    }
+  }
+
+  // 7. Check part_details for encoded razorpay metadata
+  const details = String(p.part_details || '').toUpperCase();
   if (details.includes('RAZORPAY') || details.includes('PLINK_')) {
     return true;
   }
 
   return false;
 }
+
+// Backwards-compatible alias
+export const isRazorpayTransaction = isRazorpayOnlinePayment;
 
 /**
  * Converts any ISO or timestamp date string to 'YYYY-MM-DD' in Asia/Kolkata (IST).
@@ -141,7 +192,7 @@ export function filterPayments<T extends PaymentItemLike>(
   return items.filter((item) => {
     // 1. Status / Category / Razorpay tab filter
     if (activeTab === 'RAZORPAY') {
-      if (!isRazorpayTransaction(item)) return false;
+      if (!isRazorpayOnlinePayment(item)) return false;
     } else if (activeTab === 'PAID') {
       if (item.status !== 'PAID') return false;
     } else if (activeTab === 'PENDING') {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  isRazorpayOnlinePayment,
   isRazorpayTransaction,
   getIstDateString,
   getTodayIstDateString,
@@ -10,7 +11,7 @@ import {
 } from './filters';
 
 describe('Payment Filters & IST Date Utilities', () => {
-  describe('isRazorpayTransaction', () => {
+  describe('isRazorpayOnlinePayment', () => {
     it('returns true when razorpay_payment_id is present', () => {
       const item: PaymentItemLike = {
         order_id: 'ORD-1',
@@ -19,18 +20,63 @@ describe('Payment Filters & IST Date Utilities', () => {
         status: 'PAID',
         razorpay_payment_id: 'pay_ABC123',
       };
+      expect(isRazorpayOnlinePayment(item)).toBe(true);
       expect(isRazorpayTransaction(item)).toBe(true);
     });
 
-    it('returns true when razorpay_payment_link_id is present', () => {
-      const item: PaymentItemLike = {
-        order_id: 'ORD-2',
-        merchant_transaction_id: 'TXN-2',
-        amount: 250,
-        status: 'PENDING',
-        razorpay_payment_link_id: 'plink_XYZ789',
-      };
-      expect(isRazorpayTransaction(item)).toBe(true);
+    it('returns true when razorpay_payment_link_id or payment_link_id is present', () => {
+      expect(
+        isRazorpayOnlinePayment({
+          order_id: 'ORD-2',
+          merchant_transaction_id: 'TXN-2',
+          amount: 250,
+          status: 'PENDING',
+          razorpay_payment_link_id: 'plink_XYZ789',
+        })
+      ).toBe(true);
+
+      expect(
+        isRazorpayOnlinePayment({
+          order_id: 'ORD-2B',
+          merchant_transaction_id: 'TXN-2B',
+          amount: 250,
+          status: 'PENDING',
+          payment_link_id: 'plink_112233',
+        })
+      ).toBe(true);
+    });
+
+    it('returns true when razorpay_order_id is present', () => {
+      expect(
+        isRazorpayOnlinePayment({
+          order_id: 'ORD-RO-1',
+          merchant_transaction_id: 'TXN-RO-1',
+          amount: 400,
+          status: 'PAID',
+          razorpay_order_id: 'order_RZP99999',
+        })
+      ).toBe(true);
+    });
+
+    it('returns true when order_code starts with ORD-MWY or ORD-RZP', () => {
+      expect(
+        isRazorpayOnlinePayment({
+          order_id: '12345',
+          order_code: 'ORD-MWY-888',
+          merchant_transaction_id: 'TXN-MWY-888',
+          amount: 340,
+          status: 'PAID',
+        })
+      ).toBe(true);
+
+      expect(
+        isRazorpayOnlinePayment({
+          order_id: 'ORD-RZP-555',
+          merchant_transaction_id: 'TXN-RZP-555',
+          amount: 200,
+          status: 'PAID',
+        })
+      ).toBe(true);
     });
 
     it('returns true when gateway is razorpay (case insensitive)', () => {
@@ -41,12 +87,12 @@ describe('Payment Filters & IST Date Utilities', () => {
         status: 'PAID',
         gateway: 'Razorpay',
       };
-      expect(isRazorpayTransaction(item)).toBe(true);
+      expect(isRazorpayOnlinePayment(item)).toBe(true);
     });
 
     it('returns true when payment_mode contains RAZORPAY, ONLINE, or PAYMENT_LINK', () => {
       expect(
-        isRazorpayTransaction({
+        isRazorpayOnlinePayment({
           order_id: 'ORD-4',
           merchant_transaction_id: 'TXN-4',
           amount: 100,
@@ -56,7 +102,7 @@ describe('Payment Filters & IST Date Utilities', () => {
       ).toBe(true);
 
       expect(
-        isRazorpayTransaction({
+        isRazorpayOnlinePayment({
           order_id: 'ORD-5',
           merchant_transaction_id: 'TXN-5',
           amount: 100,
@@ -66,7 +112,7 @@ describe('Payment Filters & IST Date Utilities', () => {
       ).toBe(true);
 
       expect(
-        isRazorpayTransaction({
+        isRazorpayOnlinePayment({
           order_id: 'ORD-6',
           merchant_transaction_id: 'TXN-6',
           amount: 100,
@@ -84,7 +130,7 @@ describe('Payment Filters & IST Date Utilities', () => {
         status: 'PAID',
         part_details: 'Chain Sprocket (Razorpay Online)',
       };
-      expect(isRazorpayTransaction(item)).toBe(true);
+      expect(isRazorpayOnlinePayment(item)).toBe(true);
     });
 
     it('returns false for cash or shop UPI transactions without Razorpay identifiers', () => {
@@ -96,12 +142,12 @@ describe('Payment Filters & IST Date Utilities', () => {
         payment_mode: 'CASH',
         gateway: 'MANUAL',
       };
-      expect(isRazorpayTransaction(item)).toBe(false);
+      expect(isRazorpayOnlinePayment(item)).toBe(false);
     });
 
     it('returns false safely for null/undefined input', () => {
-      expect(isRazorpayTransaction(null as unknown as PaymentItemLike)).toBe(false);
-      expect(isRazorpayTransaction(undefined as unknown as PaymentItemLike)).toBe(false);
+      expect(isRazorpayOnlinePayment(null as unknown as PaymentItemLike)).toBe(false);
+      expect(isRazorpayOnlinePayment(undefined as unknown as PaymentItemLike)).toBe(false);
     });
   });
 
@@ -254,6 +300,101 @@ describe('Payment Filters & IST Date Utilities', () => {
       });
       expect(result).toHaveLength(1);
       expect(result[0].order_id).toBe('ORD-101');
+    });
+
+    it('confirms the KPI count, total amount, and filtered table rows return the exact same records for Razorpay Online + All Dates', () => {
+      // 3 realistic entries matching the ₹992.00 total
+      const ledgerDataset: PaymentItemLike[] = [
+        {
+          order_id: '101',
+          order_code: 'ORD-MWY-001',
+          merchant_transaction_id: 'TXN-MWY-001',
+          customer_name: 'Customer One',
+          customer_phone: '9634722174',
+          amount: 340,
+          paid_amount: 340,
+          status: 'PAID',
+          gateway: 'razorpay',
+          razorpay_payment_id: 'pay_MWY001',
+        },
+        {
+          order_id: '102',
+          order_code: 'ORD-RZP-002',
+          merchant_transaction_id: 'TXN-RZP-002',
+          customer_name: 'Customer Two',
+          customer_phone: '9876543210',
+          amount: 452,
+          paid_amount: 452,
+          status: 'PAID',
+          payment_mode: 'ONLINE',
+          razorpay_order_id: 'order_RZP002',
+        },
+        {
+          order_id: '103',
+          merchant_transaction_id: 'TXN-LINK-003',
+          customer_name: 'Customer Three',
+          customer_phone: '9123456789',
+          amount: 200,
+          paid_amount: 200,
+          status: 'PAID',
+          payment_link_id: 'plink_LINK003',
+        },
+        // Unrelated Cash and Shop UPI entries
+        {
+          order_id: '104',
+          merchant_transaction_id: 'TXN-CASH-004',
+          customer_name: 'Cash Customer',
+          customer_phone: '9555112233',
+          amount: 600,
+          status: 'PAID',
+          payment_mode: 'CASH',
+        },
+        {
+          order_id: '105',
+          merchant_transaction_id: 'TXN-UPI-005',
+          customer_name: 'Shop UPI Customer',
+          customer_phone: '9444556677',
+          amount: 800,
+          status: 'PAID',
+          payment_mode: 'UPI',
+        },
+      ];
+
+      // 1. Compute KPI card metrics using isRazorpayOnlinePayment
+      let kpiCount = 0;
+      let kpiTotal = 0;
+      for (const item of ledgerDataset) {
+        if (isRazorpayOnlinePayment(item)) {
+          kpiCount++;
+          kpiTotal += item.paid_amount || item.amount || 0;
+        }
+      }
+
+      // Expected KPI card total: ₹992.00 (340 + 452 + 200) across 3 payments
+      expect(kpiCount).toBe(3);
+      expect(kpiTotal).toBe(992);
+
+      // 2. Filter table rows when Razorpay Online tab + All Dates is active
+      const filteredRows = filterPayments(ledgerDataset, {
+        activeTab: 'RAZORPAY',
+        selectedDate: '', // All Dates
+      });
+
+      // 3. Confirm table rows match KPI count and IDs exactly
+      expect(filteredRows).toHaveLength(3);
+      expect(filteredRows.length).toBe(kpiCount);
+      expect(filteredRows.map((r) => r.merchant_transaction_id)).toEqual([
+        'TXN-MWY-001',
+        'TXN-RZP-002',
+        'TXN-LINK-003',
+      ]);
+
+      const tableRowsTotal = filteredRows.reduce(
+        (sum, r) => sum + (r.paid_amount || r.amount || 0),
+        0
+      );
+      expect(tableRowsTotal).toBe(kpiTotal);
+      expect(tableRowsTotal).toBe(992);
     });
   });
 });
