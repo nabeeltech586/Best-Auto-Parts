@@ -18,6 +18,8 @@ vi.mock('@/lib/flows/admin-client', () => ({
 
 vi.mock('@/lib/flows/meta-send', () => ({
   engineSendText: vi.fn().mockResolvedValue({ success: true, messageId: 'wamid.test' }),
+  engineSendInteractiveButtons: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.btn' }),
+  engineSendInteractiveCtaUrl: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.cta' }),
 }));
 
 vi.mock('@/lib/inventory/stock-deduction', () => ({
@@ -257,18 +259,23 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       // Verify stock deduction called
       expect(deductStockForSale).toHaveBeenCalledTimes(1);
 
-      // Verify WhatsApp confirmation receipt sent (two messages: Receipt and Delivery Confirmation)
-      expect(engineSendText).toHaveBeenCalledTimes(2);
+      // Verify WhatsApp confirmation receipt sent (Receipt via engineSendText and Delivery Preference via engineSendInteractiveButtons)
+      expect(engineSendText).toHaveBeenCalledTimes(1);
       const text1 = (engineSendText as any).mock.calls[0][0].text;
       expect(text1).toContain('PAYMENT RECEIPT — BEST AUTO PARTS');
       expect(text1).toContain('ORD-CAT-555');
       expect(text1).toContain('pay_ABC123456789');
       expect(text1).toContain('₹85.00');
 
-      const text2 = (engineSendText as any).mock.calls[1][0].text;
-      expect(text2).toContain('ORDER CONFIRMED & READY FOR DISPATCH');
-      expect(text2).toContain('Local Rider Delivery in Kailashpur / Saharanpur');
-      expect(text2).toContain('Kailashpur, Saharanpur, UP 247001');
+      const { engineSendInteractiveButtons } = await import('@/lib/flows/meta-send');
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buttons: [
+            { id: 'btn_pickup_ORD-CAT-555', title: '🏪 Store Pickup' },
+            { id: 'btn_delivery_ORD-CAT-555', title: '🚚 Home Delivery' },
+          ],
+        })
+      );
     });
 
     it('idempotently skips stock deduction if payment or order was already marked paid', async () => {
@@ -537,10 +544,9 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(res.fallbackUsed).toBe(true);
       // Meta template endpoint should NOT be called since paid templates are disabled by default
       expect(fetchSpy).not.toHaveBeenCalled();
-      expect(engineSendText).toHaveBeenCalledTimes(2);
+      expect(engineSendText).toHaveBeenCalledTimes(1);
       const allTexts = (engineSendText as any).mock.calls.map((c: any) => c[0].text);
       expect(allTexts.some((t: string) => typeof t === 'string' && t.includes('PAYMENT RECEIPT — BEST AUTO PARTS'))).toBe(true);
-      expect(allTexts.some((t: string) => typeof t === 'string' && t.includes('ORDER CONFIRMED & READY FOR DISPATCH'))).toBe(true);
     });
 
     it('sends free session text receipt and suppresses paid templates', async () => {
@@ -934,6 +940,168 @@ describe('Razorpay Payment Links & Webhooks Engine', () => {
       expect(insertedRzp.status).toBe('failed');
       expect(updatedLink.status).toBe('FAILED');
       expect(deductStockForSale).not.toHaveBeenCalled();
+    });
+
+    it('sends interactive CTA URL with Retry Payment button on payment failure', async () => {
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      const { engineSendInteractiveCtaUrl } = await import('@/lib/flows/meta-send');
+
+      (supabaseAdmin as any).mockReturnValue({
+        from: vi.fn((table: string) => {
+          if (table === 'razorpay_payments') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({ data: [] }),
+                }),
+              }),
+              insert: vi.fn().mockResolvedValue({ error: null }),
+            };
+          }
+          if (table === 'payment_links') {
+            return {
+              update: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  neq: vi.fn().mockResolvedValue({ error: null }),
+                }),
+              }),
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue({
+                    data: [
+                      {
+                        order_id: 'ORD-FAIL-CTA',
+                        razorpay_payment_link_url: 'https://rzp.io/i/retryTest123',
+                      },
+                    ],
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                or: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: 'cont_1', account_id: 'acc_1', user_id: 'usr_1', phone: '919634722174' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'conversations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'conv_1' } }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      });
+
+      const res = await processRazorpayPaymentFailure({
+        paymentId: 'pay_fail_cta_999',
+        orderId: 'ORD-FAIL-CTA',
+        amount: 350,
+        customerPhone: '919634722174',
+        customerName: 'Saud Khan',
+        description: 'Brake Disc for Pulsar',
+      });
+
+      expect(res.success).toBe(true);
+      expect(engineSendInteractiveCtaUrl).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buttonText: '🔄 Retry Payment',
+          headerText: '❌ Payment Failed',
+          url: expect.stringContaining('https://rzp.io/'),
+          bodyText: expect.stringContaining('Payment Failed — Order Not Confirmed'),
+        })
+      );
+    });
+  });
+
+  describe('sendWhatsAppPaymentConfirmation', () => {
+    it('sends receipt and interactive buttons for Store Pickup and Home Delivery', async () => {
+      const { supabaseAdmin } = await import('@/lib/flows/admin-client');
+      const { engineSendText, engineSendInteractiveButtons } = await import('@/lib/flows/meta-send');
+      const { sendWhatsAppPaymentConfirmation } = await import('./razorpay');
+
+      const mockDb: any = {
+        from: vi.fn((table: string) => {
+          if (table === 'contacts') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockReturnValue({
+                    maybeSingle: vi.fn().mockResolvedValue({
+                      data: { id: 'cont_1', account_id: 'acc_1', user_id: 'usr_1', phone: '919634722174' },
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          if (table === 'conversations') {
+            return {
+              select: vi.fn().mockReturnValue({
+                eq: vi.fn().mockReturnValue({
+                  eq: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockReturnValue({
+                      maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'conv_1' } }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {};
+        }),
+      };
+
+      await sendWhatsAppPaymentConfirmation(
+        {
+          order_id: 'ORD-CAT-888',
+          merchant_transaction_id: 'ORD-CAT-888',
+          customer_name: 'Rashid Khan',
+          customer_phone: '919634722174',
+          part_details: 'Clutch Plate (x1)',
+          amount: 450,
+          status: 'PAID',
+          gateway: 'razorpay',
+          payment_mode: 'RAZORPAY',
+          razorpay_payment_id: 'pay_success_123',
+          paid_at: new Date().toISOString(),
+        },
+        'pay_success_123',
+        mockDb
+      );
+
+      // Verify Message 1 (Receipt) sent via engineSendText
+      expect(engineSendText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: expect.stringContaining('PAYMENT RECEIPT — BEST AUTO PARTS'),
+        })
+      );
+
+      // Verify Message 2 (Interactive Buttons) sent with Store Pickup & Home Delivery
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buttons: [
+            { id: 'btn_pickup_ORD-CAT-888', title: '🏪 Store Pickup' },
+            { id: 'btn_delivery_ORD-CAT-888', title: '🚚 Home Delivery' },
+          ],
+        })
+      );
     });
   });
 });

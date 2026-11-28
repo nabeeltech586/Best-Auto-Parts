@@ -7,7 +7,11 @@
 
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
-import { engineSendText } from '@/lib/flows/meta-send';
+import {
+  engineSendText,
+  engineSendInteractiveButtons,
+  engineSendInteractiveCtaUrl,
+} from '@/lib/flows/meta-send';
 import { normalizePhone, sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import { deductStockForSale } from '@/lib/inventory/stock-deduction';
 
@@ -73,6 +77,7 @@ export interface PaymentLinkRecord {
   razorpay_payment_link_id?: string;
   razorpay_payment_link_url?: string;
   razorpay_payment_id?: string;
+  gateway?: string | null;
   phonepe_redirect_url?: string; // backwards compatibility
   phonepe_transaction_id?: string; // backwards compatibility
   payment_mode?: string;
@@ -369,6 +374,10 @@ export interface MarkPaymentAsPaidInput {
   paymentMode?: string;
   paidAt?: string;
   amount?: number;
+  customerName?: string;
+  customerPhone?: string;
+  description?: string;
+  accountId?: string;
   skipReceipt?: boolean;
   skipLedgerCredit?: boolean;
 }
@@ -390,10 +399,11 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
 
   const updates: Record<string, unknown> = {
     status: 'PAID',
+    gateway: 'razorpay',
     stock_deducted: true,
     razorpay_payment_id: args.razorpayPaymentId,
     phonepe_transaction_id: args.razorpayPaymentId, // Keep for backward-compat
-    payment_mode: args.paymentMode || 'Razorpay / UPI',
+    payment_mode: 'RAZORPAY',
     paid_at: nowIso,
     updated_at: nowIso,
   };
@@ -517,7 +527,64 @@ export async function markPaymentAsPaid(args: MarkPaymentAsPaidInput): Promise<P
 
   // Deduct inventory stock in parts_catalog (strictly once, skipped if already paid)
   const isAlreadyDeducted = alreadyPaid || orderAlreadyPaid;
-  const targetRecord = record || (await getPaymentLinkByTxnId(targetId));
+  let targetRecord = record || (await getPaymentLinkByTxnId(targetId));
+  if (!targetRecord) {
+    let orderInfo: any = null;
+    if (effectiveOrderId) {
+      try {
+        const { data: ord } = await db
+          .from('orders')
+          .select('*')
+          .or(`id.eq.${effectiveOrderId},metadata->>order_id.eq.${effectiveOrderId},catalog_order_id.eq.${effectiveOrderId}`)
+          .limit(1)
+          .maybeSingle();
+        orderInfo = ord;
+      } catch {}
+    }
+
+    const newLink: PaymentLinkRecord = {
+      account_id: orderInfo?.account_id || args.accountId,
+      order_id: effectiveOrderId || targetId || `ORD-RZP-${Date.now().toString().slice(-6)}`,
+      merchant_transaction_id: targetId || effectiveOrderId || `TXN-RZP-${Date.now().toString().slice(-6)}`,
+      customer_name: args.customerName || orderInfo?.metadata?.customer_name || 'Valued Customer',
+      customer_phone: args.customerPhone || orderInfo?.contact_phone || '',
+      part_details:
+        args.description ||
+        (orderInfo?.metadata?.items && Array.isArray(orderInfo.metadata.items)
+          ? orderInfo.metadata.items.map((it: any) => `${it.partName} (x${it.quantity})`).join(', ')
+          : '') ||
+        'Motorcycle Spare Parts Order',
+      amount: args.amount || Number(orderInfo?.total_amount) || 0,
+      paid_amount: args.amount || Number(orderInfo?.total_amount) || 0,
+      status: 'PAID',
+      gateway: 'razorpay',
+      payment_mode: 'RAZORPAY',
+      razorpay_payment_id: args.razorpayPaymentId,
+      razorpay_payment_link_id: args.razorpayPaymentLinkId,
+      stock_deducted: true,
+      paid_at: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    try {
+      const { data: inserted, error: insErr } = await db
+        .from('payment_links')
+        .insert(newLink)
+        .select('*')
+        .maybeSingle();
+      if (!insErr && inserted) {
+        targetRecord = inserted as PaymentLinkRecord;
+      } else {
+        targetRecord = newLink;
+      }
+    } catch {
+      targetRecord = newLink;
+    }
+
+    if (targetRecord.order_id) localLinkCache.set(targetRecord.order_id, targetRecord);
+    if (targetRecord.merchant_transaction_id) localLinkCache.set(targetRecord.merchant_transaction_id, targetRecord);
+  }
   if (targetRecord && !isAlreadyDeducted) {
     await deductStockForPaidOrder(targetRecord, db).catch((err) => {
       console.warn('[Razorpay] Stock deduction error:', err);
@@ -777,6 +844,9 @@ export async function processRazorpayPaymentSuccess(
       razorpayPaymentLinkId: paymentLinkId,
       paymentMode,
       amount,
+      customerName,
+      customerPhone,
+      description,
       skipReceipt: true,
       skipLedgerCredit: true,
     });
@@ -1040,6 +1110,106 @@ export async function processRazorpayPaymentFailure(
       console.warn('[Razorpay Webhook] payments failure update notice:', payErr);
     }
 
+    // 5. Send WhatsApp Payment Failed alert with "🔄 Retry Payment" CTA URL button
+    const effectiveCustPhone = customerPhone || '';
+    if (effectiveCustPhone) {
+      try {
+        const rawOrderId = targetRef || 'ORDER';
+        const displayOrderId = rawOrderId.startsWith('#') ? rawOrderId : `#${rawOrderId}`;
+        const cleanCustName = customerName || 'Valued Customer';
+
+        let retryUrl = '';
+        const existingLink = await getPaymentLinkByTxnId(targetRef);
+        if (existingLink?.razorpay_payment_link_url) {
+          retryUrl = existingLink.razorpay_payment_link_url;
+        } else if (paymentLinkId) {
+          retryUrl = `https://rzp.io/i/${paymentLinkId}`;
+        } else {
+          retryUrl = `https://rzp.io/l/${rawOrderId.toLowerCase().replace(/[^a-z0-9_-]/g, '')}`;
+        }
+
+        const failBodyText =
+          `❌ *Payment Failed — Order Not Confirmed* 🏍️\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `• *Order ID:* *${displayOrderId}*\n` +
+          `• *Customer:* ${cleanCustName}\n` +
+          `• *Amount:* ₹${amount.toFixed(2)}\n\n` +
+          `Your online payment was not completed or expired. Order *${displayOrderId}* is *NOT confirmed* and items are *NOT reserved* in stock.\n\n` +
+          `Tap *🔄 Retry Payment* below to retry payment immediately with UPI (Google Pay, PhonePe, Paytm), Cards, or NetBanking.\n\n` +
+          `📞 *Assistance / Support:* Saud Khan (+91 96347 22174)`;
+
+        const cleanPhone = normalizePhone(effectiveCustPhone);
+        let contactRow: any = null;
+        try {
+          const cTable = db.from('contacts');
+          if (cTable && typeof cTable.select === 'function') {
+            const { data: c } = await cTable
+              .select('id, account_id, user_id, phone')
+              .or(`phone_normalized.eq.${cleanPhone},phone.eq.${effectiveCustPhone}`)
+              .limit(1)
+              .maybeSingle();
+            contactRow = c;
+          }
+        } catch {}
+
+        let accountId = existingLink?.account_id || contactRow?.account_id;
+        let userId = contactRow?.user_id;
+        if (!accountId) {
+          try {
+            const accTable = db.from('accounts');
+            if (accTable && typeof accTable.select === 'function') {
+              const { data: acc } = await accTable.select('id, owner_user_id').limit(1).maybeSingle();
+              accountId = acc?.id;
+              userId = userId || acc?.owner_user_id;
+            }
+          } catch {}
+        }
+
+        let convId: string | undefined;
+        if (contactRow?.id && accountId) {
+          try {
+            const convTable = db.from('conversations');
+            if (convTable && typeof convTable.select === 'function') {
+              const { data: conv } = await convTable
+                .select('id')
+                .eq('contact_id', contactRow.id)
+                .eq('account_id', accountId)
+                .limit(1)
+                .maybeSingle();
+              convId = conv?.id;
+            }
+          } catch {}
+        }
+
+        if (contactRow?.id && accountId && userId && convId) {
+          try {
+            await engineSendInteractiveCtaUrl({
+              accountId,
+              userId,
+              conversationId: convId,
+              contactId: contactRow.id,
+              headerText: '❌ Payment Failed',
+              bodyText: failBodyText,
+              footerText: 'Best Auto Parts • Kailashpur, Saharanpur',
+              buttonText: '🔄 Retry Payment',
+              url: retryUrl,
+            });
+          } catch (ctaErr) {
+            console.warn('[Razorpay] Failed payment CTA URL send failed, fallback to text:', ctaErr);
+            await engineSendText({
+              accountId,
+              userId,
+              conversationId: convId,
+              contactId: contactRow.id,
+              text: `${failBodyText}\n\n👉 *Retry Payment:* ${retryUrl}`,
+            });
+          }
+        }
+      } catch (notifyErr) {
+        console.warn('[Razorpay] Failed payment customer notification warning:', notifyErr);
+      }
+    }
+
     console.log(`[Razorpay Webhook] Payment ${paymentId} failed logged. Stock left unchanged.`);
     return { success: true, status: 'failed', paymentId };
   } catch (err) {
@@ -1164,17 +1334,22 @@ export async function sendWhatsAppPaymentConfirmation(
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `Thank you for your payment! Your transaction is verified via Razorpay.`;
 
-  // Message 2: Order & Delivery Confirmation
-  const deliveryText =
-    `✅ *ORDER CONFIRMED & READY FOR DISPATCH — BEST AUTO PARTS* 🛵\n` +
-    `• *Delivery Order ID:* *${displayOrderId}*\n` +
-    `• *Status:* Confirmed & Packed\n` +
-    `• *Dispatch Option:* Local Rider Delivery in Kailashpur / Saharanpur (or Store Pickup)\n` +
+  const cleanIdForButton = rawOrderId.replace(/^#/, '');
+
+  // Message 2: Order & Delivery Confirmation with Interactive Preference Buttons
+  const deliveryPromptText =
+    `✅ *ORDER CONFIRMED & PAID — BEST AUTO PARTS* 🛵\n` +
+    `• *Order ID:* *${displayOrderId}*\n` +
+    `• *Items:* ${record.part_details}\n` +
+    `• *Total Paid:* ${amtFormatted} (Paid in Full ✅)\n` +
+    `• *Payment Date & Time:* ${dateFormatted}\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `Please choose your preferred fulfillment option below:\n\n` +
+    `• *Store Pickup:* Collect directly from our store counter in Kailashpur\n` +
+    `• *Home Delivery:* Local express rider doorstep delivery\n\n` +
     `📍 *Store Address:* Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
     `🕒 *Store Timings:* 09:00 AM – 09:00 PM (Daily)\n` +
-    `📞 *Direct Helpline:* Saud Khan (+91 96347 22174)\n\n` +
-    `Our team is dispatching your spare parts order with our local rider shortly. Thank you for choosing Best Auto Parts!`;
+    `📞 *Direct Helpline:* Saud Khan (+91 96347 22174)`;
 
   // Helper to send a free session text message
   let phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
@@ -1258,8 +1433,30 @@ export async function sendWhatsAppPaymentConfirmation(
 
   // Dispatch Message 1 (Payment Receipt)
   await sendSingleTextMessage(receiptText);
-  // Dispatch Message 2 (Order & Delivery Confirmation)
-  await sendSingleTextMessage(deliveryText);
+
+  // Dispatch Message 2 (Interactive Buttons for Store Pickup / Home Delivery)
+  if (contact?.id && accountId && userId && conversationId) {
+    try {
+      await engineSendInteractiveButtons({
+        accountId,
+        userId,
+        conversationId,
+        contactId: contact.id,
+        headerText: '🛵 Delivery Preference',
+        bodyText: deliveryPromptText,
+        footerText: 'Best Auto Parts • Kailashpur, Saharanpur',
+        buttons: [
+          { id: `btn_pickup_${cleanIdForButton}`, title: '🏪 Store Pickup' },
+          { id: `btn_delivery_${cleanIdForButton}`, title: '🚚 Home Delivery' },
+        ],
+      });
+    } catch (btnErr) {
+      console.warn('[Razorpay] Interactive delivery buttons send failed, falling back to text:', btnErr);
+      await sendSingleTextMessage(deliveryPromptText);
+    }
+  } else {
+    await sendSingleTextMessage(deliveryPromptText);
+  }
 }
 
 /**

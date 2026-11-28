@@ -5,7 +5,7 @@
  * Best Auto Parts — Kailashpur, Saharanpur, UP 247001 (+91 96347 22174)
  */
 
-import { engineSendText } from '@/lib/flows/meta-send';
+import { engineSendText, engineSendInteractiveCtaUrl } from '@/lib/flows/meta-send';
 import { deductStockForSale } from '@/lib/inventory/stock-deduction';
 import { triggerCatalogSync } from '@/lib/catalog/meta-sync';
 import { createRazorpayPaymentLink } from '@/lib/payments/razorpay';
@@ -131,7 +131,7 @@ export async function handleCatalogOrderInbound(
       )
       .join('\n');
 
-    // 3. Insert into orders table
+    // 3. Insert into orders table with initial PENDING / UNPAID status
     const firstPartId = itemizedList.find((it) => it.partId)?.partId || null;
     try {
       await db.from('orders').insert({
@@ -145,7 +145,9 @@ export async function handleCatalogOrderInbound(
         currency: 'INR',
         fulfillment_type: 'pickup',
         delivery_address: order.text || 'Store Pickup / Kailashpur, Saharanpur',
-        order_status: 'confirmed',
+        order_status: 'pending',
+        payment_status: 'UNPAID',
+        status: 'PENDING',
         catalog_order_id: wamid,
         metadata: {
           wamid,
@@ -153,6 +155,7 @@ export async function handleCatalogOrderInbound(
           customer_notes: order.text,
           order_id: orderId,
           items: itemizedList,
+          stock_deducted: false,
         },
         created_at: nowIso,
         updated_at: nowIso,
@@ -173,8 +176,11 @@ export async function handleCatalogOrderInbound(
         accountId,
         userId,
         conversationId,
+        notes: {
+          catalog_order_id: wamid,
+        },
       });
-      paymentLinkUrl = rzpRes.shortUrl;
+      paymentLinkUrl = rzpRes.shortUrl || rzpRes.paymentLink || '';
     } catch (plErr: any) {
       console.warn('[catalog-order] Razorpay payment link generation warning:', plErr.message);
     }
@@ -184,7 +190,7 @@ export async function handleCatalogOrderInbound(
     // payment-confirmation flow (payment_link.paid / payment.captured / order.paid)
     // after claiming the idempotency lock in Razorpay webhook handler.
 
-    // 6. Send immediate WhatsApp Order Confirmation with Razorpay Payment Link
+    // 6. Send immediate WhatsApp Order Confirmation with direct "💳 Pay Now" CTA URL button
     const itemizedMsgLines = itemizedList
       .map(
         (it, idx) =>
@@ -196,14 +202,12 @@ export async function handleCatalogOrderInbound(
       ? `\n📝 *Your Note:* "${order.text.trim()}"`
       : '';
 
-    const paymentLinkSection = paymentLinkUrl
-      ? `💳 *Pay Online via Razorpay Link:*\n👉 ${paymentLinkUrl}\n_(Instant UPI, Google Pay, PhonePe, Paytm, Cards & NetBanking)_\n\n`
-      : `💳 *Pay Online via Razorpay Link:*\n👉 https://best-auto-parts-one.vercel.app/pay?order=${orderId}&amount=${grandTotal}\n\n`;
+    const payButtonUrl = paymentLinkUrl || `https://rzp.io/l/${orderId.toLowerCase()}`;
 
-    const confirmationText =
+    const bodyText =
       `🛒 *ORDER CONFIRMATION — BEST AUTO PARTS* 🏍️\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `Thank you for placing your order from our WhatsApp Catalog! Your parts have been reserved.\n\n` +
+      `Thank you for placing your order from our WhatsApp Catalog! Your parts are reserved.\n\n` +
       `• *Order ID:* #${orderId}\n` +
       `• *Customer:* ${customerName}\n` +
       `• *Date:* ${new Date(nowIso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}\n\n` +
@@ -211,20 +215,31 @@ export async function handleCatalogOrderInbound(
       `${itemizedMsgLines}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `💰 *Total Payable:* *₹${grandTotal.toFixed(2)}*${customerNoteLine}\n\n` +
-      paymentLinkSection +
-      `📍 *Store Pickup & Delivery:*\n` +
-      `Best Auto Parts, Kailashpur, Saharanpur, UP 247001\n` +
-      `🕒 *Timings:* 09:00 AM – 09:00 PM (Daily)\n` +
-      `🕌 *Friday Break:* 12:30 PM – 02:30 PM\n\n` +
-      `📞 *Customer Care Helpline:* Saud Bhai (+91 96347 22174)`;
+      `Tap *💳 Pay Now* below to complete payment instantly via UPI (Google Pay, PhonePe, Paytm), Cards, or NetBanking.\n\n` +
+      `📞 *Customer Care Helpline:* Saud Khan (+91 96347 22174)`;
 
-    await engineSendText({
-      accountId,
-      userId,
-      conversationId,
-      contactId,
-      text: confirmationText,
-    });
+    try {
+      await engineSendInteractiveCtaUrl({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        headerText: 'Best Auto Parts Order',
+        bodyText,
+        footerText: 'Best Auto Parts • Kailashpur, Saharanpur',
+        buttonText: '💳 Pay Now',
+        url: payButtonUrl,
+      });
+    } catch (ctaErr) {
+      console.warn('[catalog-order] Interactive CTA URL send fallback to text:', ctaErr);
+      await engineSendText({
+        accountId,
+        userId,
+        conversationId,
+        contactId,
+        text: `${bodyText}\n\n💳 *Payment Link:* ${payButtonUrl}`,
+      });
+    }
 
     return { success: true, orderId, totalAmount: grandTotal };
   } catch (err: any) {

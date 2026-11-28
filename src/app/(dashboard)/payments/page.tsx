@@ -819,7 +819,7 @@ function PaymentsPageInner() {
               <TableHead className="font-semibold text-xs">Amount</TableHead>
               <TableHead className="font-semibold text-xs">Status</TableHead>
               <TableHead className="font-semibold text-xs">Payment Details</TableHead>
-              <TableHead className="font-semibold text-xs">Created Date</TableHead>
+              <TableHead className="font-semibold text-xs">Payment Date & Time (IST)</TableHead>
               <TableHead className="text-right font-semibold text-xs">Actions</TableHead>
             </TableRow>
           </TableHeader>

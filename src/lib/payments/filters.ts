@@ -66,10 +66,11 @@ export function isRazorpayOnlinePayment(payment?: PaymentItemLike | Record<strin
     return true;
   }
 
-  // 5. payment_link_id or razorpay_payment_link_id is non-empty
+  // 5. payment_link_id, razorpay_payment_link_id, or razorpay_payment_link_url is non-empty
   if (
     (p.payment_link_id && String(p.payment_link_id).trim() !== '') ||
-    (p.razorpay_payment_link_id && String(p.razorpay_payment_link_id).trim() !== '')
+    (p.razorpay_payment_link_id && String(p.razorpay_payment_link_id).trim() !== '') ||
+    (p.razorpay_payment_link_url && String(p.razorpay_payment_link_url).trim() !== '')
   ) {
     return true;
   }

@@ -164,8 +164,7 @@ export const META_ICEBREAKERS: Record<string, IcebreakerDef> = {
     responseTemplate:
       '🏍️ *Best Auto Parts — WhatsApp Digital Catalog*\n\n' +
       'Browse our live catalog of genuine & aftermarket spare parts for Bajaj, Hero, and Honda motorcycles directly on WhatsApp!\n\n' +
-      '👉 *View Store Catalog:* https://wa.me/c/919634722174\n' +
-      '🌐 *Online Store:* https://best-auto-parts-one.vercel.app\n\n' +
+      '👉 *View Store Catalog:* https://wa.me/c/919634722174\n\n' +
       '• Genuine OEM & Aftermarket Spares\n' +
       '• Instant Pricing & Live Availability\n' +
       '• Local Delivery in Kailashpur / Saharanpur\n\n' +

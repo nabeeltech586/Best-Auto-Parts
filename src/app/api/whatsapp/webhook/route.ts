@@ -807,16 +807,125 @@ async function processMessage(
   const inboundText = contentText ?? message.text?.body ?? ''
 
   // ============================================================
-  // Meta WhatsApp Icebreakers, Commands, 3-Button Greeting Menu & Polite Closings (Top Priority)
+  // WhatsApp Catalog Order Processing (message.type === 'order') (TOP PRIORITY)
+  // Ensures incoming customer carts immediately trigger order creation and
+  // direct Razorpay "💳 Pay Now" CTA URL button BEFORE greetings, icebreakers, or AI.
+  // ============================================================
+  let orderConsumed = false
+  if (message.type === 'order' && message.order) {
+    await handleCatalogOrderInbound({
+      db: supabaseAdmin(),
+      accountId,
+      userId: configOwnerUserId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      senderPhone: contactRecord.phone || message.from,
+      customerName: contact?.profile?.name || contactRecord.name || 'Customer',
+      wamid: message.id,
+      order: message.order,
+    }).catch((err) => {
+      console.error('[webhook] catalog order error:', err)
+    })
+    orderConsumed = true
+  }
+
+  // ============================================================
+  // Post-Payment Delivery Preference Buttons (btn_pickup_* / btn_delivery_*)
+  // Allows customer to tap "🏪 Store Pickup" or "🚚 Home Delivery" after payment.
+  // Saves preference to orders and payment_links, and sends instant confirmation.
+  // ============================================================
+  let deliveryPreferenceConsumed = false
+  if (
+    !orderConsumed &&
+    interactiveReplyId &&
+    (interactiveReplyId.startsWith('btn_pickup') || interactiveReplyId.startsWith('btn_delivery'))
+  ) {
+    try {
+      const isPickup = interactiveReplyId.startsWith('btn_pickup')
+      const rawOrderId = interactiveReplyId.replace(/^btn_(pickup|delivery)_?/, '').trim()
+      let orderRef = rawOrderId
+
+      if (!orderRef) {
+        const { data: recentLink } = await supabaseAdmin()
+          .from('payment_links')
+          .select('order_id, merchant_transaction_id')
+          .eq('customer_phone', contactRecord.phone || message.from)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        orderRef = recentLink?.order_id || recentLink?.merchant_transaction_id || 'ORDER'
+      }
+
+      const nowIso = new Date().toISOString()
+      const newDeliveryStatus = isPickup ? 'Packed / Ready' : 'Out for Delivery (Local Rider)'
+      const fulfillmentType = isPickup ? 'pickup' : 'delivery'
+
+      // Update payment_links
+      await supabaseAdmin()
+        .from('payment_links')
+        .update({
+          delivery_status: newDeliveryStatus,
+          updated_at: nowIso,
+        })
+        .or(`order_id.eq.${orderRef},merchant_transaction_id.eq.${orderRef}`)
+
+      // Update orders
+      await supabaseAdmin()
+        .from('orders')
+        .update({
+          fulfillment_type: fulfillmentType,
+          delivery_method: isPickup ? 'STORE_PICKUP' : 'LOCAL_DELIVERY',
+          delivery_status: newDeliveryStatus,
+          updated_at: nowIso,
+        })
+        .or(`id.eq.${orderRef},metadata->>order_id.eq.${orderRef},catalog_order_id.eq.${orderRef}`)
+
+      const displayOrder = orderRef.startsWith('#') ? orderRef : `#${orderRef}`
+      const confirmationMsg = isPickup
+        ? `🏪 *STORE PICKUP CONFIRMED — BEST AUTO PARTS* 🏍️\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `Thank you! Your preference for *Store Pickup* has been confirmed for Order *${displayOrder}*.\n\n` +
+          `Your genuine parts are packed and ready for collection at our store counter.\n\n` +
+          `📍 *Store Address:* Best Auto Parts, Kailashpur, Dehradun Road, Saharanpur, UP 247001\n` +
+          `🕒 *Store Timings:* 09:00 AM – 09:00 PM (Daily)\n` +
+          `🕌 *Friday Break:* 12:30 PM – 02:30 PM\n` +
+          `📞 *Counter Helpline:* Saud Khan (+91 96347 22174)\n\n` +
+          `Please share Order ID *${displayOrder}* at the counter when you arrive!`
+        : `🚚 *HOME DELIVERY CONFIRMED — BEST AUTO PARTS* 🛵\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `Thank you! Your preference for *Local Rider Delivery* has been confirmed for Order *${displayOrder}*.\n\n` +
+          `Our team has scheduled local rider doorstep delivery in Kailashpur / Saharanpur.\n\n` +
+          `📦 *Delivery Status:* Packed / Out for Delivery\n` +
+          `🛵 *Express Service:* Local Delivery Rider\n` +
+          `📞 *Helpline:* Saud Khan (+91 96347 22174)\n\n` +
+          `Our delivery rider will call your phone number before dispatch and arrival!`;
+
+      await engineSendText({
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        text: confirmationMsg,
+      })
+      deliveryPreferenceConsumed = true
+    } catch (prefErr) {
+      console.error('[webhook] delivery preference handler error:', prefErr)
+    }
+  }
+
+  // ============================================================
+  // Meta WhatsApp Icebreakers, Commands, 3-Button Greeting Menu & Polite Closings
   // Ensures 4 Meta Icebreakers, 6 Slash Commands (/parts, /itr, /rto, /mechanic, /location, /catalog),
   // generic greetings ("hi", "hello", "salam", "menu") and polite acknowledgments ("ok", "thanks", "ji", "done")
   // immediately reply deterministically in clean English/Hinglish with ₹0 free interactive buttons or session text BEFORE calling AI.
   // ============================================================
   let icebreakerConsumed = false
   if (
-    isGreetingMessage(inboundText) ||
-    isClosingOrGratitudeMessage(inboundText) ||
-    matchIcebreaker(inboundText, interactiveReplyId)
+    !orderConsumed &&
+    !deliveryPreferenceConsumed &&
+    (isGreetingMessage(inboundText) ||
+     isClosingOrGratitudeMessage(inboundText) ||
+     matchIcebreaker(inboundText, interactiveReplyId))
   ) {
     const icebreakerRes = await executeIcebreaker({
       db: supabaseAdmin(),
@@ -839,7 +948,7 @@ async function processMessage(
   // respecting active human agent takeover.
   // ============================================================
   let mediaConsumed = false
-  if (!icebreakerConsumed && (message.type === 'image' || message.type === 'audio')) {
+  if (!orderConsumed && !deliveryPreferenceConsumed && !icebreakerConsumed && (message.type === 'image' || message.type === 'audio')) {
     const { data: convState } = await supabaseAdmin()
       .from('conversations')
       .select('ai_autoreply_disabled, assigned_agent_id')
@@ -892,27 +1001,6 @@ async function processMessage(
   }
 
   // ============================================================
-  // WhatsApp Catalog Order Processing (message.type === 'order')
-  // ============================================================
-  let orderConsumed = false
-  if (!icebreakerConsumed && !mediaConsumed && message.type === 'order' && message.order) {
-    await handleCatalogOrderInbound({
-      db: supabaseAdmin(),
-      accountId,
-      userId: configOwnerUserId,
-      conversationId: conversation.id,
-      contactId: contactRecord.id,
-      senderPhone: contactRecord.phone || message.from,
-      customerName: contact?.profile?.name || contactRecord.name || 'Customer',
-      wamid: message.id,
-      order: message.order,
-    }).catch((err) => {
-      console.error('[webhook] catalog order error:', err)
-    })
-    orderConsumed = true
-  }
-
-  // ============================================================
   // Welcome & Language Flow dispatch.
   //
   // Handles:
@@ -923,7 +1011,7 @@ async function processMessage(
   //
   // If consumed: takes precedence over generic flows, automations, and AI.
   // ============================================================
-  const welcomeResult = (icebreakerConsumed || mediaConsumed || orderConsumed)
+  const welcomeResult = (orderConsumed || deliveryPreferenceConsumed || icebreakerConsumed || mediaConsumed)
     ? { consumed: true }
     : await handleWelcomeFlowInbound({
         db: supabaseAdmin(),
@@ -938,7 +1026,7 @@ async function processMessage(
         console.error('[welcome-flow] dispatch error:', err)
         return { consumed: false }
       })
-  const welcomeConsumed = icebreakerConsumed || mediaConsumed || orderConsumed || welcomeResult.consumed
+  const welcomeConsumed = orderConsumed || deliveryPreferenceConsumed || icebreakerConsumed || mediaConsumed || welcomeResult.consumed
 
   // ============================================================
   // Flow runner dispatch.
