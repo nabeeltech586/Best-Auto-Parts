@@ -30,7 +30,12 @@ import { triggerMatches } from '@/lib/automations/engine'
 import { isWithinTimeWindow } from '@/lib/automations/time-of-day'
 import type { Automation, ConditionStepConfig } from '@/types'
 import type { ServiceType } from '@/types/services'
-import { syncServiceCaseFromChat } from '@/lib/services/service-cases'
+import {
+  syncServiceCaseFromChat,
+  getOpenServiceCaseForPhone,
+  handleOnlineServiceFollowUp,
+  extractVehicleOrRef,
+} from '@/lib/services/service-cases'
 
 /**
  * Detects whether the customer recently selected a sub-service button or inquiry topic,
@@ -218,7 +223,34 @@ export async function dispatchInboundToAiReply(
     const db = supabaseAdmin()
 
     const config = await loadAiConfig(db, accountId)
-    if (!config || !config.autoReplyEnabled) return
+    if (!config || !config.autoReplyEnabled) {
+      const { data: contact } = await db
+        .from('contacts')
+        .select('name, phone, phone_normalized')
+        .eq('id', contactId)
+        .maybeSingle()
+      const phone = contact?.phone || contact?.phone_normalized
+      if (phone) {
+        const messages = await buildConversationContext(db, conversationId)
+        const latestRaw = latestUserMessage(messages).trim()
+        const openCase = await getOpenServiceCaseForPhone(phone, undefined, db)
+        const { vehicle, pan } = extractVehicleOrRef(latestRaw)
+        if (openCase || vehicle || pan) {
+          await handleOnlineServiceFollowUp({
+            db,
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            phone,
+            customerName: contact?.name,
+            inboundText: latestRaw,
+            forcedServiceType: openCase?.service_type,
+          }).catch((err) => console.warn('[ai auto-reply] fallback notice:', err))
+        }
+      }
+      return
+    }
 
     // If an automation already replied to this inbound, stand down to avoid double-texting
     if (args.automationReplied) return
@@ -231,7 +263,34 @@ export async function dispatchInboundToAiReply(
     if (convErr || !conv) return
     if (conv.assigned_agent_id) return // a human owns this thread
     if (conv.ai_autoreply_disabled) return // handed off / turned off here
-    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
+    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
+      const { data: contact } = await db
+        .from('contacts')
+        .select('name, phone, phone_normalized')
+        .eq('id', contactId)
+        .maybeSingle()
+      const phone = contact?.phone || contact?.phone_normalized
+      if (phone) {
+        const messages = await buildConversationContext(db, conversationId)
+        const latestRaw = latestUserMessage(messages).trim()
+        const openCase = await getOpenServiceCaseForPhone(phone, undefined, db)
+        const { vehicle, pan } = extractVehicleOrRef(latestRaw)
+        if (openCase || vehicle || pan) {
+          await handleOnlineServiceFollowUp({
+            db,
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            phone,
+            customerName: contact?.name,
+            inboundText: latestRaw,
+            forcedServiceType: openCase?.service_type,
+          }).catch((err) => console.warn('[ai auto-reply] reply cap fallback notice:', err))
+        }
+      }
+      return
+    }
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) return
@@ -450,6 +509,45 @@ export async function dispatchInboundToAiReply(
     })
 
     if (handoff || !text) {
+      // Check if this inquiry belongs to an online service or provided vehicle/PAN
+      const { data: contact } = await db
+        .from('contacts')
+        .select('name, phone, phone_normalized')
+        .eq('id', contactId)
+        .maybeSingle()
+      const phone = contact?.phone || contact?.phone_normalized
+      if (phone) {
+        const openCase = await getOpenServiceCaseForPhone(phone, undefined, db)
+        const { vehicle, pan } = extractVehicleOrRef(latestRawUserText)
+        const lockedContext = detectLockedSubService(messages)
+
+        if (lockedContext || openCase || vehicle || pan) {
+          const serviceMapping: Record<string, ServiceType> = {
+            'Annual ITR Filing': 'ITR',
+            'Vehicle Insurance': 'Vehicle Insurance',
+            'RTO Road Tax': 'RTO Road Tax',
+            'State Border Tax': 'State Border Tax',
+            'E-Challan Service': 'E-Challan',
+          }
+          const st =
+            (lockedContext ? serviceMapping[lockedContext.service] : undefined) ||
+            openCase?.service_type ||
+            (pan ? 'ITR' : 'RTO Road Tax')
+
+          await handleOnlineServiceFollowUp({
+            db,
+            accountId,
+            userId: configOwnerUserId,
+            conversationId,
+            contactId,
+            phone,
+            customerName: contact?.name,
+            inboundText: latestRawUserText,
+            forcedServiceType: st,
+          }).catch((err) => console.warn('[ai auto-reply] handover fallback notice:', err))
+        }
+      }
+
       // The model can't (or shouldn't) answer — stop auto-replying on
       // this thread and hand it to a human. We (a) pause the bot here
       // (sticky until re-enabled), (b) route the conversation to the

@@ -36,6 +36,11 @@ import {
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
 import { applyMessageStatus } from '@/lib/whatsapp/message-status-sync'
+import {
+  getOpenServiceCaseForPhone,
+  handleOnlineServiceFollowUp,
+  extractVehicleOrRef,
+} from '@/lib/services/service-cases'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -843,21 +848,47 @@ async function processMessage(
 
     const isHumanTakeover = Boolean(convState?.assigned_agent_id || convState?.ai_autoreply_disabled)
     if (!isHumanTakeover) {
-      const ackText = message.type === 'image'
-        ? '📸 Got your photo! Our counter team is reviewing it and will share exact price & availability shortly.'
-        : '🎙️ Got your voice note! Our counter team is listening to it and will share exact price & availability shortly.'
+      if (message.type === 'image') {
+        const phone = contactRecord.phone || message.from || ''
+        const openCase = await getOpenServiceCaseForPhone(phone, undefined, supabaseAdmin())
+        if (openCase) {
+          await handleOnlineServiceFollowUp({
+            db: supabaseAdmin(),
+            accountId,
+            userId: configOwnerUserId,
+            conversationId: conversation.id,
+            contactId: contactRecord.id,
+            phone,
+            customerName: contact?.profile?.name || contactRecord.name,
+            inboundText: '[RC Photo]',
+            isImage: true,
+            forcedServiceType: openCase.service_type,
+          }).catch((err) => {
+            console.error('[webhook] online service media follow-up error:', err)
+          })
+          mediaConsumed = true
+        }
+      }
 
-      await engineSendText({
-        accountId,
-        userId: configOwnerUserId,
-        conversationId: conversation.id,
-        contactId: contactRecord.id,
-        text: ackText,
-      }).catch((err) => {
-        console.error('[webhook] media ack error:', err)
-      })
+      if (!mediaConsumed) {
+        const ackText = message.type === 'image'
+          ? '📸 Got your photo! Our counter team is reviewing it and will share exact price & availability shortly.'
+          : '🎙️ Got your voice note! Our counter team is listening to it and will share exact price & availability shortly.'
+
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId: conversation.id,
+          contactId: contactRecord.id,
+          text: ackText,
+        }).catch((err) => {
+          console.error('[webhook] media ack error:', err)
+        })
+        mediaConsumed = true
+      }
+    } else {
+      mediaConsumed = true
     }
-    mediaConsumed = true
   }
 
   // ============================================================
@@ -1042,6 +1073,35 @@ async function processMessage(
   // flow runner did NOT consume (flows win over the LLM), no automation
   // already sent an outbound reply for this turn, and only when the account has enabled it.
   if (!contentConsumed && !interactiveReplyId && inboundText.trim() && !automationSentMessage) {
+    const phone = contactRecord.phone || message.from || ''
+    const { vehicle, pan } = extractVehicleOrRef(inboundText)
+    const openCase = await getOpenServiceCaseForPhone(phone, undefined, supabaseAdmin())
+
+    // If customer has an open online service case or provided vehicle/PAN, and message is short detail
+    const isShortDetail =
+      Boolean(vehicle || pan) ||
+      Boolean(openCase && inboundText.trim().split(/\s+/).length <= 8)
+
+    if (isShortDetail && (openCase || vehicle || pan)) {
+      const followUpRes = await handleOnlineServiceFollowUp({
+        db: supabaseAdmin(),
+        accountId,
+        userId: configOwnerUserId,
+        conversationId: conversation.id,
+        contactId: contactRecord.id,
+        phone,
+        customerName: contact?.profile?.name || contactRecord.name,
+        inboundText,
+        forcedServiceType: openCase?.service_type,
+      }).catch((err) => {
+        console.error('[webhook] online service text follow-up error:', err)
+        return { handled: false }
+      })
+      if (followUpRes?.handled) {
+        return
+      }
+    }
+
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,

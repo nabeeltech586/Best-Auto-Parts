@@ -236,10 +236,12 @@ export const SUB_BUTTONS: Record<string, IcebreakerDef> = {
     responseTemplate:
       '🛡️ *Vehicle Insurance Desk — Best Auto Parts & Online Services*\n\n' +
       'Please share the following details for your insurance quote:\n' +
-      '1️⃣ *Vehicle Type:* Two-Wheeler / Car / Commercial\n' +
-      '2️⃣ *Vehicle Registration Number* or a clear photo of your *RC*\n' +
-      '3️⃣ *Policy Preference:* Third-Party or Comprehensive (First-Party)\n\n' +
-      '*Saud Khan (+91 96347 22174)* will check all insurance portals and share the best quote with maximum discount.',
+      '1️⃣ *Vehicle Category:* Two-Wheeler / Private Car / Commercial & Registration Number\n' +
+      '2️⃣ *Policy Type:* Third-Party or Comprehensive / Full\n' +
+      '3️⃣ *RC Valid Upto Date* & *Previous Insurance Expiry Date* (or share a clear photo of your RC & old policy)\n\n' +
+      '📝 *Quick Online Form:* https://best-auto-parts-one.vercel.app/apply?service=insurance\n' +
+      '*(You can reply directly here in chat or submit the quick form above).*\n\n' +
+      'Our Portal Expert *Saud Khan (+91 96347 22174)* will check all insurance portals and share the best quote with maximum discount.',
   },
 
   service_itr: {
@@ -256,11 +258,12 @@ export const SUB_BUTTONS: Record<string, IcebreakerDef> = {
     responseTemplate:
       '📊 *Annual Income Tax Return (ITR) Desk — Best Auto Parts & Online Services*\n\n' +
       'Please share the following details for your ITR filing:\n' +
-      '1️⃣ *Full Name* (as per PAN Card)\n' +
-      '2️⃣ *PAN Number* & *Aadhaar Number*\n' +
-      '3️⃣ *Mobile Number* & *Email ID*\n' +
-      '4️⃣ *Source of Income:* Salary / Business / Other\n\n' +
-      '*Saud Khan (+91 96347 22174)* will review your details, compute your tax return, and guide you with the exact process.',
+      '1️⃣ *Occupation Type:* Service / Salaried or Self-Employed / Business\n' +
+      '2️⃣ *Approximate Annual Income / Business Turnover*\n' +
+      '3️⃣ *Full Name & PAN Number* (for FY 2025-26 filing)\n\n' +
+      '📝 *Quick Online Form:* https://best-auto-parts-one.vercel.app/apply?service=itr\n' +
+      '*(You can reply directly here in chat or submit the quick form above).*\n\n' +
+      'Our Tax Expert *Saud Khan (+91 96347 22174)* will review your details, compute your return, and guide you with the exact process.',
   },
 
   service_road_tax: {
@@ -270,10 +273,13 @@ export const SUB_BUTTONS: Record<string, IcebreakerDef> = {
     keywords: ['btn_service_road_tax', 'rto road tax', 'road tax', 'vahan road tax'],
     responseTemplate:
       '🚔 *RTO Road Tax Service — Best Auto Parts & Online Services*\n\n' +
-      'Please share the following details:\n' +
+      'Please share the following details for your road tax payment:\n' +
       '1️⃣ *Vehicle Registration Number* (e.g., UP11...)\n' +
-      '2️⃣ *State Name* & *Tax Period* (Quarterly / Annual / One-Time / Lifetime)\n\n' +
-      '*Saud Khan (+91 96347 22174)* will check the official Vahan portal and share the exact tax dues and receipt timeline.',
+      '2️⃣ *RC Valid Upto Date* (or share a clear RC photo)\n' +
+      '3️⃣ *State Name & Tax Period:* Quarterly / Annual / One-Time / Lifetime\n\n' +
+      '📝 *Quick Online Form:* https://best-auto-parts-one.vercel.app/apply?service=road_tax\n' +
+      '*(You can reply directly here in chat or submit the quick form above).*\n\n' +
+      'Our Portal Expert *Saud Khan (+91 96347 22174)* will check the official Vahan portal and share the exact tax dues and receipt timeline.',
   },
 
   service_echallan: {
@@ -290,10 +296,12 @@ export const SUB_BUTTONS: Record<string, IcebreakerDef> = {
     ],
     responseTemplate:
       '🚔 *E-Challan Settlement Service — Best Auto Parts & Online Services*\n\n' +
-      'Please share:\n' +
+      'Please share the following details for traffic challan settlement:\n' +
       '1️⃣ *Vehicle Registration Number* (e.g., UP11...)\n' +
-      '2️⃣ *Last 5 digits of Chassis Number or Engine Number* (if available)\n\n' +
-      '*Saud Khan (+91 96347 22174)* will verify pending traffic challans on the Parivahan portal and assist in immediate online settlement.',
+      '2️⃣ *Last 5 digits of Chassis / Engine Number* (or share a clear RC photo)\n\n' +
+      '📝 *Quick Online Form:* https://best-auto-parts-one.vercel.app/apply?service=echallan\n' +
+      '*(You can reply directly here in chat or submit the quick form above).*\n\n' +
+      'Our Portal Expert *Saud Khan (+91 96347 22174)* will verify pending traffic challans on the Parivahan portal and assist in immediate online settlement.',
   },
 
   service_border_tax: {
@@ -303,11 +311,13 @@ export const SUB_BUTTONS: Record<string, IcebreakerDef> = {
     keywords: ['btn_service_border_tax', 'state border tax', 'border tax', 'entry tax'],
     responseTemplate:
       '🚔 *State Border Tax Entry Service — Best Auto Parts & Online Services*\n\n' +
-      'Please share:\n' +
-      '1️⃣ *Vehicle Registration Number* (e.g., UP11...)\n' +
-      '2️⃣ *Entry State Name* (e.g., Uttarakhand, Haryana, Delhi, HP, Rajasthan)\n' +
-      '3️⃣ *Entry Date & Duration* (Days / Monthly Pass)\n\n' +
-      '*Saud Khan (+91 96347 22174)* will generate the official State Border Tax entry receipt immediately.',
+      'Please share the following details for your border tax entry pass:\n' +
+      '1️⃣ *Vehicle Registration Number & Entry State* (e.g., Uttarakhand, Haryana, Delhi)\n' +
+      '2️⃣ *RC Valid Upto Date* (or share a clear RC photo)\n' +
+      '3️⃣ *Entry Date & Duration:* Days / Weekly / Monthly\n\n' +
+      '📝 *Quick Online Form:* https://best-auto-parts-one.vercel.app/apply?service=border_tax\n' +
+      '*(You can reply directly here in chat or submit the quick form above).*\n\n' +
+      'Our Portal Expert *Saud Khan (+91 96347 22174)* will generate the official State Border Tax entry receipt immediately.',
   },
 
   mechanic_partner: {

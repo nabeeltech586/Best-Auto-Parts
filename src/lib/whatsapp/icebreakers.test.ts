@@ -147,6 +147,7 @@ describe('Icebreakers, Sub-Menus & Slash Commands', () => {
         update: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         neq: vi.fn().mockReturnThis(),
+        order: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
         ilike: vi.fn().mockReturnThis(),
@@ -269,7 +270,55 @@ describe('Icebreakers, Sub-Menus & Slash Commands', () => {
       expect(res.handled).toBe(true);
       expect(res.icebreakerId).toBe('btn_service_insurance');
       expect(res.responseSent).toContain('Vehicle Insurance Desk');
-      expect(res.responseSent).toContain('Third-Party or Comprehensive');
+      expect(res.responseSent).toContain('1️⃣ *Vehicle Category:*');
+      expect(res.responseSent).toContain('2️⃣ *Policy Type:*');
+      expect(res.responseSent).toContain('3️⃣ *RC Valid Upto Date*');
+      expect(res.responseSent).toContain('/apply?service=insurance');
+      expect(res.responseSent).toContain('Saud Khan (+91 96347 22174)');
+      expect(res.whatsappMessageId).toBe('wamid.text123');
+    });
+
+    it('dispatches deterministic reply and triggers case auto-create for btn_service_itr', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '',
+        interactiveReplyId: 'btn_service_itr',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe('btn_service_itr');
+      expect(res.responseSent).toContain('Annual Income Tax Return (ITR) Desk');
+      expect(res.responseSent).toContain('1️⃣ *Occupation Type:*');
+      expect(res.responseSent).toContain('2️⃣ *Approximate Annual Income / Business Turnover*');
+      expect(res.responseSent).toContain('3️⃣ *Full Name & PAN Number*');
+      expect(res.responseSent).toContain('/apply?service=itr');
+      expect(res.responseSent).toContain('Saud Khan (+91 96347 22174)');
+      expect(res.whatsappMessageId).toBe('wamid.text123');
+    });
+
+    it('dispatches deterministic reply and triggers case auto-create for btn_service_road_tax', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '',
+        interactiveReplyId: 'btn_service_road_tax',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe('btn_service_road_tax');
+      expect(res.responseSent).toContain('RTO Road Tax Service');
+      expect(res.responseSent).toContain('1️⃣ *Vehicle Registration Number*');
+      expect(res.responseSent).toContain('2️⃣ *RC Valid Upto Date*');
+      expect(res.responseSent).toContain('3️⃣ *State Name & Tax Period:*');
+      expect(res.responseSent).toContain('/apply?service=road_tax');
+      expect(res.responseSent).toContain('Saud Khan (+91 96347 22174)');
       expect(res.whatsappMessageId).toBe('wamid.text123');
     });
 
@@ -287,7 +336,32 @@ describe('Icebreakers, Sub-Menus & Slash Commands', () => {
       expect(res.handled).toBe(true);
       expect(res.icebreakerId).toBe('btn_service_echallan');
       expect(res.responseSent).toContain('E-Challan Settlement Service');
-      expect(res.responseSent).toContain('Parivahan portal');
+      expect(res.responseSent).toContain('1️⃣ *Vehicle Registration Number*');
+      expect(res.responseSent).toContain('2️⃣ *Last 5 digits of Chassis / Engine Number*');
+      expect(res.responseSent).toContain('/apply?service=echallan');
+      expect(res.responseSent).toContain('Saud Khan (+91 96347 22174)');
+      expect(res.whatsappMessageId).toBe('wamid.text123');
+    });
+
+    it('dispatches deterministic reply and triggers case auto-create for btn_service_border_tax', async () => {
+      const res = await executeIcebreaker({
+        db: mockDb,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        inboundText: '',
+        interactiveReplyId: 'btn_service_border_tax',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.icebreakerId).toBe('btn_service_border_tax');
+      expect(res.responseSent).toContain('State Border Tax Entry Service');
+      expect(res.responseSent).toContain('1️⃣ *Vehicle Registration Number & Entry State*');
+      expect(res.responseSent).toContain('2️⃣ *RC Valid Upto Date*');
+      expect(res.responseSent).toContain('3️⃣ *Entry Date & Duration:*');
+      expect(res.responseSent).toContain('/apply?service=border_tax');
+      expect(res.responseSent).toContain('Saud Khan (+91 96347 22174)');
       expect(res.whatsappMessageId).toBe('wamid.text123');
     });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   getServiceCases,
   createServiceCase,
@@ -6,7 +6,15 @@ import {
   deleteServiceCase,
   hasOpenServiceCaseForPhone,
   autoCreateServiceCaseFromWhatsApp,
+  extractVehicleOrRef,
+  buildOnlineServiceHandoverReply,
+  syncServiceCaseFromChat,
+  handleOnlineServiceFollowUp,
 } from './service-cases';
+
+vi.mock('@/lib/flows/meta-send', () => ({
+  engineSendText: vi.fn().mockResolvedValue({ whatsapp_message_id: 'wamid.text123' }),
+}));
 
 describe('service-cases storage and operations', () => {
   it('starts fresh with zero initial cases or retrieves created cases', async () => {
@@ -91,7 +99,7 @@ describe('service-cases storage and operations', () => {
     const hasOpen = await hasOpenServiceCaseForPhone(testPhone);
     expect(hasOpen).toBe(true);
 
-    // Second call for same phone should return null (suppressed duplicate)
+    // Second call for same phone and same service should return null (suppressed duplicate)
     const duplicate = await autoCreateServiceCaseFromWhatsApp({
       phone: testPhone,
       customerName: 'Saud Khan',
@@ -99,5 +107,134 @@ describe('service-cases storage and operations', () => {
       inboundText: 'Need ITR quote again',
     });
     expect(duplicate).toBeNull();
+
+    // But customer CAN create a separate card for another service (e.g. Vehicle Insurance)
+    const insuranceCase = await autoCreateServiceCaseFromWhatsApp({
+      phone: testPhone,
+      customerName: 'Saud Khan',
+      serviceType: 'Vehicle Insurance',
+      inboundText: 'Need bike insurance quote',
+    });
+    expect(insuranceCase).not.toBeNull();
+    expect(insuranceCase?.service_type).toBe('Vehicle Insurance');
+  });
+
+  describe('extractVehicleOrRef', () => {
+    it('extracts registration numbers from user text', () => {
+      expect(extractVehicleOrRef('My bike is UP11BT4854').vehicle).toBe('UP11BT4854');
+      expect(extractVehicleOrRef('Check DL 01 AB 1234 road tax').vehicle).toBe('DL01AB1234');
+      expect(extractVehicleOrRef('HR-26-DQ-5555').vehicle).toBe('HR26DQ5555');
+    });
+
+    it('extracts PAN numbers from user text', () => {
+      expect(extractVehicleOrRef('My PAN is ABCDE1234F').pan).toBe('ABCDE1234F');
+    });
+
+    it('returns undefined when no pattern is found', () => {
+      const res = extractVehicleOrRef('Hello, please tell me the price');
+      expect(res.vehicle).toBeUndefined();
+      expect(res.pan).toBeUndefined();
+    });
+  });
+
+  describe('buildOnlineServiceHandoverReply', () => {
+    it('builds Vehicle Insurance reply requesting RC photo and handover to Saud Khan', () => {
+      const reply = buildOnlineServiceHandoverReply({
+        serviceType: 'Vehicle Insurance',
+        vehicleOrRef: 'UP11BT4854',
+      });
+      expect(reply).toContain('Vehicle Insurance Details Saved!');
+      expect(reply).toContain('UP11BT4854');
+      expect(reply).toContain('RC ki photo');
+      expect(reply).toContain('Saud Khan (+91 96347 22174)');
+    });
+
+    it('builds ITR reply requesting occupation and PAN with handover to Saud Khan', () => {
+      const reply = buildOnlineServiceHandoverReply({
+        serviceType: 'ITR',
+        vehicleOrRef: 'ABCDE1234F',
+      });
+      expect(reply).toContain('Annual ITR Filing Details Saved!');
+      expect(reply).toContain('ABCDE1234F');
+      expect(reply).toContain('Occupation Type: Service / Salaried ya Self-Employed / Business');
+      expect(reply).toContain('Saud Khan (+91 96347 22174)');
+    });
+
+    it('builds RTO Road Tax reply requesting RC photo and handover to Saud Khan', () => {
+      const reply = buildOnlineServiceHandoverReply({
+        serviceType: 'RTO Road Tax',
+        vehicleOrRef: 'UP11BT4854',
+      });
+      expect(reply).toContain('RTO Road Tax Details Saved!');
+      expect(reply).toContain('UP11BT4854');
+      expect(reply).toContain('RC ki photo');
+      expect(reply).toContain('Saud Khan (+91 96347 22174)');
+    });
+
+    it('builds E-Challan reply requesting chassis/engine number or RC photo', () => {
+      const reply = buildOnlineServiceHandoverReply({
+        serviceType: 'E-Challan',
+        vehicleOrRef: 'UP11BT4854',
+      });
+      expect(reply).toContain('E-Challan Settlement Details Saved!');
+      expect(reply).toContain('RC ki photo');
+      expect(reply).toContain('Saud Khan (+91 96347 22174)');
+    });
+
+    it('builds RC photo acknowledgment when isImage is true', () => {
+      const reply = buildOnlineServiceHandoverReply({
+        serviceType: 'Vehicle Insurance',
+        isImage: true,
+      });
+      expect(reply).toContain('RC Photo Received & Saved!');
+      expect(reply).toContain('Saud Khan (+91 96347 22174)');
+    });
+  });
+
+  describe('handleOnlineServiceFollowUp & syncServiceCaseFromChat', () => {
+    it('transitions stage to PORTAL_CHECK and replies with Saud Khan handover on text detail', async () => {
+      const phone = '9876543210';
+      const res = await handleOnlineServiceFollowUp({
+        db: null as any,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        phone,
+        customerName: 'Imran Khan',
+        inboundText: 'UP11BT4854',
+        forcedServiceType: 'RTO Road Tax',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.replyText).toContain('RTO Road Tax Details Saved!');
+      expect(res.replyText).toContain('Saud Khan (+91 96347 22174)');
+      expect(res.replyText).toContain('UP11BT4854');
+
+      const cases = await getServiceCases(null);
+      const matched = cases.find((c) => c.phone.includes('9876543210') && c.service_type === 'RTO Road Tax');
+      expect(matched).toBeDefined();
+      expect(matched?.stage).toBe('PORTAL_CHECK');
+      expect(matched?.vehicle_or_ref).toBe('UP11BT4854');
+    });
+
+    it('acknowledges RC photo upload and confirms transfer to Saud Khan on image', async () => {
+      const phone = '9876543210';
+      const res = await handleOnlineServiceFollowUp({
+        db: null as any,
+        accountId: 'acc-1',
+        userId: 'user-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        phone,
+        inboundText: '[RC Photo]',
+        isImage: true,
+        forcedServiceType: 'Vehicle Insurance',
+      });
+
+      expect(res.handled).toBe(true);
+      expect(res.replyText).toContain('RC Photo Received & Saved!');
+      expect(res.replyText).toContain('Saud Khan (+91 96347 22174)');
+    });
   });
 });
