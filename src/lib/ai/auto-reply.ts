@@ -29,6 +29,8 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { triggerMatches } from '@/lib/automations/engine'
 import { isWithinTimeWindow } from '@/lib/automations/time-of-day'
 import type { Automation, ConditionStepConfig } from '@/types'
+import type { ServiceType } from '@/types/services'
+import { syncServiceCaseFromChat } from '@/lib/services/service-cases'
 
 /**
  * Detects whether the customer recently selected a sub-service button or inquiry topic,
@@ -90,7 +92,7 @@ export function detectLockedSubService(
       return {
         service: 'Vehicle Insurance',
         guideline:
-          'LOCKED ON VEHICLE INSURANCE: The customer is inquiring about Vehicle Insurance. Focus exclusively on insurance details: (1) Vehicle Type (Two-Wheeler/Car/Commercial), (2) RC photo or Registration Number, and (3) Policy Preference (Third-Party or Comprehensive). Never guess insurance premiums. Note that Saud Khan (+91 96347 22174) will check all portals and share the best quote.',
+          'LOCKED ON VEHICLE INSURANCE: The customer is inquiring about Vehicle Insurance. Focus exclusively on insurance guidance. When the customer has not shared these short essential details yet (or has not submitted the /apply form), politely ask for them at the end of your guidance:\n1️⃣ Vehicle Type (Two-Wheeler / Car / Commercial)\n2️⃣ Policy Type (Third-Party vs. Comprehensive)\n3️⃣ RC Valid Upto Date (or Vehicle Registration Number / clear RC photo)\n4️⃣ Previous Insurance Expiry Date\nNever guess insurance premiums. Inform the customer that Saud Khan (+91 96347 22174) will check all portal discounts and share the best quote.',
       };
     }
 
@@ -104,7 +106,7 @@ export function detectLockedSubService(
       return {
         service: 'Annual ITR Filing',
         guideline:
-          'LOCKED ON ANNUAL ITR FILING: The customer is inquiring about Income Tax Return filing. Focus exclusively on ITR details: (1) Full Name as per PAN, (2) PAN & Aadhaar Number, (3) Mobile & Email, and (4) Source of Income (Salary/Business/Other). Never fabricate tax calculations or government refunds. Note that Saud Khan (+91 96347 22174) will review and guide them.',
+          'LOCKED ON ANNUAL ITR FILING: The customer is inquiring about Income Tax Return filing. Focus exclusively on ITR guidance. When the customer has not shared these short essential details yet (or has not submitted the /apply form), politely ask for them at the end of your guidance:\n1️⃣ Service (Salaried) vs. Self-Employed / Business\n2️⃣ Approx Annual Income / Turnover\n3️⃣ Full Name / PAN\nNever fabricate government tax calculations or refunds. Inform the customer that Saud Khan (+91 96347 22174) will review their details and prepare their ITR filing.',
       };
     }
 
@@ -117,7 +119,7 @@ export function detectLockedSubService(
       return {
         service: 'RTO Road Tax',
         guideline:
-          'LOCKED ON RTO ROAD TAX: The customer is inquiring about RTO Road Tax. Focus exclusively on Road Tax: (1) Vehicle Registration Number (e.g., UP11...), and (2) State Name & Tax Period (Quarterly/Annual/Lifetime). Never invent road tax fees. Note that Saud Khan (+91 96347 22174) will check the Vahan portal and share the exact dues.',
+          'LOCKED ON RTO ROAD TAX: The customer is inquiring about RTO Road Tax. Focus exclusively on Road Tax guidance. When the customer has not shared these short essential details yet (or has not submitted the /apply form), politely ask for them at the end of your guidance:\n1️⃣ Vehicle Number (e.g., UP11...)\n2️⃣ RC Valid Upto Date\n3️⃣ Tax Period (Quarterly / Annual / One-Time)\nNever invent road tax amounts. Inform the customer that Saud Khan (+91 96347 22174) will check the official Vahan portal and share the exact dues.',
       };
     }
 
@@ -132,7 +134,7 @@ export function detectLockedSubService(
       return {
         service: 'E-Challan Service',
         guideline:
-          'LOCKED ON E-CHALLAN SETTLEMENT: The customer is inquiring about Traffic E-Challans. Focus exclusively on Challan verification & settlement: (1) Vehicle Registration Number, and (2) Last 5 digits of Chassis/Engine number. Never guess fine amounts or violation details. Note that Saud Khan (+91 96347 22174) will check the Parivahan portal and assist in settlement.',
+          'LOCKED ON E-CHALLAN SETTLEMENT: The customer is inquiring about Traffic E-Challans. Focus exclusively on Challan verification & settlement: (1) Vehicle Registration Number, and (2) Last 5 digits of Chassis/Engine number. Never guess fine amounts. Note that Saud Khan (+91 96347 22174) will check the Parivahan portal and assist in settlement.',
       };
     }
 
@@ -145,7 +147,7 @@ export function detectLockedSubService(
       return {
         service: 'State Border Tax',
         guideline:
-          'LOCKED ON STATE BORDER TAX: The customer is inquiring about State Border Entry Tax. Focus exclusively on Border Tax: (1) Vehicle Registration Number, (2) Entry State Name (e.g., Uttarakhand, Haryana, Delhi, HP, Rajasthan), and (3) Entry Date & Duration. Never invent border tax amounts. Note that Saud Khan (+91 96347 22174) will generate the official entry pass.',
+          'LOCKED ON STATE BORDER TAX: The customer is inquiring about State Border Entry Tax. Focus exclusively on Border Tax guidance. When the customer has not shared these short essential details yet (or has not submitted the /apply form), politely ask for them at the end of your guidance:\n1️⃣ Vehicle Number (e.g., UP11...)\n2️⃣ Entry State (e.g., Uttarakhand, Haryana, Delhi, HP, Rajasthan)\n3️⃣ RC Valid Upto Date\n4️⃣ Entry Date & Duration (Days / Monthly Pass)\nNever invent border tax amounts. Inform the customer that Saud Khan (+91 96347 22174) will generate the official state border entry pass.',
       };
     }
 
@@ -362,19 +364,53 @@ export async function dispatchInboundToAiReply(
       '3. Strict Stock Privacy: Never disclose internal numerical stock counts, units remaining, warehouse bin locations, or cost prices.\n' +
       '4. ONLINE SERVICES RULES (ITR, INSURANCE, RTO ROAD TAX, BORDER TAX, E-CHALLAN):\n' +
       '   For free-form customer questions on online services, NEVER guess, fabricate, or invent government tax amounts, challan fines, or insurance premiums under any circumstances.\n' +
-      '   Collect the required details first, and inform the customer that Saud Khan (+91 96347 22174) will verify the official portal and share the exact quote:\n' +
-      '   - Annual Income Tax Return (ITR) Filing: Ask for Full Name (as per PAN), PAN & Aadhaar Number, Mobile Number & Email ID, and Source of Income (Salary / Business / Other).\n' +
-      '   - Vehicle Insurance (Two-Wheeler / Car / Commercial): Ask for a clear photo of Vehicle RC (or Registration Number), previous insurance policy (if available), and policy preference (Third-Party or Comprehensive).\n' +
-      '   - RTO Road Tax: Ask for Vehicle Registration Number, State Name, and Tax Period (Quarterly / Annual / One-Time).\n' +
-      '   - State Border Tax: Ask for Vehicle Registration Number, Entry State Name (e.g., Uttarakhand, Haryana, Delhi, HP, Rajasthan), and Entry Date & Duration.\n' +
-      '   - E-Challan Check / Settlement: Ask for Vehicle Registration Number and last 5 digits of Chassis/Engine Number (if available).\n' +
+      '   When a customer is in an active online service chat and has not shared these short details yet (or has not submitted the /apply form), politely ask for them at the end of your guidance:\n' +
+      '   - Annual ITR Filing: Ask for (1) Service (Salaried) vs. Self-Employed / Business, (2) Approx Annual Income / Turnover, and (3) Full Name / PAN.\n' +
+      '   - Vehicle Insurance: Ask for (1) Vehicle Type (Two-Wheeler / Car / Commercial), (2) Policy Type (Third-Party vs. Comprehensive), (3) RC Valid Upto Date, and (4) Previous Insurance Expiry Date.\n' +
+      '   - RTO Road Tax: Ask for (1) Vehicle Number, (2) RC Valid Upto Date, and (3) Tax Period (Quarterly / Annual / One-Time).\n' +
+      '   - State Border Tax: Ask for (1) Vehicle Number, (2) Entry State, (3) RC Valid Upto Date, and (4) Entry Date & Duration.\n' +
+      '   - E-Challan: Ask for (1) Vehicle Number, and (2) Last 5 digits of Chassis/Engine number.\n' +
+      '   Always keep guidance locked to the active service and route final quotes to Saud Khan (+91 96347 22174).\n' +
       '5. Mechanic Partner Desk: Highlight priority packing, dedicated Mechanic Khata ledger tracking, loyalty benefits, and occasional gifts. Strictly NEVER mention or offer wholesale rates.\n' +
       '6. Selective Customer Care: Append "📞 Call Customer Care: *9634722174*" (Saud Bhai) ONLY for online services quotes, out-of-stock/special orders, location cards, or after-hours notices; never append to routine price/stock replies.\n' +
-      '7. Closing Courtesy: When a customer sends a closing or gratitude message (such as ok, okay, thanks, thank you, thx, shukriya, dhanyawad, ji, theek hai, achha, nice, or 👍), NEVER trigger a fallback or handoff error, never output or repeat a store menu, and reply warmly and concisely with: ' +
-      'For English: "You\'re most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!" ' +
-      'For Hinglish: "Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!"';
+      '7. Closing Courtesy: When a customer sends a closing or gratitude message (such as ok, okay, thanks, thank you, thx, shukriya, dhanyawad, ji, theek hai, achha, nice, done, or 👍), NEVER trigger a fallback or handoff error, never output or repeat a store menu, and reply warmly and concisely with: ' +
+      'For English: "You\'re most welcome! 😊 Please feel free to message anytime if you need help with Spare Parts, ITR, Insurance, or RTO Tax/Challan. — *Best Auto Parts* (+91 96347 22174)" ' +
+      'For Hinglish: "Aapka bahut-bahut shukriya! 😊 Spare Parts, ITR, Insurance ya RTO Tax/Challan me koi bhi madad chahiye ho toh aap jab chahein message kar sakte hain. — *Best Auto Parts* (+91 96347 22174)"';
 
     const lockedContext = detectLockedSubService(messages);
+    if (lockedContext) {
+      const serviceMapping: Record<string, ServiceType> = {
+        'Annual ITR Filing': 'ITR',
+        'Vehicle Insurance': 'Vehicle Insurance',
+        'RTO Road Tax': 'RTO Road Tax',
+        'State Border Tax': 'State Border Tax',
+        'E-Challan Service': 'E-Challan',
+      };
+      const st = serviceMapping[lockedContext.service];
+      if (st) {
+        try {
+          const { data: contact } = await db
+            .from('contacts')
+            .select('name, phone, phone_normalized')
+            .eq('id', contactId)
+            .maybeSingle();
+
+          const phone = contact?.phone || contact?.phone_normalized;
+          if (phone) {
+            await syncServiceCaseFromChat({
+              phone,
+              customerName: contact?.name,
+              serviceType: st,
+              messageText: latestRawUserText,
+              accountId,
+              db,
+            });
+          }
+        } catch (syncErr) {
+          console.warn('[ai auto-reply] sync service case notice:', syncErr);
+        }
+      }
+    }
     const lockedInstruction = lockedContext
       ? `\n\n8. ACTIVE LOCKED SUB-SERVICE:\n${lockedContext.guideline}\nDo not mix services or switch to other unrelated categories unless the customer explicitly asks to change.`
       : '';

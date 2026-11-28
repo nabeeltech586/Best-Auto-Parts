@@ -24,7 +24,7 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { handleWelcomeFlowInbound } from '@/lib/whatsapp/welcome-flow'
 import { handleCatalogOrderInbound } from '@/lib/whatsapp/catalog-order-handler'
-import { matchIcebreaker, executeIcebreaker, isGreetingMessage } from '@/lib/whatsapp/icebreakers'
+import { matchIcebreaker, executeIcebreaker, isGreetingMessage, isClosingOrGratitudeMessage } from '@/lib/whatsapp/icebreakers'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
@@ -802,13 +802,17 @@ async function processMessage(
   const inboundText = contentText ?? message.text?.body ?? ''
 
   // ============================================================
-  // Meta WhatsApp Icebreakers, Commands & 3-Button Greeting Menu (Top Priority)
-  // Ensures 4 Meta Icebreakers, 6 Slash Commands (/parts, /itr, /rto, /mechanic, /location, /catalog)
-  // and generic greetings ("hi", "hello", "salam", "menu") immediately reply deterministically
-  // in clean English with ₹0 free interactive buttons or session text BEFORE calling AI.
+  // Meta WhatsApp Icebreakers, Commands, 3-Button Greeting Menu & Polite Closings (Top Priority)
+  // Ensures 4 Meta Icebreakers, 6 Slash Commands (/parts, /itr, /rto, /mechanic, /location, /catalog),
+  // generic greetings ("hi", "hello", "salam", "menu") and polite acknowledgments ("ok", "thanks", "ji", "done")
+  // immediately reply deterministically in clean English/Hinglish with ₹0 free interactive buttons or session text BEFORE calling AI.
   // ============================================================
   let icebreakerConsumed = false
-  if (isGreetingMessage(inboundText) || matchIcebreaker(inboundText, interactiveReplyId)) {
+  if (
+    isGreetingMessage(inboundText) ||
+    isClosingOrGratitudeMessage(inboundText) ||
+    matchIcebreaker(inboundText, interactiveReplyId)
+  ) {
     const icebreakerRes = await executeIcebreaker({
       db: supabaseAdmin(),
       accountId,

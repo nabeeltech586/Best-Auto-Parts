@@ -8,10 +8,10 @@
  */
 
 export const CLOSING_REPLY_ENGLISH =
-  "You're most welcome! 😊 It was a pleasure assisting you. Feel free to message us anytime you need spare parts for your Bajaj, Hero, or Honda two-wheeler. Have a wonderful day ahead!"
+  "You're most welcome! 😊 Please feel free to message anytime if you need help with Spare Parts, ITR, Insurance, or RTO Tax/Challan. — *Best Auto Parts* (+91 96347 22174)"
 
 export const CLOSING_REPLY_HINGLISH =
-  "Aapka bahut-bahut shukriya! 😊 Aapse baat karke bahut achha laga. Bajaj, Hero ya Honda ke kisi bhi spare part ki zaroorat ho toh aap jab chahein humein message kar sakte hain. Aapka din shubh ho!"
+  "Aapka bahut-bahut shukriya! 😊 Spare Parts, ITR, Insurance ya RTO Tax/Challan me koi bhi madad chahiye ho toh aap jab chahein message kar sakte hain. — *Best Auto Parts* (+91 96347 22174)"
 
 /**
  * Checks whether an inbound customer message is a closing / gratitude remark
@@ -51,9 +51,9 @@ export function isClosingOrGratitudeMessage(text: string): boolean {
 
   // 4. Regex matching single or multi-word closing / gratitude phrases
   // e.g. "ok", "okay", "thanks", "thank you", "thx", "shukriya", "dhanyawad",
-  // "ji", "theek hai", "achha", "nice", "ok thanks", "theek hai ji", "shukriya bhai", "nice 👍"
+  // "ji", "theek hai", "achha", "nice", "done", "all done", "ok thanks", "theek hai ji", "shukriya bhai", "nice 👍"
   const CLOSING_REGEX =
-    /^(ok|okay|okk+|okey|k|thanks|thank\s*you|thank\s*u|thx|thnx|ty|shukriya|shukriyaa|dhanyawad|dhanyavaad|theek\s*hai|thik\s*hai|teek\s*hai|tik\s*hai|theek\s*h|thik\s*h|achha|accha|acha|nice|very\s*nice|good|great|ji|sahi\s*hai|bahut\s*shukriya)(\s+(ok|okay|thanks|thank\s*you|thank\s*u|thx|shukriya|dhanyawad|theek\s*hai|thik\s*hai|achha|accha|acha|ji|bhai|sir|saud\s*bhai|saud\s*ji|yaar|dost|bahut|so\s*much|a\s*lot))*[\s.,!?\u{1F44D}\u{1F3FB}-\u{1F3FF}\u{1F64F}\u{1F60A}\u{2764}\u{FE0F}\u{2728}]*$/iu
+    /^(ok|okay|okk+|okey|k|thanks|thank\s*you|thank\s*u|thx|thnx|ty|shukriya|shukriyaa|dhanyawad|dhanyavaad|theek\s*hai|thik\s*hai|teek\s*hai|tik\s*hai|theek\s*h|thik\s*h|achha|accha|acha|nice|very\s*nice|good|great|ji|done|all\s*done|ok\s*done|sahi\s*hai|bahut\s*shukriya)(\s+(ok|okay|thanks|thank\s*you|thank\s*u|thx|shukriya|dhanyawad|theek\s*hai|thik\s*hai|achha|accha|acha|ji|done|bhai|sir|saud\s*bhai|saud\s*ji|yaar|dost|bahut|so\s*much|a\s*lot))*[\s.,!?\u{1F44D}\u{1F3FB}-\u{1F3FF}\u{1F64F}\u{1F60A}\u{2764}\u{FE0F}\u{2728}]*$/iu
 
   return CLOSING_REGEX.test(lower)
 }

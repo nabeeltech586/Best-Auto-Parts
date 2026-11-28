@@ -100,6 +100,45 @@ describe('Icebreakers, Sub-Menus & Slash Commands', () => {
       expect(matchIcebreaker('', 'btn_mechanic_partner')?.id).toBe(SUB_BUTTONS.mechanic_partner.id);
       expect(matchIcebreaker('', 'btn_shop_location')?.id).toBe(SUB_BUTTONS.shop_location.id);
     });
+
+    it('prioritizes parent icebreakers over single sub-service buttons (legacy and updated)', () => {
+      // Updated RTO parent
+      const rtoUpdated = matchIcebreaker('🚔 RTO Tax & Challan');
+      expect(rtoUpdated?.id).toBe(META_ICEBREAKERS.rto_tax.id);
+      expect(rtoUpdated?.isSubMenu).toBe(true);
+
+      // Legacy RTO parent (must NOT fall through to service_road_tax)
+      const rtoLegacy = matchIcebreaker('RTO Road Tax, E-Challan & Border Tax Service');
+      expect(rtoLegacy?.id).toBe(META_ICEBREAKERS.rto_tax.id);
+      expect(rtoLegacy?.isSubMenu).toBe(true);
+
+      // Whitespace and newlines normalization
+      const rtoNewlines = matchIcebreaker('RTO Road Tax,\nE-Challan &\nBorder Tax Service');
+      expect(rtoNewlines?.id).toBe(META_ICEBREAKERS.rto_tax.id);
+      expect(rtoNewlines?.isSubMenu).toBe(true);
+
+      // Updated ITR parent
+      const itrUpdated = matchIcebreaker('📄 ITR & Insurance');
+      expect(itrUpdated?.id).toBe(META_ICEBREAKERS.itr_insurance.id);
+      expect(itrUpdated?.isSubMenu).toBe(true);
+
+      // Legacy ITR parent (must NOT fall through to service_insurance)
+      const itrLegacy = matchIcebreaker('Vehicle Insurance & Annual ITR Filing Inquiry');
+      expect(itrLegacy?.id).toBe(META_ICEBREAKERS.itr_insurance.id);
+      expect(itrLegacy?.isSubMenu).toBe(true);
+
+      // Whitespace and newlines normalization
+      const itrNewlines = matchIcebreaker('Vehicle Insurance &\nAnnual ITR Filing Inquiry');
+      expect(itrNewlines?.id).toBe(META_ICEBREAKERS.itr_insurance.id);
+      expect(itrNewlines?.isSubMenu).toBe(true);
+
+      // Dedicated single sub-service queries still route to their respective sub-button
+      expect(matchIcebreaker('Vehicle Insurance')?.id).toBe(SUB_BUTTONS.service_insurance.id);
+      expect(matchIcebreaker('Annual ITR Filing')?.id).toBe(SUB_BUTTONS.service_itr.id);
+      expect(matchIcebreaker('RTO Road Tax')?.id).toBe(SUB_BUTTONS.service_road_tax.id);
+      expect(matchIcebreaker('E-Challan Service')?.id).toBe(SUB_BUTTONS.service_echallan.id);
+      expect(matchIcebreaker('State Border Tax')?.id).toBe(SUB_BUTTONS.service_border_tax.id);
+    });
   });
 
   describe('executeIcebreaker', () => {
@@ -251,6 +290,27 @@ describe('Icebreakers, Sub-Menus & Slash Commands', () => {
       expect(res.responseSent).toContain('Parivahan portal');
       expect(res.whatsappMessageId).toBe('wamid.text123');
     });
+
+    it('dispatches short polite closing reply for acknowledgments (ok, thanks, ji, done) without menus', async () => {
+      const closings = ['ok', 'thanks', 'thank you', 'ji', 'done', 'shukriya', 'theek hai'];
+
+      for (const msg of closings) {
+        const res = await executeIcebreaker({
+          db: mockDb,
+          accountId: 'acc-1',
+          userId: 'user-1',
+          conversationId: 'conv-1',
+          contactId: 'contact-1',
+          inboundText: msg,
+        });
+
+        expect(res.handled).toBe(true);
+        expect(res.icebreakerId).toBe('closing_acknowledgment');
+        expect(res.whatsappMessageId).toBe('wamid.text123');
+        expect(res.responseSent).toContain('+91 96347 22174');
+        expect(res.responseSent).toContain('Best Auto Parts');
+      }
+    });
   });
 
   describe('detectLockedSubService', () => {
@@ -289,6 +349,46 @@ describe('Icebreakers, Sub-Menus & Slash Commands', () => {
       const locked = detectLockedSubService(messages);
       expect(locked?.service).toBe('E-Challan Service');
       expect(locked?.guideline).toContain('LOCKED ON E-CHALLAN SETTLEMENT');
+    });
+
+    it('locks AI context onto Annual ITR Filing with short essential details', () => {
+      const messages = [
+        { role: 'user', content: 'btn_service_itr' },
+        { role: 'assistant', content: 'Annual Income Tax Return (ITR) Desk' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked?.service).toBe('Annual ITR Filing');
+      expect(locked?.guideline).toContain('LOCKED ON ANNUAL ITR FILING');
+      expect(locked?.guideline).toContain('Salaried');
+      expect(locked?.guideline).toContain('PAN');
+      expect(locked?.guideline).toContain('+91 96347 22174');
+    });
+
+    it('locks AI context onto RTO Road Tax with short essential details', () => {
+      const messages = [
+        { role: 'user', content: 'btn_service_road_tax' },
+        { role: 'assistant', content: 'RTO Road Tax Service' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked?.service).toBe('RTO Road Tax');
+      expect(locked?.guideline).toContain('LOCKED ON RTO ROAD TAX');
+      expect(locked?.guideline).toContain('RC Valid Upto');
+      expect(locked?.guideline).toContain('+91 96347 22174');
+    });
+
+    it('locks AI context onto State Border Tax with short essential details', () => {
+      const messages = [
+        { role: 'user', content: 'btn_service_border_tax' },
+        { role: 'assistant', content: 'State Border Tax Entry Service' },
+      ];
+
+      const locked = detectLockedSubService(messages);
+      expect(locked?.service).toBe('State Border Tax');
+      expect(locked?.guideline).toContain('LOCKED ON STATE BORDER TAX');
+      expect(locked?.guideline).toContain('Entry State');
+      expect(locked?.guideline).toContain('+91 96347 22174');
     });
 
     it('returns null when no specific sub-service button was selected', () => {

@@ -2,6 +2,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { engineSendText, engineSendInteractiveButtons } from '@/lib/flows/meta-send';
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write';
 import { autoCreateServiceCaseFromWhatsApp } from '@/lib/services/service-cases';
+import {
+  isClosingOrGratitudeMessage,
+  isHinglishClosing,
+  CLOSING_REPLY_ENGLISH,
+  CLOSING_REPLY_HINGLISH,
+} from '@/lib/whatsapp/closing-replies';
+
+export { isClosingOrGratitudeMessage };
 
 export interface IcebreakerDef {
   id: string;
@@ -51,21 +59,15 @@ export const META_ICEBREAKERS: Record<string, IcebreakerDef> = {
     buttonTitle: '📄 ITR & Insurance',
     keywords: [
       '📄 vehicle insurance & annual itr filing inquiry',
+      'vehicle insurance & annual itr filing inquiry',
       '📄 itr & insurance',
+      'itr & insurance',
+      'itr and insurance',
       'btn_itr_insurance',
       '/itr',
       'itr',
-      'itr filing',
-      'annual itr',
-      'annual itr filing',
-      'income tax return',
-      'tax return',
-      'insurance',
-      'vehicle insurance',
-      'bike insurance',
-      'car insurance',
-      'bima',
-      'tax filing',
+      'annual itr filing inquiry',
+      'tax return inquiry',
     ],
     responseTemplate:
       'Welcome to *Best Auto Parts & Online Services*! 📄\n\n' +
@@ -80,20 +82,17 @@ export const META_ICEBREAKERS: Record<string, IcebreakerDef> = {
     buttonTitle: '🚔 RTO Tax & Challan',
     keywords: [
       '🚔 rto road tax, e-challan & border tax service',
+      'rto road tax, e-challan & border tax service',
+      'rto road tax e-challan & border tax service',
+      'rto road tax e-challan and border tax service',
       '🚔 rto tax & challan',
+      'rto tax & challan',
+      'rto tax and challan',
       'btn_rto_tax',
       '/rto',
       'rto',
-      'road tax',
-      'rto road tax',
-      'challan',
-      'e-challan',
-      'echallan',
-      'traffic challan',
-      'border tax',
-      'state border tax',
-      'entry tax',
       'rto service',
+      'rto services',
     ],
     responseTemplate:
       'Welcome to *Best Auto Parts & Online Services*! 🚔\n\n' +
@@ -342,13 +341,21 @@ export const SUB_BUTTONS: Record<string, IcebreakerDef> = {
 };
 
 /**
+ * Normalizes incoming text: collapses newlines, carriage returns, tabs, and multiple spaces.
+ */
+export function normalizeIncomingText(text: string): string {
+  return (text || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
  * Checks whether an incoming message is a generic greeting.
  */
 export function isGreetingMessage(text: string): boolean {
-  const norm = (text || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[!.,?_#-]/g, '');
+  const norm = normalizeIncomingText(text).replace(/[!.,?_#-]/g, '').trim();
 
   const greetings = [
     'hi',
@@ -371,48 +378,136 @@ export function isGreetingMessage(text: string): boolean {
 
 /**
  * Normalizes input text and checks whether it matches any Sub-Button, Icebreaker or Command.
+ *
+ * Matching Priority:
+ * 1. Direct interactive button ID matching (from user taps).
+ * 2. Parent Multi-Button Ice Breakers (Top-level sub-menus).
+ *    Both updated Ice Breakers ("🚔 RTO Tax & Challan", "📄 ITR & Insurance")
+ *    AND legacy Ice Breakers ("RTO Road Tax, E-Challan & Border Tax Service", "Vehicle Insurance & Annual ITR Filing Inquiry")
+ *    ALWAYS trigger their multi-button sub-menus first—never falling through to a single sub-service reply.
+ * 3. Specific Sub-Buttons (single sub-service replies).
+ * 4. General Slash Commands and remaining Top-Level icebreakers.
  */
 export function matchIcebreaker(
   rawText: string,
   interactiveReplyId?: string | null
 ): IcebreakerDef | null {
   const normId = (interactiveReplyId || '').trim().toLowerCase();
-  const normText = (rawText || '').trim().toLowerCase();
+  const normText = normalizeIncomingText(rawText);
 
-  // 1. Check Sub-Buttons FIRST (direct ID or text match)
-  for (const item of Object.values(SUB_BUTTONS)) {
-    if (normId && (normId === item.id.toLowerCase() || item.keywords.some((kw) => normId === kw))) {
-      return item;
-    }
-    if (normText) {
-      if (normText === item.buttonTitle.toLowerCase()) {
+  // A. Check direct interactive button IDs
+  if (normId) {
+    // Check Top-Level icebreakers by ID
+    for (const item of Object.values(META_ICEBREAKERS)) {
+      if (normId === item.id.toLowerCase() || item.keywords.some((kw) => normId === kw)) {
         return item;
       }
-      for (const kw of item.keywords) {
-        if (normText === kw || normText.startsWith(kw + ' ') || normText.includes(kw)) {
-          return item;
-        }
+    }
+    // Check Sub-Buttons by ID
+    for (const item of Object.values(SUB_BUTTONS)) {
+      if (normId === item.id.toLowerCase() || item.keywords.some((kw) => normId === kw)) {
+        return item;
       }
     }
   }
 
-  // 2. Check Top-Level Icebreakers and Slash Commands
-  for (const item of Object.values(META_ICEBREAKERS)) {
-    if (normId) {
-      if (normId === item.id.toLowerCase()) return item;
-      if (item.keywords.some((kw) => normId === kw || normId.includes(kw))) {
+  if (!normText) return null;
+
+  // B. Parent Multi-Button Ice Breakers Matching Priority:
+  // 1. Parent Trigger 3: RTO Road Tax, E-Challan & Border Tax
+  const isRtoParent =
+    normText === META_ICEBREAKERS.rto_tax.buttonTitle.toLowerCase() ||
+    normText === META_ICEBREAKERS.rto_tax.name.toLowerCase() ||
+    normText === '/rto' ||
+    normText === 'btn_rto_tax' ||
+    normText === 'rto' ||
+    normText === 'rto tax & challan' ||
+    normText === 'rto tax and challan' ||
+    normText === '🚔 rto tax & challan' ||
+    normText === '🚔 rto road tax, e-challan & border tax service' ||
+    normText === 'rto road tax, e-challan & border tax service' ||
+    normText.includes('rto tax & challan') ||
+    normText.includes('rto tax and challan') ||
+    normText.includes('rto road tax, e-challan & border tax') ||
+    (normText.includes('rto') && (normText.includes('challan') || normText.includes('border'))) ||
+    (normText.includes('road tax') && (normText.includes('challan') || normText.includes('border tax')));
+
+  if (isRtoParent) {
+    return META_ICEBREAKERS.rto_tax;
+  }
+
+  // 2. Parent Trigger 2: Insurance & Annual ITR Filing
+  const isItrParent =
+    normText === META_ICEBREAKERS.itr_insurance.buttonTitle.toLowerCase() ||
+    normText === META_ICEBREAKERS.itr_insurance.name.toLowerCase() ||
+    normText === '/itr' ||
+    normText === 'btn_itr_insurance' ||
+    normText === 'itr' ||
+    normText === 'itr & insurance' ||
+    normText === 'itr and insurance' ||
+    normText === '📄 itr & insurance' ||
+    normText === '📄 vehicle insurance & annual itr filing inquiry' ||
+    normText === 'vehicle insurance & annual itr filing inquiry' ||
+    normText.includes('itr & insurance') ||
+    normText.includes('itr and insurance') ||
+    normText.includes('vehicle insurance & annual itr') ||
+    (normText.includes('insurance') && (normText.includes('itr') || normText.includes('annual itr')));
+
+  if (isItrParent) {
+    return META_ICEBREAKERS.itr_insurance;
+  }
+
+  // 3. Parent Trigger 1: Spare Parts Brand Selection
+  const isPartsParent =
+    normText === META_ICEBREAKERS.rate_check.buttonTitle.toLowerCase() ||
+    normText === META_ICEBREAKERS.rate_check.name.toLowerCase() ||
+    normText === '/parts' ||
+    normText === 'btn_spare_parts' ||
+    normText === 'auto spare parts' ||
+    normText === '🏍️ auto spare parts' ||
+    normText.includes('spare parts rate & stock check') ||
+    normText === 'rate check' ||
+    normText === 'price check' ||
+    normText === 'rate list' ||
+    normText === 'bhav check';
+
+  if (isPartsParent) {
+    return META_ICEBREAKERS.rate_check;
+  }
+
+  // 4. Parent Trigger 4: Mechanic Desk
+  const isMechanicParent =
+    normText === META_ICEBREAKERS.mechanic_desk.buttonTitle.toLowerCase() ||
+    normText === META_ICEBREAKERS.mechanic_desk.name.toLowerCase() ||
+    normText === '/mechanic' ||
+    normText.includes('mechanic desk, shop location') ||
+    normText === 'mechanic desk' ||
+    normText === '🔧 mechanic desk';
+
+  if (isMechanicParent) {
+    return META_ICEBREAKERS.mechanic_desk;
+  }
+
+  // C. Check Sub-Buttons (single sub-service replies)
+  for (const item of Object.values(SUB_BUTTONS)) {
+    if (normText === item.buttonTitle.toLowerCase()) {
+      return item;
+    }
+    for (const kw of item.keywords) {
+      if (normText === kw || normText.startsWith(kw + ' ') || normText.includes(kw)) {
         return item;
       }
     }
+  }
 
-    if (normText) {
-      if (normText === item.buttonTitle.toLowerCase()) {
+  // D. Check remaining Top-Level commands (/location, /catalog, etc.)
+  for (const item of Object.values(META_ICEBREAKERS)) {
+    if (normText === item.buttonTitle.toLowerCase()) {
+      return item;
+    }
+    for (const kw of item.keywords) {
+      if (normText === kw || normText.startsWith(kw + ' ') || normText.includes(kw)) {
         return item;
-      }
-      for (const kw of item.keywords) {
-        if (normText === kw || normText.startsWith(kw + ' ') || normText.includes(kw)) {
-          return item;
-        }
       }
     }
   }
@@ -510,6 +605,27 @@ export async function executeIcebreaker(
   // 1. Generic greeting: send the 3-button greeting menu immediately
   if (isGreetingMessage(inboundText) && !interactiveReplyId) {
     return await sendGreetingMenu(input);
+  }
+
+  // 1b. Polite acknowledgment & closing ("ok", "thanks", "ji", "done", etc.) -> short courteous reply without menus
+  if (isClosingOrGratitudeMessage(inboundText) && !interactiveReplyId) {
+    const isHinglish = isHinglishClosing(inboundText);
+    const closingText = isHinglish ? CLOSING_REPLY_HINGLISH : CLOSING_REPLY_ENGLISH;
+
+    const sendRes = await engineSendText({
+      accountId,
+      userId,
+      conversationId,
+      contactId,
+      text: closingText,
+    });
+
+    return {
+      handled: true,
+      icebreakerId: 'closing_acknowledgment',
+      responseSent: closingText,
+      whatsappMessageId: sendRes.whatsapp_message_id,
+    };
   }
 
   const matched = matchIcebreaker(inboundText, interactiveReplyId);

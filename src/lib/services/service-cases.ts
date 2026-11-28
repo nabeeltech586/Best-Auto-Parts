@@ -269,3 +269,98 @@ export async function autoCreateServiceCaseFromWhatsApp(args: {
   console.log(`[service-cases] Auto-created new ${serviceType} case for ${phone}: ${created.id}`);
   return created;
 }
+
+/**
+ * Synchronizes customer details shared during an active online service chat into service_cases.
+ * Detects vehicle registration number (e.g., UP11AY1234) or PAN (e.g., ABCDE1234F),
+ * and updates or creates the service case with notes.
+ */
+export async function syncServiceCaseFromChat(args: {
+  phone: string;
+  customerName?: string;
+  serviceType: ServiceType;
+  messageText: string;
+  accountId?: string;
+  db?: SupabaseClient | null;
+}): Promise<ServiceCase | null> {
+  const { phone, customerName, serviceType, messageText, accountId, db } = args;
+  const p10 = cleanPhone(phone);
+  if (!p10) return null;
+
+  const client = db || getAdminClient();
+
+  // 1. Detect vehicle registration or PAN
+  let vehicleOrRef = '';
+  const panMatch = messageText.toUpperCase().match(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/);
+  const regMatch = messageText.toUpperCase().match(/\b[A-Z]{2}\s*[-0-9]{1,2}\s*[A-Z]{0,3}\s*[0-9]{4}\b/);
+  if (serviceType === 'ITR' && panMatch) {
+    vehicleOrRef = panMatch[0];
+  } else if (regMatch) {
+    vehicleOrRef = regMatch[0].replace(/\s+/g, '');
+  }
+
+  // 2. Check for an existing open case
+  let openCase: ServiceCase | null = null;
+  if (client) {
+    try {
+      const { data } = await client
+        .from('service_cases')
+        .select('*')
+        .neq('stage', 'COMPLETED')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (Array.isArray(data)) {
+        const found = data.find((c) => cleanPhone(c.phone) === p10);
+        if (found) openCase = found as ServiceCase;
+      }
+    } catch (err) {
+      console.warn('[service-cases] Exception looking up open case:', err);
+    }
+  }
+
+  if (!openCase) {
+    const memoryFound = Array.from(inMemoryServiceCases.values()).find(
+      (c) => c.stage !== 'COMPLETED' && cleanPhone(c.phone) === p10
+    );
+    if (memoryFound) openCase = memoryFound;
+  }
+
+  const detailNote = `[WhatsApp Details]: ${messageText.trim()}`;
+
+  // 3. Update existing open case or create a new one
+  if (openCase) {
+    const updatedNotes = openCase.notes
+      ? `${openCase.notes}\n${detailNote}`
+      : detailNote;
+
+    const updatePayload: UpdateServiceCaseInput = {
+      notes: updatedNotes,
+      stage: openCase.stage === 'NEW_INQUIRY' ? 'PORTAL_CHECK' : openCase.stage,
+    };
+    if (vehicleOrRef && !openCase.vehicle_or_ref) {
+      updatePayload.vehicle_or_ref = vehicleOrRef;
+    }
+    if (customerName && openCase.customer_name === 'WhatsApp Customer') {
+      updatePayload.customer_name = customerName.trim();
+    }
+
+    return await updateServiceCase(openCase.id, updatePayload, client);
+  }
+
+  // If no open case existed, create one with the captured details
+  return await createServiceCase(
+    {
+      customer_name: customerName?.trim() || 'WhatsApp Customer',
+      phone: phone.trim(),
+      service_type: serviceType,
+      vehicle_or_ref: vehicleOrRef,
+      notes: detailNote,
+      stage: 'PORTAL_CHECK',
+      payment_status: 'UNPAID',
+      fee_amount: 0,
+      account_id: accountId,
+    },
+    client
+  );
+}
